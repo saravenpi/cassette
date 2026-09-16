@@ -1,0 +1,16 @@
+[package]
+name = "terminal-daw"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = []
+
+[dependencies]
+ratatui = "0.28"
+anyhow = "1.0"
+crossterm = "0.27"
+assert_no_alloc = "1.1.2"
+crossbeam = "0.8"
+rtrb = "0.3"
+cpal = { version = "0.15", optional = true }
