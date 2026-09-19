@@ -13,7 +13,7 @@ use anyhow::Result;
 use rtrb::{Consumer, Producer, RingBuffer};
 
 use crate::core::audio::{
-    AudioBackend, NullBackend, RenderFn, SharedState, select_backend,
+    AudioBackend, BackendPreference, NullBackend, RenderFn, SharedState, select_backend,
 };
 use crate::core::render::{RenderCore, RtCommand};
 use crate::core::sequencer::StepData;
@@ -52,13 +52,26 @@ pub struct AudioEngine {
     shared: Arc<SharedState>,
     sample_rate: u32,
     backend_name: &'static str,
+    stream_port: Option<u16>,
     note: String,
 }
 
 impl AudioEngine {
     /// Start audio for `song`, selecting the best available backend.
     pub fn start(song: &Song) -> Result<Self> {
-        let choice = select_backend();
+        Self::start_preferred(song, BackendPreference::Auto)
+    }
+
+    /// Start audio for `song`, streaming raw PCM over loopback TCP.
+    ///
+    /// Pair with an SSH port forward to hear the session on your local machine.
+    pub fn start_streaming(song: &Song, port: u16) -> Result<Self> {
+        Self::start_preferred(song, BackendPreference::Stream { port })
+    }
+
+    /// Start audio for `song` with an explicit backend preference.
+    pub fn start_preferred(song: &Song, preference: BackendPreference) -> Result<Self> {
+        let choice = select_backend(preference);
         Self::start_with(song, choice.backend, choice.sample_rate, choice.note)
     }
 
@@ -91,6 +104,7 @@ impl AudioEngine {
 
         Ok(Self {
             backend_name: backend.name(),
+            stream_port: backend.stream_port(),
             backend,
             producer: Mutex::new(producer),
             shared,
@@ -112,6 +126,11 @@ impl AudioEngine {
     /// Human-readable explanation of the backend choice.
     pub fn note(&self) -> &str {
         &self.note
+    }
+
+    /// Port being streamed on, when the streaming backend is active.
+    pub fn stream_port(&self) -> Option<u16> {
+        self.stream_port
     }
 
     /// The state snapshot published by the audio thread.
@@ -208,5 +227,15 @@ mod tests {
         let song = Song::demo();
         let engine = AudioEngine::start(&song).expect("engine should start");
         assert!(engine.resync(&song));
+    }
+
+    #[test]
+    fn streaming_engine_uses_the_stream_backend() {
+        let song = Song::demo();
+        // Port 0 lets the OS pick, so parallel tests can never clash.
+        let engine = AudioEngine::start_streaming(&song, 0).expect("engine should start");
+        assert_eq!(engine.backend_name(), "stream");
+        assert!(engine.stream_port().is_some());
+        assert!(engine.note().contains("streaming"));
     }
 }

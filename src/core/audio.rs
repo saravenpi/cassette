@@ -11,10 +11,11 @@
 //!   latency. It is selected first when the feature is enabled.
 
 use std::io::Write;
+use std::net::{Shutdown, TcpListener, TcpStream};
 use std::process::{Child, Command, Stdio};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -26,6 +27,27 @@ use crate::core::{DEFAULT_SAMPLE_RATE, MAX_TRACKS};
 const CHUNK_FRAMES: usize = 512;
 /// Frames of silence used to probe whether a player can open a device.
 const PROBE_FRAMES: usize = 4096;
+
+/// Wall-clock duration of one render chunk.
+fn chunk_period(sample_rate: u32) -> Duration {
+    Duration::from_secs_f64(CHUNK_FRAMES as f64 / sample_rate.max(1) as f64)
+}
+
+/// Sleep until the next chunk is due.
+///
+/// Blocking writes already stop us running *ahead* of a slow consumer; this
+/// stops us running ahead of a fast one (a socket reader that drains instantly,
+/// or a pipe into `cat`), which would otherwise race the transport.
+fn pace(deadline: &mut Instant, period: Duration) {
+    *deadline += period;
+    let now = Instant::now();
+    if *deadline > now {
+        thread::sleep(*deadline - now);
+    } else {
+        // A blocking write stalled us; resync rather than burst to catch up.
+        *deadline = now;
+    }
+}
 
 /// Callback the backend calls to fill interleaved stereo samples.
 pub type RenderFn = Box<dyn FnMut(&mut [f32]) + Send + 'static>;
@@ -40,6 +62,10 @@ pub trait AudioBackend {
     fn start(&mut self, render: RenderFn) -> Result<()>;
     /// Stop rendering and release the device.
     fn stop(&mut self);
+    /// The TCP port being streamed on, for backends that stream.
+    fn stream_port(&self) -> Option<u16> {
+        None
+    }
 }
 
 /// Transport and meter state published by the audio thread, read by the UI.
@@ -134,17 +160,11 @@ impl AudioBackend for NullBackend {
                 .name("zboub-audio-null".into())
                 .spawn(move || {
                     let mut buffer = vec![0.0f32; CHUNK_FRAMES * 2];
-                    let period = Duration::from_secs_f64(CHUNK_FRAMES as f64 / sample_rate as f64);
+                    let period = chunk_period(sample_rate);
                     let mut deadline = Instant::now();
                     while !stop.load(Ordering::Relaxed) {
                         render(&mut buffer);
-                        deadline += period;
-                        let now = Instant::now();
-                        if deadline > now {
-                            thread::sleep(deadline - now);
-                        } else {
-                            deadline = now;
-                        }
+                        pace(&mut deadline, period);
                     }
                 })
                 .map_err(|e| anyhow!("failed to spawn audio thread: {e}"))?,
@@ -318,22 +338,26 @@ impl AudioBackend for SubprocessBackend {
         self.child = Some(child);
 
         let stop = self.stop.clone();
+        let sample_rate = self.sample_rate;
         self.handle = Some(
             thread::Builder::new()
                 .name("zboub-audio-pipe".into())
                 .spawn(move || {
                     let mut buffer = vec![0.0f32; CHUNK_FRAMES * 2];
                     let mut bytes = Vec::with_capacity(CHUNK_FRAMES * 2 * 4);
+                    let period = chunk_period(sample_rate);
+                    let mut deadline = Instant::now();
                     while !stop.load(Ordering::Relaxed) {
                         render(&mut buffer);
                         bytes.clear();
                         for sample in &buffer {
                             bytes.extend_from_slice(&sample.to_le_bytes());
                         }
-                        // Blocking: the pipe buffer paces playback.
+                        // The write blocks if the player is behind us.
                         if stdin.write_all(&bytes).is_err() {
                             break;
                         }
+                        pace(&mut deadline, period);
                     }
                 })
                 .map_err(|e| anyhow!("failed to spawn audio thread: {e}"))?,
@@ -353,6 +377,146 @@ impl AudioBackend for SubprocessBackend {
         }
         if let Some(mut child) = self.child.take() {
             let _ = child.wait();
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// TCP stream backend (audio over SSH)
+// ---------------------------------------------------------------------------
+
+/// Streams raw `f32` PCM over a loopback TCP socket.
+///
+/// This is how you get audio out of a headless or SSH session: bind here, then
+/// forward the port to your local machine and play the stream there.
+///
+/// ```text
+/// # server
+/// zboub69 --stream-port 9999
+/// # local machine
+/// ssh -N -L 9999:127.0.0.1:9999 user@server
+/// ffplay -f f32le -ar 44100 -ch_layout stereo tcp://127.0.0.1:9999
+/// ```
+///
+/// Nothing is rendered until a client connects, so the transport never runs
+/// ahead of something nobody can hear.
+pub struct TcpStreamBackend {
+    sample_rate: u32,
+    port: u16,
+    listener: Option<TcpListener>,
+    stop: Arc<AtomicBool>,
+    active: Arc<Mutex<Option<TcpStream>>>,
+    handle: Option<JoinHandle<()>>,
+}
+
+impl TcpStreamBackend {
+    /// Bind the loopback stream port. Pass `0` to let the OS choose one.
+    pub fn new(sample_rate: u32, port: u16) -> Result<Self> {
+        let listener = TcpListener::bind(("127.0.0.1", port))
+            .map_err(|e| anyhow!("cannot bind 127.0.0.1:{port}: {e}"))?;
+        listener
+            .set_nonblocking(true)
+            .map_err(|e| anyhow!("cannot configure listener: {e}"))?;
+        let port = listener
+            .local_addr()
+            .map_err(|e| anyhow!("cannot read stream address: {e}"))?
+            .port();
+        Ok(Self {
+            sample_rate,
+            port,
+            listener: Some(listener),
+            stop: Arc::new(AtomicBool::new(false)),
+            active: Arc::new(Mutex::new(None)),
+            handle: None,
+        })
+    }
+
+    /// The port actually bound (useful when `0` was requested).
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+}
+
+impl AudioBackend for TcpStreamBackend {
+    fn name(&self) -> &'static str {
+        "stream"
+    }
+
+    fn sample_rate(&self) -> u32 {
+        self.sample_rate
+    }
+
+    fn stream_port(&self) -> Option<u16> {
+        Some(self.port)
+    }
+
+    fn start(&mut self, mut render: RenderFn) -> Result<()> {
+        let listener = self
+            .listener
+            .take()
+            .ok_or_else(|| anyhow!("stream listener already started"))?;
+        let stop = self.stop.clone();
+        let active = self.active.clone();
+        let sample_rate = self.sample_rate;
+
+        self.handle = Some(
+            thread::Builder::new()
+                .name("zboub-audio-stream".into())
+                .spawn(move || {
+                    let mut buffer = vec![0.0f32; CHUNK_FRAMES * 2];
+                    let mut bytes = Vec::with_capacity(CHUNK_FRAMES * 2 * 4);
+                    let period = chunk_period(sample_rate);
+
+                    while !stop.load(Ordering::Relaxed) {
+                        match listener.accept() {
+                            Ok((mut stream, _)) => {
+                                let _ = stream.set_nonblocking(false);
+                                let _ = stream.set_nodelay(true);
+                                if let Ok(clone) = stream.try_clone()
+                                    && let Ok(mut slot) = active.lock()
+                                {
+                                    *slot = Some(clone);
+                                }
+
+                                let mut deadline = Instant::now();
+                                while !stop.load(Ordering::Relaxed) {
+                                    render(&mut buffer);
+                                    bytes.clear();
+                                    for sample in &buffer {
+                                        bytes.extend_from_slice(&sample.to_le_bytes());
+                                    }
+                                    // Blocks if the client is behind; paced in
+                                    // software if the client is faster than us.
+                                    if stream.write_all(&bytes).is_err() {
+                                        break;
+                                    }
+                                    pace(&mut deadline, period);
+                                }
+
+                                if let Ok(mut slot) = active.lock() {
+                                    *slot = None;
+                                }
+                            }
+                            // No client yet: idle briefly and poll the stop flag.
+                            Err(_) => thread::sleep(Duration::from_millis(5)),
+                        }
+                    }
+                })
+                .map_err(|e| anyhow!("failed to spawn stream thread: {e}"))?,
+        );
+        Ok(())
+    }
+
+    fn stop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        // Shutting the live socket down unblocks a writer parked in `write_all`.
+        if let Ok(slot) = self.active.lock()
+            && let Some(stream) = slot.as_ref()
+        {
+            let _ = stream.shutdown(Shutdown::Both);
+        }
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
         }
     }
 }
@@ -481,11 +645,40 @@ pub struct BackendChoice {
     pub note: String,
 }
 
+/// What the user asked for on the command line.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BackendPreference {
+    /// Pick the best device available.
+    Auto,
+    /// Stream raw PCM over loopback TCP for `ssh -L` playback.
+    Stream { port: u16 },
+}
+
 /// Pick the best backend available on this machine.
 ///
 /// The note always explains the outcome so the UI can tell the user *why* it is
 /// silent and what to install.
-pub fn select_backend() -> BackendChoice {
+pub fn select_backend(preference: BackendPreference) -> BackendChoice {
+    if let BackendPreference::Stream { port } = preference {
+        return match TcpStreamBackend::new(DEFAULT_SAMPLE_RATE, port) {
+            Ok(backend) => {
+                let port = backend.port();
+                BackendChoice {
+                    backend: Box::new(backend),
+                    sample_rate: DEFAULT_SAMPLE_RATE,
+                    note: format!(
+                        "streaming PCM on 127.0.0.1:{port} — connect a local player (see README: Audio over SSH)"
+                    ),
+                }
+            }
+            Err(error) => BackendChoice {
+                backend: Box::new(NullBackend::new(DEFAULT_SAMPLE_RATE)),
+                sample_rate: DEFAULT_SAMPLE_RATE,
+                note: format!("silent: {error}"),
+            },
+        };
+    }
+
     #[cfg(feature = "cpal")]
     {
         if cpal_backend::available() {
@@ -554,9 +747,41 @@ mod tests {
 
     #[test]
     fn select_backend_always_returns_something_with_a_reason() {
-        let choice = select_backend();
+        let choice = select_backend(BackendPreference::Auto);
         assert!(choice.sample_rate > 0);
         assert!(!choice.backend.name().is_empty());
         assert!(!choice.note.is_empty());
+    }
+
+    #[test]
+    fn stream_backend_sends_audio_to_a_connected_client() {
+        // Port 0 lets the OS pick, so parallel tests can never clash.
+        let mut backend = TcpStreamBackend::new(44_100, 0).expect("bind stream port");
+        let port = backend.port();
+        let render: RenderFn = Box::new(|out: &mut [f32]| {
+            for sample in out.iter_mut() {
+                *sample = 0.5;
+            }
+        });
+        backend.start(render).expect("start streaming");
+
+        let mut client = TcpStream::connect(("127.0.0.1", port)).expect("connect");
+        client
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .expect("read timeout");
+        let mut chunk = [0u8; 64];
+        let mut received = 0usize;
+        while received < chunk.len() {
+            match std::io::Read::read(&mut client, &mut chunk[received..]) {
+                Ok(0) => break,
+                Ok(n) => received += n,
+                Err(_) => break,
+            }
+        }
+        backend.stop();
+
+        assert!(received > 0, "client should receive PCM bytes");
+        // 0.5f32 little-endian is 00 00 00 3F.
+        assert_eq!(&chunk[0..4], &0.5f32.to_le_bytes());
     }
 }

@@ -20,9 +20,10 @@ the shell.
 ## Run it
 
 ```bash
-cargo run                 # full-screen TUI
-cargo run -- --headless   # print one plain-text frame and exit
-cargo test                # 95 tests
+cargo run                       # full-screen TUI
+cargo run -- --stream-port 9999 # TUI + audio streamed over loopback TCP (SSH)
+cargo run -- --headless         # print one plain-text frame and exit
+cargo test                      # 97 tests
 ```
 
 ## Controls
@@ -87,6 +88,42 @@ If the status bar says `silent`, the note after it says why. The usual causes:
 You do not need audio to work on music: `E` bounces the pattern to a 16-bit WAV
 at any time, rendered by the exact same engine.
 
+### Audio over SSH
+
+When you are connected over SSH, the machine running zboub69 is not the machine
+with the speakers — and a headless server often has no usable output at all.
+Stream the audio down the connection and play it locally instead.
+
+On the server:
+
+```bash
+zboub69 --stream-port 9999
+```
+
+The status bar will say it is streaming on `127.0.0.1:9999`. On **your own**
+machine, forward that port and play the stream:
+
+```bash
+# terminal 1 — keep the tunnel open
+ssh -N -L 9999:127.0.0.1:9999 user@server
+
+# terminal 2 — play what the remote DAW renders
+ffplay -hide_banner -nodisp -autoexit \
+  -f f32le -ar 44100 -ch_layout stereo tcp://127.0.0.1:9999
+```
+
+Now press `space` in the TUI. `ffplay` consumes the stream in real time, which
+is what paces the transport, so nothing is rendered until a player connects.
+Expect a few hundred milliseconds of latency — fine for composing, not for
+monitoring a live input. On ffmpeg 5 or older, replace `-ch_layout stereo` with
+`-ac 2`.
+
+The stream is raw 32-bit little-endian stereo PCM at 44.1 kHz. `--stream-port 0`
+asks the OS to choose a free port, which is reported in the status bar.
+
+If you would rather not set up a tunnel, `E` bounces the pattern to a WAV:
+`scp server:zboub69-mix.wav .` and play it locally.
+
 ## Architecture
 
 Dependencies point inward, and the audio path never touches the terminal:
@@ -136,3 +173,7 @@ the offline renderer and the input adapters.
 cargo test
 cargo clippy --all-targets   # clean
 ```
+
+Integration tests cover the engine's command path, the TCP stream backend
+(including that it does not render without a client), the WAV bounce and the
+MIDI/OSC adapters.

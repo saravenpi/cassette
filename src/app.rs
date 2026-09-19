@@ -74,6 +74,14 @@ impl App {
         Ok(Self::with(song, engine))
     }
 
+    /// Build an app that streams audio over loopback TCP (audio over SSH).
+    pub fn new_streaming(port: u16) -> Result<Self> {
+        let song = Song::demo();
+        let engine =
+            AudioEngine::start_streaming(&song, port).context("starting the streaming engine")?;
+        Ok(Self::with(song, engine))
+    }
+
     /// Build an app whose engine makes no sound (headless / CI).
     pub fn new_headless() -> Result<Self> {
         let song = Song::demo();
@@ -115,6 +123,17 @@ impl App {
         let mut terminal = setup_terminal()?;
         let _guard = TerminalGuard;
         let mut app = App::new()?;
+        app.event_loop(&mut terminal)
+    }
+
+    /// Run the terminal UI while streaming audio on `port` for a local player.
+    ///
+    /// Forward the port over SSH and play the stream on your own machine; see
+    /// the README section *Audio over SSH*.
+    pub fn run_streaming(port: u16) -> Result<()> {
+        let mut terminal = setup_terminal()?;
+        let _guard = TerminalGuard;
+        let mut app = App::new_streaming(port)?;
         app.event_loop(&mut terminal)
     }
 
