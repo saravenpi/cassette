@@ -1,16 +1,35 @@
 [package]
-name = "terminal-daw"
+name = "zboub69"
 version = "0.1.0"
 edition = "2024"
+description = "A keyboard-only terminal DAW inspired by Ableton Live"
+license = "MIT"
+
+[lib]
+name = "terminal_daw"
+path = "src/lib.rs"
+
+[[bin]]
+name = "zboub69"
+path = "src/main.rs"
 
 [features]
 default = []
+# Real-time audio through cpal (ALSA/PipeWire/CoreAudio/WASAPI).
+# Requires the platform audio development headers, e.g. on Debian/Ubuntu:
+#   sudo apt install libasound2-dev
+cpal = ["dep:cpal"]
 
 [dependencies]
 ratatui = "0.28"
+crossterm = "0.28"
 anyhow = "1.0"
-crossterm = "0.27"
-assert_no_alloc = "1.1.2"
 crossbeam = "0.8"
 rtrb = "0.3"
+assert_no_alloc = "1.1.2"
 cpal = { version = "0.15", optional = true }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+panic = "abort"

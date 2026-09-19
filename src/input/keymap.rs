@@ -1,24 +1,212 @@
-use crate::events::types::Event;
-use std::collections::HashMap;
+//! Key bindings.
+//!
+//! Lower-case letters and the number row form a two-octave piano. Uppercase
+//! letters and punctuation are commands, so playing and editing never collide.
 
-pub type Key = String;
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
-pub struct KeyMap {
-    bindings: HashMap<Key, Vec<Event>>,
+use crate::events::Event;
+
+/// Translates key presses into [`Event`]s.
+#[derive(Debug, Clone)]
+pub struct Keymap {
+    /// Transposition of the play keyboard, in octaves.
+    octave: i32,
 }
 
-impl KeyMap {
-    pub fn new() -> Self {
-        Self {
-            bindings: HashMap::new(),
+impl Default for Keymap {
+    fn default() -> Self {
+        Self::new(0)
+    }
+}
+
+impl Keymap {
+    /// Create a keymap with the given keyboard octave offset.
+    pub fn new(octave: i32) -> Self {
+        Self { octave }
+    }
+
+    /// Current keyboard octave offset.
+    pub fn octave(&self) -> i32 {
+        self.octave
+    }
+
+    /// Set the keyboard octave offset, clamped to a playable range.
+    pub fn set_octave(&mut self, octave: i32) {
+        self.octave = octave.clamp(-4, 4);
+    }
+
+    /// Map a key event. Returns `None` for unmapped keys and key releases of
+    /// non-piano keys.
+    pub fn map(&self, key: KeyEvent) -> Option<Event> {
+        if key.modifiers.contains(KeyModifiers::CONTROL)
+            && matches!(key.code, KeyCode::Char('c') | KeyCode::Char('q'))
+        {
+            return Some(Event::Quit);
+        }
+        if key.modifiers.contains(KeyModifiers::CONTROL) {
+            return None;
+        }
+
+        // The piano is only playable on press (and auto-repeat).
+        if let KeyCode::Char(c) = key.code
+            && let Some(pitch) = self.pitch_for(c)
+        {
+            return match key.kind {
+                KeyEventKind::Release => Some(Event::NoteOff { pitch }),
+                _ => Some(Event::NoteOn {
+                    pitch,
+                    velocity: 100,
+                }),
+            };
+        }
+        if key.kind == KeyEventKind::Release {
+            return None;
+        }
+
+        match key.code {
+            KeyCode::Char(' ') => Some(Event::TogglePlay),
+            KeyCode::Enter => Some(Event::ToggleStep),
+            KeyCode::Tab => Some(Event::CycleFocus),
+            KeyCode::Left => Some(Event::MoveCursor { dx: -1, dy: 0 }),
+            KeyCode::Right => Some(Event::MoveCursor { dx: 1, dy: 0 }),
+            KeyCode::Up => Some(Event::MoveCursor { dx: 0, dy: -1 }),
+            KeyCode::Down => Some(Event::MoveCursor { dx: 0, dy: 1 }),
+            KeyCode::Char('[') => Some(Event::PitchDelta(-1)),
+            KeyCode::Char(']') => Some(Event::PitchDelta(1)),
+            KeyCode::Char('-') => Some(Event::VelocityDelta(-8)),
+            KeyCode::Char('=') => Some(Event::VelocityDelta(8)),
+            KeyCode::Char(',') => Some(Event::VolumeDelta(-0.05)),
+            KeyCode::Char('.') => Some(Event::VolumeDelta(0.05)),
+            KeyCode::Char('<') => Some(Event::BpmDelta(-1.0)),
+            KeyCode::Char('>') => Some(Event::BpmDelta(1.0)),
+            KeyCode::Char('M') => Some(Event::ToggleMute),
+            KeyCode::Char('S') => Some(Event::ToggleSolo),
+            KeyCode::Char('L') => Some(Event::ToggleLoop),
+            KeyCode::Char('R') => Some(Event::ToggleRecord),
+            KeyCode::Char('E') => Some(Event::Export),
+            KeyCode::Char('W') => Some(Event::CycleWaveform),
+            KeyCode::Char('I') => Some(Event::CyclePreset),
+            KeyCode::Char('P') => Some(Event::PanDelta(-0.1)),
+            KeyCode::Char('N') => Some(Event::PanDelta(0.1)),
+            KeyCode::Char('Q') => Some(Event::Quit),
+            KeyCode::Char('?') => Some(Event::ToggleHelp),
+            KeyCode::PageUp => Some(Event::OctaveDelta(1)),
+            KeyCode::PageDown => Some(Event::OctaveDelta(-1)),
+            KeyCode::Char('+') => Some(Event::LengthDelta(1)),
+            KeyCode::Char('_') => Some(Event::LengthDelta(-1)),
+            _ => None,
         }
     }
 
-    pub fn bind(&mut self, key: Key, events: Vec<Event>) {
-        self.bindings.insert(key, events);
+    /// Semitone offset for a lower-case piano key, if it is one.
+    ///
+    /// The layout mirrors a tracker: `z` row is the lower octave, `q` row the
+    /// upper one.
+    fn pitch_for(&self, c: char) -> Option<u8> {
+        let offset = match c {
+            'z' => 0,
+            's' => 1,
+            'x' => 2,
+            'd' => 3,
+            'c' => 4,
+            'v' => 5,
+            'g' => 6,
+            'b' => 7,
+            'h' => 8,
+            'n' => 9,
+            'j' => 10,
+            'm' => 11,
+            'q' => 12,
+            '2' => 13,
+            'w' => 14,
+            '3' => 15,
+            'e' => 16,
+            'r' => 17,
+            '5' => 18,
+            't' => 19,
+            '6' => 20,
+            'y' => 21,
+            '7' => 22,
+            'u' => 23,
+            _ => return None,
+        };
+        // Middle C is 60.
+        let note = 60 + self.octave * 12 + offset;
+        u8::try_from(note.clamp(0, 127)).ok()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossterm::event::KeyEvent;
+
+    fn press(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
     }
 
-    pub fn resolve(&self, key: &str) -> Option<&Vec<Event>> {
-        self.bindings.get(key)
+    #[test]
+    fn space_toggles_playback() {
+        let keymap = Keymap::default();
+        assert_eq!(keymap.map(press(KeyCode::Char(' '))), Some(Event::TogglePlay));
+    }
+
+    #[test]
+    fn lowercase_letters_play_notes() {
+        let keymap = Keymap::default();
+        assert_eq!(
+            keymap.map(press(KeyCode::Char('z'))),
+            Some(Event::NoteOn {
+                pitch: 60,
+                velocity: 100
+            })
+        );
+        assert_eq!(
+            keymap.map(press(KeyCode::Char('m'))),
+            Some(Event::NoteOn {
+                pitch: 71,
+                velocity: 100
+            })
+        );
+    }
+
+    #[test]
+    fn octave_shift_transposes_the_keyboard() {
+        let mut keymap = Keymap::default();
+        keymap.set_octave(1);
+        assert_eq!(
+            keymap.map(press(KeyCode::Char('z'))),
+            Some(Event::NoteOn {
+                pitch: 72,
+                velocity: 100
+            })
+        );
+    }
+
+    #[test]
+    fn uppercase_letters_are_commands_not_notes() {
+        let keymap = Keymap::default();
+        assert_eq!(keymap.map(press(KeyCode::Char('M'))), Some(Event::ToggleMute));
+        assert_eq!(keymap.map(press(KeyCode::Char('S'))), Some(Event::ToggleSolo));
+    }
+
+    #[test]
+    fn control_c_quits() {
+        let keymap = Keymap::default();
+        let key = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
+        assert_eq!(keymap.map(key), Some(Event::Quit));
+    }
+
+    #[test]
+    fn key_releases_only_produce_note_offs() {
+        let keymap = Keymap::default();
+        let mut key = KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE);
+        key.kind = KeyEventKind::Release;
+        assert_eq!(keymap.map(key), Some(Event::NoteOff { pitch: 60 }));
+
+        let mut space = KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE);
+        space.kind = KeyEventKind::Release;
+        assert_eq!(keymap.map(space), None);
     }
 }

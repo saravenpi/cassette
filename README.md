@@ -1,68 +1,138 @@
-# TerminalDAW
+# zboub69 — a terminal DAW
 
-Ableton-like terminal DAW, 100% keyboard driven. Built with [ratatui](https://github.com/ratatui/ratatui) and [crossterm](https://github.com/crossterm/crossterm).
+A keyboard-only digital audio workstation that runs in your terminal, inspired
+by Ableton Live's session view. Build a pattern on a step grid, play it with a
+built-in polyphonic synth, and bounce it to a WAV file — all without leaving
+the shell.
 
-## Status
+```
+┌ Transport ────────────────────────────────────────────────┐
+│ ▶ playing   bpm 110   step 3/16   loop on   silent @ 44100│
+├ Mixer ──────────┬ Pattern ──────────────┬ Instrument ─────┤
+│  1 Kick   --####│     1   2   3   4     │ Kick            │
+│  2 Snare  --#---│ Kick ● · · · ● · · ·  │ preset   Kick   │
+│  3 Hat    ----- │ Snare · · · ● · · · · │ waveform Sine   │
+│  4 Bass   --##--│ Hat  · · ● · · · ● ·  │ decay    0.280s │
+└─────────────────┴───────────────────────┴─────────────────┘
+ space play · enter step · arrows move · [ ] pitch · M mute · ? help
+```
 
-This is an empty skeleton. **No DAW features are implemented yet.** The app currently renders a static three-pane layout and exits on `q`. All domain logic (audio engine, MIDI, tracks, clips, mixer) is pending.
+## Run it
 
-**Research completed 2026-09-16:** See `docs/rust-daw-research.md` for architectural patterns from `naiqvist/daw`, `sourdaw`, `generic-daw`, `Meadowlark`, and a Tauri+cpal teaching project.
+```bash
+cargo run                 # full-screen TUI
+cargo run -- --headless   # print one plain-text frame and exit
+cargo test                # 95 tests
+```
 
-### Key findings applied to this project
+## Controls
 
-1. **EventBus is currently unbounded** — `src/events/bus.rs` uses `std::sync::mpsc::channel()` (unbounded). Per research, should be `crossbeam::bounded` or `rtrb` to keep tail latency predictable.
-2. **Audio thread boundary is undefined** — no cpal/rtaudio integration yet. When added, the audio callback closure must `move`-own its Mixer (no `Arc<Mutex<Mixer>>`). See `docs/rust-daw-research.md` §2.4.
-3. **Pre-allocation needed** — `core/mixer.rs` is empty. Follow the `[Option<AudioNode>; 32]` pre-allocation pattern when implementing.
-4. **Dependency direction is correct** — `input → events → core ← ui` with `models` shared. Preserve this.
+| Key | Action |
+|-----|--------|
+| `space` | play / stop |
+| `enter` | toggle the step under the cursor |
+| arrow keys | move the pattern cursor (rows are tracks) |
+| `[` `]` | transpose the step |
+| `-` `=` | step velocity |
+| `,` `.` | track volume |
+| `P` `N` | pan left / right |
+| `M` `S` | mute / solo the selected track |
+| `W` `I` | cycle waveform / instrument preset |
+| `+` `-` | pattern length |
+| `<` `>` | tempo |
+| `tab` | cycle pane focus |
+| `R` | arm performance recording |
+| `L` | toggle looping |
+| `E` | bounce to `zboub69-mix.wav` |
+| `z s x d c v g b h n j m` | play the lower octave |
+| `q 2 w 3 e r 5 t 6 y 7 u` | play the upper octave |
+| `pgup` / `pgdn` | shift the play octave |
+| `?` | help overlay |
+| `Q` / `ctrl-c` | quit |
+
+Lower-case letters are the piano; upper-case letters and punctuation are
+commands, so playing and editing never collide. Press `R`, then play: your
+notes are quantised into the pattern as you go.
+
+## Audio backends
+
+The engine picks the best sink it can and tells you which one it got in the
+status bar:
+
+1. **cpal** — direct device output, lowest latency. Enable it with the `cpal`
+   feature (see below).
+2. **ffplay** — streams raw `f32` PCM into ffmpeg's player. Needs no development
+   headers, but the player must be able to open your audio device.
+3. **silent** — the transport still runs and the meters still move; nothing
+   comes out. Used when no device is reachable.
+
+### Getting sound
+
+If the status bar says `silent`, the note after it says why. The usual causes:
+
+* **No permission on `/dev/snd`.** Add yourself to the `audio` group, then log
+  out and back in:
+  ```bash
+  sudo usermod -aG audio "$USER"
+  ```
+* **The ALSA `default` device points at hardware you do not have** (for example
+  a machine with only HDMI outputs). Route it somewhere real with `~/.asoundrc`,
+  or use cpal, which enumerates every output.
+* **Low latency.** Install the ALSA headers and build with the `cpal` feature:
+  ```bash
+  sudo apt install libasound2-dev
+  cargo run --features cpal
+  ```
+
+You do not need audio to work on music: `E` bounces the pattern to a 16-bit WAV
+at any time, rendered by the exact same engine.
 
 ## Architecture
 
-The project follows a clean architecture with the layers defined under `terminal_daw/src/`. All modules communicate through `EventBus`. The engine processes events and mutates state; the renderer reads state and draws to the terminal. No circular dependencies.
+Dependencies point inward, and the audio path never touches the terminal:
 
 ```
-┌──────────────────────────────────────────────┐
-│  src/main.rs                                 │
-│  Entry point: boots the App, runs the loop   │
-├──────────────────────────────────────────────┤
-│  src/app.rs                                  │
-│  Orchestrator wiring all layers together     │
-├──────────┬──────────┬──────────┬─────────────┤
-│ src/ui/  │ events/  │ input/   │  src/core/  │
-│ Rendering│ EventBus │ Keyboard │ Audio/MIDI/ │
-│ & layout │          │ mapping  │ Tracks/etc  │
-├──────────┴──────────┴──────────┴─────────────┤
-│  src/models/      │  src/utils/             │
-│  Domain data      │  Audio math, tempo,     │
-│  (tracks, clips,  │  frequency helpers      │
-│   patterns, …)    │                         │
-└──────────────────────────────────────────────┘
+input ──► events ──► core ◄── ui
+                      ▲
+                    models   (shared data only)
 ```
 
-### Layers
-
-| Layer | Path | Responsibility |
-|---|---|---|
-| **Entry** | `src/main.rs` | Bootstrap terminal, run the draw/input loop |
-| **App (orchestrator)** | `src/app.rs` | Wire all layers, hold top-level state |
-| **UI** | `src/ui/` | Terminal rendering, layout, views. Depends on core types only |
-| **Events** | `src/events/` | Event bus decoupling UI from engine |
-| **Input** | `src/input/` | Keyboard mapping and input handling |
-| **Core** | `src/core/` | Audio engine, MIDI, tracks, clips, mixer (no UI dependency) |
-| **Models** | `src/models/` | Domain data models (tracks, clips, patterns, instruments) |
-| **Utils** | `src/utils/` | Audio math, tempo, frequency helpers |
-
-## Run
-
-```sh
-cargo run
+```
+src/
+├── main.rs            entry point (TUI or --headless)
+├── lib.rs             public API (crate name: terminal_daw)
+├── app.rs             orchestrator: terminal, event loop, command handling
+├── core/              audio engine — no terminal, no models mutation by UI
+│   ├── synth.rs       polyphonic voices + ADSR, allocation-free
+│   ├── sequencer.rs   sample-accurate step clock
+│   ├── render.rs      RenderCore + the RtCommand vocabulary
+│   ├── audio.rs       backends (cpal / ffplay / silent) + SharedState
+│   ├── engine.rs      control side: command producer + shared state
+│   ├── offline.rs     WAV bouncing (Phase 4.1)
+│   └── recorder.rs    meters + performance recording (Phase 4.2)
+├── events/            bounded fan-out EventBus + typed Event
+├── input/             keymap, terminal handler, MIDI/OSC adapters (Phase 4.3)
+├── models/            Song, Track, Step, Instrument — plain data
+├── ui/                three-pane renderer, UiState + View (Phase 4.4)
+└── utils/             pitch, tempo and math helpers
 ```
 
-Quit with `q`.
+### Real-time contract
 
-## Dependencies
+`core::render::RenderCore::process` runs inside the audio callback. It never
+allocates, locks, performs I/O or panics: voices and step grids are fixed-size
+arrays, commands cross threads through an `rtrb` SPSC ring buffer, and state
+comes back through atomics. The offline renderer runs the same DSP loop under
+`assert_no_alloc`, and a test asserts the bounce allocates nothing.
 
-| Crate | Purpose |
-|---|---|
-| `ratatui` | Terminal UI rendering |
-| `crossterm` | Terminal manipulation and input events |
-| `anyhow` | Error handling |
+See `docs/ARCHITECTURE.md` for the full layer rules and `ROADMAP.md` for status.
+
+## Testing
+
+95 tests: unit tests for every module plus integration tests for the engine,
+the offline renderer and the input adapters.
+
+```bash
+cargo test
+cargo clippy --all-targets   # clean
+```

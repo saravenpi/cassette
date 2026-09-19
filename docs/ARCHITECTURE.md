@@ -11,42 +11,44 @@ small, typed events on bounded queues.
 
 ```
 src/
-├── main.rs                  # Entry point; constructs and starts App
-├── lib.rs                   # Re-exports all internal crates
+├── main.rs                  # Entry point; dispatches TUI / --headless
+├── lib.rs                   # Crate root; re-exports the public API
+├── app.rs                   # Orchestrator: terminal, event loop, commands
 │
-├── core/                    # Audio engine, transport, sequencing
-│   ├── engine.rs            # Top-level tick loop; owns the schedule
-│   ├── audio.rs             # AudioBuffer; the real-time-safe processing surface
-│   ├── midi.rs              # MIDI message representation
-│   ├── track.rs             # Track state (mute, height, clips)
-│   ├── clip.rs              # Clip / scene data
-│   └── mixer.rs             # Per-channel gain / routing
+├── core/                    # Audio engine, sequencing, rendering
+│   ├── synth.rs             # Polyphonic voices, oscillators, ADSR
+│   ├── sequencer.rs         # Sample-accurate step clock + step grid
+│   ├── render.rs            # RenderCore; applies RtCommand
+│   ├── audio.rs             # AudioBackend impls + SharedState atomics
+│   ├── engine.rs            # Control side: command producer + shared state
+│   ├── offline.rs           # Offline render + WAV export (Phase 4.1)
+│   └── recorder.rs          # Level meters + performance recording (4.2)
 │
 ├── ui/                      # Thin terminal presentation layer
 │   ├── mod.rs               # Module declarations
-│   ├── view.rs              # Logical screen state (what to show)
-│   ├── layout.rs            # Widget placement / sizing
-│   └── renderer.rs          # ratatui drawing commands
+│   ├── view.rs              # UiState + View (plain-text renderer)
+│   ├── layout.rs            # Pane focus model
+│   └── renderer.rs          # ratatui three-pane drawing
 │
 ├── events/                  # Cross-boundary messaging
 │   ├── types.rs             # Small, typed Event enum
-│   └── bus.rs               # Shared EventBus (mpsc channels)
+│   └── bus.rs               # Fan-out EventBus (bounded crossbeam)
 │
 ├── input/                   # Hardware → Event adapter
-│   ├── mod.rs
+│   ├── mod.rs               # MIDI / OSC adapters (Phase 4.3)
 │   ├── handler.rs           # Reads raw key events, forwards to keymap
-│   └── keymap.rs            # Key binding table (context-aware)
+│   └── keymap.rs            # Key binding table (piano + commands)
 │
 ├── models/                  # Domain data (no behaviour)
-│   ├── track.rs
-│   ├── clip.rs
-│   ├── pattern.rs
-│   └── instrument.rs
+│   ├── song.rs              # Song: tempo, length, tracks
+│   ├── track.rs             # Track: instrument, mixer, steps
+│   ├── pattern.rs           # Step
+│   └── instrument.rs        # Waveform + ADSR presets
 │
 └── utils/                   # Pure helpers
     ├── math.rs
-    ├── time.rs
-    └── frequency.rs
+    ├── time.rs              # Tempo → frames
+    └── frequency.rs         # MIDI note → Hz
 
 docs/
 └── ARCHITECTURE.md          # This file
@@ -99,10 +101,11 @@ rather than buffered indefinitely.
 
 ### 3.3 UI loop (event-driven)
 
-The UI subscribes to the bus and redraws on every received event or on
-a transport tick. It holds no mutable state owned by core — it reads
-core state through shared, immutable snapshots. `view.rs` holds the
-logical screen model; `renderer.rs` translates it into ratatui widgets.
+The app subscribes to the bus, drains events once per frame, applies them, and
+renders a fresh `UiState`. It holds no mutable state owned by core — it reads
+transport and meters through the atomics in `core::audio::SharedState`.
+`view.rs` holds the logical screen model; `renderer.rs` translates it into
+ratatui widgets.
 
 ### 3.4 Audio callback (pull-driven, real-time safe)
 
