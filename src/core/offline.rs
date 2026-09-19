@@ -9,7 +9,6 @@ use std::io::{BufWriter, Write};
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use assert_no_alloc::assert_no_alloc;
 
 use crate::core::DEFAULT_SAMPLE_RATE;
 use crate::core::render::{RenderCore, RtCommand};
@@ -32,12 +31,24 @@ pub fn render_song(song: &crate::models::Song, loops: usize, sample_rate: u32) -
     let mut offset = 0usize;
     while offset < output.len() {
         let end = (offset + CHUNK_FRAMES * 2).min(output.len());
-        let slice = &mut output[offset..end];
-        // The DSP path must not allocate: this is the red-zone contract.
-        assert_no_alloc(|| core.process(slice));
+        process_chunk(&mut core, &mut output[offset..end]);
         offset = end;
     }
     output
+}
+
+/// Render one chunk, proving the red-zone contract in debug builds.
+///
+/// `assert_no_alloc` is a no-op in release, so the check is debug-only.
+#[cfg(debug_assertions)]
+fn process_chunk(core: &mut RenderCore, slice: &mut [f32]) {
+    assert_no_alloc::assert_no_alloc(|| core.process(slice));
+}
+
+/// Render one chunk.
+#[cfg(not(debug_assertions))]
+fn process_chunk(core: &mut RenderCore, slice: &mut [f32]) {
+    core.process(slice);
 }
 
 /// Write interleaved stereo `f32` samples as a 16-bit PCM WAV file.
