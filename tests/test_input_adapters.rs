@@ -30,7 +30,10 @@ fn midi_note_off_translates_to_a_note_off_event() {
         note: 67,
         velocity: 50,
     };
-    assert_eq!(adapter.translate(&message), Some(Event::NoteOff { pitch: 67 }));
+    assert_eq!(
+        adapter.translate(&message),
+        Some(Event::NoteOff { pitch: 67 })
+    );
 }
 
 #[test]
@@ -42,7 +45,10 @@ fn midi_note_on_with_zero_velocity_is_a_note_off() {
         note: 60,
         velocity: 0,
     };
-    assert_eq!(adapter.translate(&message), Some(Event::NoteOff { pitch: 60 }));
+    assert_eq!(
+        adapter.translate(&message),
+        Some(Event::NoteOff { pitch: 60 })
+    );
 }
 
 #[test]

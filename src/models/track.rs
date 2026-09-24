@@ -1,15 +1,44 @@
-//! A track: one instrument plus its sequence of steps.
+//! A track: an instrument, a mixer strip, and its blocks.
 
 use crate::models::Instrument;
-use crate::models::pattern::Step;
 
-/// Default number of steps in a pattern.
-pub const DEFAULT_LENGTH_STEPS: usize = 16;
+/// What a track carries.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TrackKind {
+    /// Plays the built-in synth from note data.
+    Midi,
+    /// Will carry recorded or imported audio.
+    Audio,
+}
+
+impl TrackKind {
+    /// Short name for the track list.
+    pub const fn name(self) -> &'static str {
+        match self {
+            TrackKind::Midi => "MIDI",
+            TrackKind::Audio => "AUDIO",
+        }
+    }
+}
+
+/// One slot on a track. A block holds no content yet.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Block {
+    pub name: String,
+}
+
+impl Block {
+    /// Create a block with the given label.
+    pub fn new(name: impl Into<String>) -> Self {
+        Self { name: name.into() }
+    }
+}
 
 /// A single track of the song.
 #[derive(Clone, Debug)]
 pub struct Track {
     pub name: String,
+    pub kind: TrackKind,
     pub instrument: Instrument,
     /// Linear gain, `[0, 1]`.
     pub volume: f32,
@@ -17,27 +46,30 @@ pub struct Track {
     pub pan: f32,
     pub muted: bool,
     pub solo: bool,
-    /// One step per pattern position. Always `song.length_steps` long.
-    pub steps: Vec<Step>,
+    /// The track's blocks, in column order.
+    pub blocks: Vec<Block>,
 }
 
 impl Track {
-    /// Create a track with an empty sequence of `length` steps.
-    pub fn new(name: impl Into<String>, instrument: Instrument, length: usize) -> Self {
+    /// Create an empty track of the given kind.
+    pub fn new(name: impl Into<String>, kind: TrackKind, instrument: Instrument) -> Self {
         Self {
             name: name.into(),
+            kind,
             instrument,
             volume: 0.8,
             pan: 0.0,
             muted: false,
             solo: false,
-            steps: vec![Step::EMPTY; length.max(1)],
+            blocks: Vec::new(),
         }
     }
 
-    /// Grow or shrink the sequence, preserving existing steps.
-    pub fn set_length(&mut self, length: usize) {
-        self.steps.resize(length.max(1), Step::EMPTY);
+    /// Append an empty block, returning its index.
+    pub fn add_block(&mut self) -> usize {
+        let index = self.blocks.len();
+        self.blocks.push(Block::new(format!("{}", index + 1)));
+        index
     }
 
     /// Whether this track produces sound given the global solo state.
@@ -51,19 +83,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn resize_preserves_steps() {
-        let mut track = Track::new("t", Instrument::preset("Lead"), 4);
-        track.steps[0] = Step::on(64, 100);
-        track.set_length(8);
-        assert_eq!(track.steps.len(), 8);
-        assert_eq!(track.steps[0].pitch, 64);
-        track.set_length(2);
-        assert_eq!(track.steps.len(), 2);
+    fn blocks_are_appended_in_order() {
+        let mut track = Track::new("t", TrackKind::Midi, Instrument::preset("Lead"));
+        assert_eq!(track.add_block(), 0);
+        assert_eq!(track.add_block(), 1);
+        assert_eq!(track.blocks.len(), 2);
+        assert_eq!(track.blocks[1].name, "2");
     }
 
     #[test]
     fn solo_logic() {
-        let mut track = Track::new("t", Instrument::preset("Lead"), 4);
+        let mut track = Track::new("t", TrackKind::Midi, Instrument::preset("Lead"));
         assert!(track.is_audible(false));
         track.muted = true;
         assert!(!track.is_audible(false));

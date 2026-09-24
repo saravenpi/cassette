@@ -5,9 +5,9 @@
 //! owns the authoritative synthesis state and publishes a [`SharedState`]
 //! snapshot back for the UI to read.
 
+use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
 
 use anyhow::Result;
 use rtrb::{Consumer, Producer, RingBuffer};
@@ -15,8 +15,7 @@ use rtrb::{Consumer, Producer, RingBuffer};
 use crate::core::audio::{
     AudioBackend, BackendPreference, NullBackend, RenderFn, SharedState, select_backend,
 };
-use crate::core::render::{RenderCore, RtCommand};
-use crate::core::sequencer::StepData;
+use crate::core::render::{BlockName, RenderCore, RtCommand};
 use crate::core::{DEFAULT_SAMPLE_RATE, RT_COMMAND_CAPACITY};
 use crate::models::Song;
 
@@ -39,7 +38,6 @@ impl AudioThread {
             self.core.position_frames(),
             self.core.is_playing(),
             self.core.is_looping(),
-            self.core.step_index() as u32,
             &peaks,
         );
     }
@@ -147,23 +145,13 @@ impl AudioEngine {
         }
     }
 
-    /// Push a command, falling back to a full resync if the queue is saturated.
-    pub fn send_or_resync(&self, command: RtCommand, song: &Song) {
-        if !self.send(command) {
-            self.resync(song);
-        }
-    }
-
     /// Re-send the entire song to the audio thread. Recovery path when the
     /// command queue has overflowed, and used after bulk edits.
     pub fn resync(&self, song: &Song) -> bool {
         let mut ok = true;
-        ok &= self.send(RtCommand::ClearAll);
+        // Setting the track count also clears the audio-side block mirror.
         ok &= self.send(RtCommand::SetTrackCount {
             count: song.tracks.len().min(crate::core::MAX_TRACKS) as u8,
-        });
-        ok &= self.send(RtCommand::SetLength {
-            steps: song.length_steps as u8,
         });
         ok &= self.send(RtCommand::SetBpm { bpm: song.bpm() });
         for (track_index, track) in song.tracks.iter().enumerate() {
@@ -179,11 +167,10 @@ impl AudioEngine {
                 muted: track.muted,
                 solo: track.solo,
             });
-            for (step_index, step) in track.steps.iter().enumerate() {
-                ok &= self.send(RtCommand::SetStep {
+            for block in &track.blocks {
+                ok &= self.send(RtCommand::AddBlock {
                     track: track_id,
-                    step: step_index as u8,
-                    data: StepData::from_step(*step),
+                    name: BlockName::new(&block.name),
                 });
             }
         }
@@ -215,7 +202,7 @@ mod tests {
 
     #[test]
     fn engine_starts_and_stops() {
-        let song = Song::demo();
+        let song = Song::new();
         let engine = AudioEngine::start(&song).expect("engine should start");
         assert!(engine.sample_rate() > 0);
         assert!(!engine.backend_name().is_empty());
@@ -224,14 +211,14 @@ mod tests {
 
     #[test]
     fn resync_pushes_the_whole_song() {
-        let song = Song::demo();
+        let song = Song::new();
         let engine = AudioEngine::start(&song).expect("engine should start");
         assert!(engine.resync(&song));
     }
 
     #[test]
     fn streaming_engine_uses_the_stream_backend() {
-        let song = Song::demo();
+        let song = Song::new();
         // Port 0 lets the OS pick, so parallel tests can never clash.
         let engine = AudioEngine::start_streaming(&song, 0).expect("engine should start");
         assert_eq!(engine.backend_name(), "stream");

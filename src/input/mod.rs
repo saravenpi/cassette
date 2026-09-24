@@ -139,7 +139,10 @@ mod tests {
             note: 60,
             velocity: 0,
         };
-        assert_eq!(adapter.translate(&message), Some(Event::NoteOff { pitch: 60 }));
+        assert_eq!(
+            adapter.translate(&message),
+            Some(Event::NoteOff { pitch: 60 })
+        );
     }
 
     #[test]

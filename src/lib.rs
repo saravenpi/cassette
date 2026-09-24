@@ -9,7 +9,7 @@
 //!                      models   (shared data only)
 //! ```
 //!
-//! * [`models`] holds the song (tracks, steps, instruments) as plain data.
+//! * [`models`] holds the song (tracks, blocks, instruments) as plain data.
 //! * [`core`] is the audio engine. It never depends on the terminal.
 //! * [`events`] is the typed, bounded message bus between adapters and the app.
 //! * [`input`] translates keyboards, MIDI and OSC into [`events::Event`].

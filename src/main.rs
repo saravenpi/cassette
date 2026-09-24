@@ -16,7 +16,10 @@ static GLOBAL_ALLOC: assert_no_alloc::AllocDisabler = assert_no_alloc::AllocDisa
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
 
-    if args.iter().any(|arg| arg == "--headless" || arg == "--plain") {
+    if args
+        .iter()
+        .any(|arg| arg == "--headless" || arg == "--plain")
+    {
         return terminal_daw::app::App::run_headless();
     }
 

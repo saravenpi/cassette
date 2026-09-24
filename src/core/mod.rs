@@ -9,19 +9,17 @@
 
 pub mod audio;
 pub mod engine;
-pub mod offline;
-pub mod recorder;
+pub mod meter;
 pub mod render;
-pub mod sequencer;
 pub mod synth;
 
 /// Hard ceiling on tracks. Keeps every audio-side array fixed-size.
 pub const MAX_TRACKS: usize = 16;
-/// Hard ceiling on steps per pattern.
-pub const MAX_STEPS: usize = 32;
+/// Hard ceiling on blocks per track, mirroring the UI-side list.
+pub const MAX_BLOCKS: usize = 16;
 /// Voices per track (polyphony).
 pub const MAX_VOICES: usize = 8;
-/// Sample rate used when no device suggests one, and by the offline renderer.
+/// Sample rate used when no device suggests one.
 pub const DEFAULT_SAMPLE_RATE: u32 = 44_100;
 /// Capacity of the UI -> audio command ring buffer.
 pub const RT_COMMAND_CAPACITY: usize = 4096;

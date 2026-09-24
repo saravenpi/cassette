@@ -1,15 +1,9 @@
-//! Metering and recording (Phase 4.2).
+//! Metering (Phase 4.2).
 //!
-//! Two pieces:
-//!
-//! * [`MeterBank`] smooths the peaks published by the audio thread into the
-//!   ballistics a mixer needs (fast attack, slow decay, peak hold).
-//! * [`PerformanceRecorder`] captures live played notes into the pattern,
-//!   quantised to the current step — the terminal equivalent of MIDI recording.
+//! [`MeterBank`] smooths the peaks published by the audio thread into the
+//! ballistics a mixer needs (fast attack, slow decay, peak hold).
 
 use crate::core::MAX_TRACKS;
-use crate::models::pattern::Step;
-use crate::models::Song;
 
 /// Smoothed level meter with peak hold.
 #[derive(Clone, Copy, Debug, Default)]
@@ -72,11 +66,6 @@ impl MeterBank {
         }
     }
 
-    /// Resize the bank, resetting any new meters.
-    pub fn set_count(&mut self, count: usize) {
-        self.count = count.min(MAX_TRACKS);
-    }
-
     /// Number of meters in use.
     pub fn count(&self) -> usize {
         self.count
@@ -100,60 +89,9 @@ impl MeterBank {
     }
 }
 
-/// Captures live notes into the pattern while armed.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct PerformanceRecorder {
-    armed: bool,
-}
-
-impl PerformanceRecorder {
-    /// Create a disarmed recorder.
-    pub fn new() -> Self {
-        Self { armed: false }
-    }
-
-    /// Arm the recorder.
-    pub fn arm(&mut self) {
-        self.armed = true;
-    }
-
-    /// Disarm the recorder.
-    pub fn disarm(&mut self) {
-        self.armed = false;
-    }
-
-    /// Toggle arming, returning the new state.
-    pub fn toggle(&mut self) -> bool {
-        self.armed = !self.armed;
-        self.armed
-    }
-
-    /// Whether the recorder is armed.
-    pub fn is_armed(&self) -> bool {
-        self.armed
-    }
-
-    /// Write a played note into `song` at `step`. Returns whether anything was
-    /// captured (armed and in range).
-    pub fn capture(&self, song: &mut Song, track: usize, step: usize, pitch: u8, velocity: u8) -> bool {
-        if !self.armed {
-            return false;
-        }
-        let Some(target) = song.tracks.get_mut(track) else {
-            return false;
-        };
-        let Some(slot) = target.steps.get_mut(step) else {
-            return false;
-        };
-        *slot = Step::on(pitch, velocity);
-        true
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::Song;
 
     #[test]
     fn meter_rises_fast_and_decays_slowly() {
@@ -178,29 +116,13 @@ mod tests {
     }
 
     #[test]
-    fn disarmed_recorder_ignores_notes() {
-        let mut song = Song::new();
-        let recorder = PerformanceRecorder::new();
-        assert!(!recorder.capture(&mut song, 0, 0, 60, 100));
-        assert!(!song.step(0, 0).active);
-    }
-
-    #[test]
-    fn armed_recorder_writes_notes() {
-        let mut song = Song::new();
-        let mut recorder = PerformanceRecorder::new();
-        assert!(recorder.toggle());
-        assert!(recorder.capture(&mut song, 1, 3, 72, 90));
-        assert_eq!(song.step(1, 3).pitch, 72);
-        assert!(song.step(1, 3).active);
-    }
-
-    #[test]
-    fn recorder_ignores_out_of_range_targets() {
-        let mut song = Song::new();
-        let mut recorder = PerformanceRecorder::new();
-        recorder.arm();
-        assert!(!recorder.capture(&mut song, 999, 0, 60, 100));
-        assert!(!recorder.capture(&mut song, 0, 9_999, 60, 100));
+    fn bank_reports_one_meter_per_track() {
+        let mut bank = MeterBank::new(4);
+        let mut peaks = [0.0f32; MAX_TRACKS];
+        peaks[1] = 0.5;
+        bank.update(&peaks);
+        assert_eq!(bank.count(), 4);
+        assert!(bank.level(1) > 0.0);
+        assert_eq!(bank.level(4), 0.0);
     }
 }

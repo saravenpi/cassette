@@ -76,7 +76,6 @@ pub struct SharedState {
     pub position_frames: AtomicU64,
     pub playing: AtomicBool,
     pub looping: AtomicBool,
-    pub step_index: AtomicU32,
     /// Per-track peak level, stored as raw `f32` bits.
     pub peaks: [AtomicU32; MAX_TRACKS],
 }
@@ -89,7 +88,6 @@ impl SharedState {
             position_frames: AtomicU64::new(0),
             playing: AtomicBool::new(false),
             looping: AtomicBool::new(true),
-            step_index: AtomicU32::new(0),
             peaks: std::array::from_fn(|_| AtomicU32::new(0)),
         }
     }
@@ -100,14 +98,12 @@ impl SharedState {
         position_frames: u64,
         playing: bool,
         looping: bool,
-        step_index: u32,
         peaks: &[f32; MAX_TRACKS],
     ) {
         self.position_frames
             .store(position_frames, Ordering::Relaxed);
         self.playing.store(playing, Ordering::Relaxed);
         self.looping.store(looping, Ordering::Relaxed);
-        self.step_index.store(step_index, Ordering::Relaxed);
         for (slot, peak) in self.peaks.iter().zip(peaks.iter()) {
             slot.store(peak.to_bits(), Ordering::Relaxed);
         }
@@ -717,10 +713,9 @@ mod tests {
         let shared = SharedState::new(48_000);
         let mut peaks = [0.0f32; MAX_TRACKS];
         peaks[2] = 0.75;
-        shared.publish(1_234, true, false, 5, &peaks);
+        shared.publish(1_234, true, false, &peaks);
         assert_eq!(shared.position_frames.load(Ordering::Relaxed), 1_234);
         assert!(shared.playing.load(Ordering::Relaxed));
-        assert_eq!(shared.step_index.load(Ordering::Relaxed), 5);
         assert!((shared.peaks()[2] - 0.75).abs() < 1e-6);
     }
 
@@ -728,7 +723,10 @@ mod tests {
     fn ffplay_never_receives_the_unknown_ac_flag() {
         let args = player_args(44_100);
         assert!(!args.iter().any(|a| a == "-ac"));
-        assert!(args.windows(2).any(|w| w[0] == "-ch_layout" && w[1] == "stereo"));
+        assert!(
+            args.windows(2)
+                .any(|w| w[0] == "-ch_layout" && w[1] == "stereo")
+        );
     }
 
     #[test]

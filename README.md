@@ -1,21 +1,24 @@
 # zboub69 — a terminal DAW
 
 A keyboard-only digital audio workstation that runs in your terminal, inspired
-by Ableton Live's session view. Build a pattern on a step grid, play it with a
-built-in polyphonic synth, and bounce it to a WAV file — all without leaving
-the shell.
+by Ableton Live's session view. Lay out MIDI and audio tracks, add blocks to
+them, and play the built-in polyphonic synth from your keyboard — all without
+leaving the shell.
 
 ```
 ┌ Transport ────────────────────────────────────────────────┐
-│ ▶ playing   bpm 110   step 3/16   loop on   silent @ 44100│
-├ Mixer ──────────┬ Pattern ──────────────┬ Instrument ─────┤
-│  1 Kick   --####│     1   2   3   4     │ Kick            │
-│  2 Snare  --#---│ Kick ● · · · ● · · ·  │ preset   Kick   │
-│  3 Hat    ----- │ Snare · · · ● · · · · │ waveform Sine   │
-│  4 Bass   --##--│ Hat  · · ● · · · ● ·  │ decay    0.280s │
-└─────────────────┴───────────────────────┴─────────────────┘
- space play · enter step · arrows move · [ ] pitch · M mute · ? help
+│ ▶ playing   bpm 110   bar 3.2   loop on   silent @ 44100  │
+├ Tracks ───────────────────────────┬ Inspector ────────────┤
+│  ●  1 Midi 1   MIDI  Verse Chorus │ Midi 1                │
+│  ●  2 Midi 2   MIDI  +            │ kind     MIDI         │
+│  ·  3 Audio 1  AUDIO +            │ blocks   2            │
+│  ·  4 Audio 2  AUDIO +            │ volume   0.80         │
+└───────────────────────────────────┴───────────────────────┘
+ space play · arrows move · A add block · D delete · enter rename · ? help
 ```
+
+Blocks are empty slots for now: notes for MIDI tracks and audio files for audio
+tracks come later.
 
 ## Run it
 
@@ -23,7 +26,7 @@ the shell.
 cargo run                       # full-screen TUI
 cargo run -- --stream-port 9999 # TUI + audio streamed over loopback TCP (SSH)
 cargo run -- --headless         # print one plain-text frame and exit
-cargo test                      # 97 tests
+cargo test                      # 93 tests
 ```
 
 ## Controls
@@ -31,20 +34,18 @@ cargo test                      # 97 tests
 | Key | Action |
 |-----|--------|
 | `space` | play / stop |
-| `enter` | toggle the step under the cursor |
-| arrow keys | move the pattern cursor (rows are tracks) |
-| `[` `]` | transpose the step |
-| `-` `=` | step velocity |
+| `L` | toggle looping |
+| `up` `down` | move between tracks |
+| `left` `right` | move between blocks on the selected track |
+| `A` | add a block to the selected track |
+| `D` | delete the block under the cursor |
+| `K` | flip the track between MIDI and audio |
+| `enter` | rename the block under the cursor |
+| `esc` | cancel the rename |
 | `,` `.` | track volume |
 | `P` `N` | pan left / right |
 | `M` `S` | mute / solo the selected track |
-| `W` `I` | cycle waveform / instrument preset |
-| `+` `-` | pattern length |
 | `<` `>` | tempo |
-| `tab` | cycle pane focus |
-| `R` | arm performance recording |
-| `L` | toggle looping |
-| `E` | bounce to `zboub69-mix.wav` |
 | `z s x d c v g b h n j m` | play the lower octave |
 | `q 2 w 3 e r 5 t 6 y 7 u` | play the upper octave |
 | `pgup` / `pgdn` | shift the play octave |
@@ -52,8 +53,8 @@ cargo test                      # 97 tests
 | `Q` / `ctrl-c` | quit |
 
 Lower-case letters are the piano; upper-case letters and punctuation are
-commands, so playing and editing never collide. Press `R`, then play: your
-notes are quantised into the pattern as you go.
+commands, so playing and editing never collide. Press `A` to add a block, then
+`enter` to name it.
 
 ## Audio backends
 
@@ -85,14 +86,17 @@ If the status bar says `silent`, the note after it says why. The usual causes:
   cargo run --features cpal
   ```
 
-You do not need audio to work on music: `E` bounces the pattern to a 16-bit WAV
-at any time, rendered by the exact same engine.
+You do not need a working audio device to compose: the transport, the meters and
+the keyboard all behave the same when the engine falls back to `silent`.
 
 ### Audio over SSH
 
 When you are connected over SSH, the machine running zboub69 is not the machine
 with the speakers — and a headless server often has no usable output at all.
 Stream the audio down the connection and play it locally instead.
+
+> Full guide, including troubleshooting and alternatives:
+> [`docs/music-over-ssh.md`](./docs/music-over-ssh.md).
 
 On the server:
 
@@ -112,17 +116,22 @@ ffplay -hide_banner -nodisp -autoexit \
   -f f32le -ar 44100 -ch_layout stereo tcp://127.0.0.1:9999
 ```
 
-Now press `space` in the TUI. `ffplay` consumes the stream in real time, which
-is what paces the transport, so nothing is rendered until a player connects.
-Expect a few hundred milliseconds of latency — fine for composing, not for
-monitoring a live input. On ffmpeg 5 or older, replace `-ch_layout stereo` with
-`-ac 2`.
+Now press `space` in the TUI. Nothing is rendered until a player connects, and
+the stream is paced against the wall clock, so a client that drains the socket
+instantly cannot drag the transport along. Expect a few hundred milliseconds of
+latency — fine for composing, not for monitoring a live input. On ffmpeg 5 or
+older, replace `-ch_layout stereo` with `-ac 2`.
 
 The stream is raw 32-bit little-endian stereo PCM at 44.1 kHz. `--stream-port 0`
 asks the OS to choose a free port, which is reported in the status bar.
 
-If you would rather not set up a tunnel, `E` bounces the pattern to a WAV:
-`scp server:zboub69-mix.wav .` and play it locally.
+If you would rather not set up a tunnel, you can capture the stream on your local
+machine instead of playing it live:
+
+```bash
+ssh -N -L 9999:127.0.0.1:9999 user@server
+ffmpeg -f f32le -ar 44100 -ch_layout stereo -i tcp://127.0.0.1:9999 mix.wav
+```
 
 ## Architecture
 
@@ -141,33 +150,32 @@ src/
 ├── app.rs             orchestrator: terminal, event loop, command handling
 ├── core/              audio engine — no terminal, no models mutation by UI
 │   ├── synth.rs       polyphonic voices + ADSR, allocation-free
-│   ├── sequencer.rs   sample-accurate step clock
-│   ├── render.rs      RenderCore + the RtCommand vocabulary
-│   ├── audio.rs       backends (cpal / ffplay / silent) + SharedState
+│   ├── render.rs      RenderCore + Transport + the RtCommand vocabulary
+│   ├── audio.rs       backends (cpal / ffplay / silent / stream) + SharedState
 │   ├── engine.rs      control side: command producer + shared state
-│   ├── offline.rs     WAV bouncing (Phase 4.1)
-│   └── recorder.rs    meters + performance recording (Phase 4.2)
+│   └── meter.rs       level meters (Phase 4.2)
 ├── events/            bounded fan-out EventBus + typed Event
 ├── input/             keymap, terminal handler, MIDI/OSC adapters (Phase 4.3)
-├── models/            Song, Track, Step, Instrument — plain data
-├── ui/                three-pane renderer, UiState + View (Phase 4.4)
+├── models/            Song, Track, Block, Instrument — plain data
+├── ui/                session track list + inspector, UiState + View (Phase 4.4)
 └── utils/             pitch, tempo and math helpers
 ```
 
 ### Real-time contract
 
 `core::render::RenderCore::process` runs inside the audio callback. It never
-allocates, locks, performs I/O or panics: voices and step grids are fixed-size
-arrays, commands cross threads through an `rtrb` SPSC ring buffer, and state
-comes back through atomics. The offline renderer runs the same DSP loop under
-`assert_no_alloc`, and a test asserts the bounce allocates nothing.
+allocates, locks, performs I/O or panics: voices, the block-name mirror and the
+transport are fixed-size, commands cross threads through an `rtrb` SPSC ring
+buffer, and state comes back through atomics. `tests/test_rt_no_alloc.rs` runs the
+render loop and the command path under `assert_no_alloc`, so the claim fails the
+build rather than the audio thread if it ever stops being true.
 
 See `docs/ARCHITECTURE.md` for the full layer rules and `ROADMAP.md` for status.
 
 ## Testing
 
-95 tests: unit tests for every module plus integration tests for the engine,
-the offline renderer and the input adapters.
+93 tests: unit tests for every module plus integration tests for the engine and
+the input adapters.
 
 ```bash
 cargo test
@@ -175,5 +183,4 @@ cargo clippy --all-targets   # clean
 ```
 
 Integration tests cover the engine's command path, the TCP stream backend
-(including that it does not render without a client), the WAV bounce and the
-MIDI/OSC adapters.
+(including that it does not render without a client) and the MIDI/OSC adapters.

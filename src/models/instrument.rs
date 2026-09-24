@@ -78,8 +78,7 @@ impl Instrument {
     }
 
     /// Named instrument presets, in menu order.
-    pub const PRESETS: [&'static str; 7] =
-        ["Lead", "Bass", "Pad", "Pluck", "Kick", "Snare", "Hat"];
+    pub const PRESETS: [&'static str; 7] = ["Lead", "Bass", "Pad", "Pluck", "Kick", "Snare", "Hat"];
 
     /// Look up a preset by name. Unknown names fall back to `Lead`.
     pub fn preset(name: &str) -> Self {

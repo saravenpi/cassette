@@ -2,9 +2,6 @@
 
 use crate::utils::math::clamp;
 
-/// Number of sequencer steps per quarter note. Steps are 16th notes.
-pub const STEPS_PER_BEAT: u32 = 4;
-
 /// The single authority for converting between musical time and samples.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Tempo {
@@ -31,14 +28,9 @@ impl Tempo {
         60.0 / self.bpm
     }
 
-    /// Duration of one sequencer step in seconds.
-    pub fn seconds_per_step(&self) -> f32 {
-        self.beat_duration() / STEPS_PER_BEAT as f32
-    }
-
-    /// Number of audio frames in one sequencer step. Always at least one.
-    pub fn frames_per_step(&self, sample_rate: u32) -> u64 {
-        (sample_rate as f32 * self.seconds_per_step()).round().max(1.0) as u64
+    /// Number of audio frames in one beat. Always at least one.
+    pub fn frames_per_beat(&self, sample_rate: u32) -> u64 {
+        (sample_rate as f32 * self.beat_duration()).round().max(1.0) as u64
     }
 }
 
@@ -47,10 +39,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn frames_per_step_at_120bpm_44k() {
+    fn frames_per_beat_at_120bpm_44k() {
         let tempo = Tempo::new(120.0);
-        // 120 BPM -> 0.5 s/beat -> 0.125 s/step -> 5512.5 frames @ 44.1 kHz.
-        assert_eq!(tempo.frames_per_step(44_100), 5513);
+        // 120 BPM -> 0.5 s/beat -> 22050 frames @ 44.1 kHz.
+        assert_eq!(tempo.frames_per_beat(44_100), 22_050);
     }
 
     #[test]
@@ -60,10 +52,9 @@ mod tests {
     }
 
     #[test]
-    fn faster_tempo_means_shorter_steps() {
+    fn faster_tempo_means_shorter_beats() {
         assert!(
-            Tempo::new(180.0).frames_per_step(44_100)
-                < Tempo::new(90.0).frames_per_step(44_100)
+            Tempo::new(180.0).frames_per_beat(44_100) < Tempo::new(90.0).frames_per_beat(44_100)
         );
     }
 }

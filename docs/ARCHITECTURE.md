@@ -15,14 +15,12 @@ src/
 ├── lib.rs                   # Crate root; re-exports the public API
 ├── app.rs                   # Orchestrator: terminal, event loop, commands
 │
-├── core/                    # Audio engine, sequencing, rendering
+├── core/                    # Audio engine, transport, rendering
 │   ├── synth.rs             # Polyphonic voices, oscillators, ADSR
-│   ├── sequencer.rs         # Sample-accurate step clock + step grid
-│   ├── render.rs            # RenderCore; applies RtCommand
+│   ├── render.rs            # RenderCore + Transport; applies RtCommand
 │   ├── audio.rs             # AudioBackend impls + SharedState atomics
 │   ├── engine.rs            # Control side: command producer + shared state
-│   ├── offline.rs           # Offline render + WAV export (Phase 4.1)
-│   └── recorder.rs          # Level meters + performance recording (4.2)
+│   └── meter.rs             # Level meters (Phase 4.2)
 │
 ├── ui/                      # Thin terminal presentation layer
 │   ├── mod.rs               # Module declarations
@@ -40,9 +38,8 @@ src/
 │   └── keymap.rs            # Key binding table (piano + commands)
 │
 ├── models/                  # Domain data (no behaviour)
-│   ├── song.rs              # Song: tempo, length, tracks
-│   ├── track.rs             # Track: instrument, mixer, steps
-│   ├── pattern.rs           # Step
+│   ├── song.rs              # Song: tempo, tracks
+│   ├── track.rs             # Track: instrument, mixer, blocks
 │   └── instrument.rs        # Waveform + ADSR presets
 │
 └── utils/                   # Pure helpers

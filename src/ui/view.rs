@@ -4,26 +4,25 @@
 //! shared state. It holds no references into `core`, so both the ratatui
 //! renderer and the [`View`] plain-text renderer can consume it.
 
+use crate::models::TrackKind;
 use crate::ui::layout::Pane;
 
-/// Pattern cursor: which step of which track is selected.
+/// Beats per bar assumed by the position readout.
+pub const BEATS_PER_BAR: u32 = 4;
+
+/// Session cursor: which block of which track is selected. A block index equal
+/// to the track's block count means the `+` slot.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Cursor {
-    pub step: usize,
+    pub block: usize,
     pub track: usize,
-}
-
-/// A step, reduced to what the UI needs.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct StepView {
-    pub active: bool,
-    pub pitch: u8,
 }
 
 /// A track, reduced to what the UI needs.
 #[derive(Clone, Debug)]
 pub struct TrackView {
     pub name: String,
+    pub kind: TrackKind,
     pub preset: String,
     pub waveform: String,
     pub octave: i32,
@@ -37,17 +36,18 @@ pub struct TrackView {
     pub solo: bool,
     /// Smoothed meter level.
     pub level: f32,
-    /// Held peak.
-    pub peak: f32,
-    pub steps: Vec<StepView>,
+    /// Block labels, in column order.
+    pub blocks: Vec<String>,
+    /// Whether the cursor sits on this track's `+` slot.
+    pub add_slot: bool,
     /// Index into the renderer's track palette.
     pub color_index: u8,
 }
 
 impl TrackView {
-    /// Pitch of a step, or `None` when out of range.
-    pub fn pitch_at(&self, step: usize) -> Option<u8> {
-        self.steps.get(step).map(|s| s.pitch)
+    /// How many blocks the track holds.
+    pub fn block_count(&self) -> usize {
+        self.blocks.len()
     }
 }
 
@@ -56,16 +56,17 @@ impl TrackView {
 pub struct UiState {
     pub bpm: f32,
     pub playing: bool,
-    pub recording: bool,
     pub looping: bool,
-    pub position_step: usize,
-    pub length_steps: usize,
+    /// Transport position in beats.
+    pub transport_position_beats: f32,
     pub cursor: Cursor,
     pub focus: Pane,
     pub octave: i32,
     pub tracks: Vec<TrackView>,
     pub status: String,
     pub backend: String,
+    /// Why the engine chose its backend.
+    pub backend_note: String,
     pub sample_rate: u32,
     pub show_help: bool,
 }
@@ -75,6 +76,13 @@ impl UiState {
     pub fn selected(&self) -> Option<&TrackView> {
         self.tracks.get(self.cursor.track)
     }
+}
+
+/// Bar and beat (both one-based) for a position in beats.
+pub fn bar_beat(beats: f32) -> (u32, u32) {
+    let beats = beats.max(0.0);
+    let whole = beats as u32;
+    (whole / BEATS_PER_BAR + 1, whole % BEATS_PER_BAR + 1)
 }
 
 /// Render a state to a plain string. Implemented by [`UiState`] so the app can
@@ -95,67 +103,47 @@ pub(crate) fn meter_bar(level: f32, width: usize) -> String {
 
 impl View for UiState {
     fn render(&self) -> String {
+        let (bar, beat) = bar_beat(self.transport_position_beats);
         let mut out = String::new();
         out.push_str(&format!(
-            "zboub69  bpm {:.0}  {}  loop {}  step {}/{}  backend {} @ {} Hz\n",
+            "zboub69  bpm {:.0}  {}  loop {}  bar {bar}.{beat}  backend {} @ {} Hz\n",
             self.bpm,
             if self.playing { "PLAYING" } else { "stopped" },
             if self.looping { "on" } else { "off" },
-            self.position_step + 1,
-            self.length_steps,
             self.backend,
             self.sample_rate,
         ));
-        if self.recording {
-            out.push_str("recording armed\n");
-        }
         out.push_str(&format!(
-            "focus {:?}  keyboard octave {:+}\n\n",
+            "focus {:?}  keyboard octave {:+}\n",
             self.focus, self.octave
         ));
+        out.push_str(&format!("{}\n\n", self.backend_note));
 
         out.push_str("tracks\n");
         for (index, track) in self.tracks.iter().enumerate() {
-            let flags = format!(
-                "{}{}",
-                if track.muted { 'M' } else { '-' },
-                if track.solo { 'S' } else { '-' }
-            );
+            let selected = index == self.cursor.track;
             out.push_str(&format!(
-                "  [{:>2}] {:<8} {:<6} {:<9} vol {:.2} pan {:+.2} {} {}\n",
+                "  {} {:>2} {:<8} {:<5} ",
+                if selected { '>' } else { ' ' },
                 index + 1,
                 track.name,
-                track.preset,
-                track.waveform,
-                track.volume,
-                track.pan,
-                flags,
-                meter_bar(track.level, 10),
+                track.kind.name(),
             ));
-        }
-
-        out.push_str("\npattern\n        ");
-        for step in 0..self.length_steps {
-            out.push_str(if step % 4 == 0 { "| " } else { "  " });
-        }
-        out.push('\n');
-
-        for (track_index, track) in self.tracks.iter().enumerate() {
-            out.push_str(&format!("{:<8}", track.name));
-            for (step_index, step) in track.steps.iter().enumerate() {
-                let glyph = if step.active { '●' } else { '·' };
-                let is_cursor = track_index == self.cursor.track && step_index == self.cursor.step;
-                let is_playing = self.playing && step_index == self.position_step;
-                let cell = if is_cursor {
-                    format!("[{glyph}]")
-                } else if is_playing {
-                    format!("<{glyph}>")
+            for (block_index, name) in track.blocks.iter().enumerate() {
+                let on_cursor = selected && block_index == self.cursor.block;
+                let cell = if on_cursor {
+                    format!("[{name}]")
                 } else {
-                    format!(" {glyph} ")
+                    format!(" {name} ")
                 };
                 out.push_str(&cell);
             }
-            out.push('\n');
+            out.push_str(if track.add_slot { "[+]" } else { " + " });
+            out.push_str(&format!(
+                " {} vol {:.2}\n",
+                meter_bar(track.level, 10),
+                track.volume
+            ));
         }
 
         out.push_str(&format!("\n{}\n", self.status));
@@ -167,43 +155,44 @@ impl View for UiState {
 mod tests {
     use super::*;
 
+    fn track(name: &str, blocks: &[&str], add_slot: bool) -> TrackView {
+        TrackView {
+            name: name.into(),
+            kind: TrackKind::Midi,
+            preset: "Lead".into(),
+            waveform: "Square".into(),
+            octave: 0,
+            attack: 0.01,
+            decay: 0.12,
+            sustain: 0.6,
+            release: 0.15,
+            volume: 0.8,
+            pan: 0.0,
+            muted: false,
+            solo: false,
+            level: 0.5,
+            blocks: blocks.iter().map(|b| (*b).to_string()).collect(),
+            add_slot,
+            color_index: 0,
+        }
+    }
+
     fn state() -> UiState {
         UiState {
             bpm: 120.0,
             playing: true,
-            recording: false,
             looping: true,
-            position_step: 4,
-            length_steps: 8,
-            cursor: Cursor { step: 2, track: 0 },
-            focus: Pane::Pattern,
+            transport_position_beats: 5.0,
+            cursor: Cursor { track: 0, block: 1 },
+            focus: Pane::Tracks,
             octave: 0,
-            tracks: vec![TrackView {
-                name: "Kick".into(),
-                preset: "Kick".into(),
-                waveform: "Sine".into(),
-                octave: -1,
-                attack: 0.0,
-                decay: 0.2,
-                sustain: 0.0,
-                release: 0.1,
-                volume: 0.8,
-                pan: 0.0,
-                muted: false,
-                solo: false,
-                level: 0.5,
-                peak: 0.9,
-                steps: vec![
-                    StepView {
-                        active: true,
-                        pitch: 36,
-                    };
-                    8
-                ],
-                color_index: 0,
-            }],
+            tracks: vec![
+                track("Midi 1", &["Verse", "Chorus"], false),
+                track("Audio 1", &[], true),
+            ],
             status: "ready".into(),
             backend: "silent".into(),
+            backend_note: "silent: no device".into(),
             sample_rate: 44_100,
             show_help: false,
         }
@@ -214,20 +203,33 @@ mod tests {
         let text = state().render();
         assert!(text.contains("zboub69"));
         assert!(text.contains("PLAYING"));
-        assert!(text.contains("Kick"));
-        assert!(text.contains("pattern"));
+        assert!(text.contains("Midi 1"));
+        assert!(text.contains("tracks"));
         assert!(text.contains("ready"));
+        assert!(text.contains("bar 2.2"));
     }
 
     #[test]
-    fn cursor_cell_is_marked() {
+    fn empty_tracks_still_render_a_plus_slot() {
+        let state = UiState {
+            tracks: vec![track("Midi 1", &[], true)],
+            ..state()
+        };
+        let text = state.render();
+        assert!(text.contains("[+]"), "the add slot should be visible");
+    }
+
+    #[test]
+    fn cursor_block_is_marked() {
         let text = state().render();
-        assert!(text.contains('['), "cursor step should be bracketed");
+        assert!(
+            text.contains("[Chorus]"),
+            "cursor block should be bracketed"
+        );
     }
 
     #[test]
     fn selected_track_follows_the_cursor() {
-        let state = state();
-        assert_eq!(state.selected().map(|t| t.name.as_str()), Some("Kick"));
+        assert_eq!(state().selected().map(|t| t.name.as_str()), Some("Midi 1"));
     }
 }

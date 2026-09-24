@@ -7,12 +7,11 @@ use std::time::{Duration, Instant};
 
 use terminal_daw::core::engine::AudioEngine;
 use terminal_daw::core::render::RtCommand;
-use terminal_daw::core::sequencer::StepData;
 use terminal_daw::models::Song;
 
 #[test]
 fn silent_engine_starts_cleanly() {
-    let song = Song::demo();
+    let song = Song::new();
     let engine = AudioEngine::start_silent(&song).expect("engine should start");
     assert_eq!(engine.backend_name(), "silent");
     assert_eq!(engine.sample_rate(), 44_100);
@@ -20,7 +19,7 @@ fn silent_engine_starts_cleanly() {
 
 #[test]
 fn transport_position_advances_while_playing() {
-    let song = Song::demo();
+    let song = Song::new();
     let engine = AudioEngine::start_silent(&song).expect("engine should start");
     engine.send(RtCommand::Play);
 
@@ -37,7 +36,7 @@ fn transport_position_advances_while_playing() {
 
 #[test]
 fn stop_rewinds_the_transport() {
-    let song = Song::demo();
+    let song = Song::new();
     let engine = AudioEngine::start_silent(&song).expect("engine should start");
     engine.send(RtCommand::Play);
     sleep(Duration::from_millis(60));
@@ -53,14 +52,14 @@ fn stop_rewinds_the_transport() {
 
 #[test]
 fn resync_succeeds_for_a_full_song() {
-    let song = Song::demo();
+    let song = Song::new();
     let engine = AudioEngine::start_silent(&song).expect("engine should start");
     assert!(engine.resync(&song));
 }
 
 #[test]
 fn streaming_only_renders_once_a_client_connects() {
-    let song = Song::demo();
+    let song = Song::new();
     let engine = AudioEngine::start_streaming(&song, 0).expect("engine should start");
     let port = engine.stream_port().expect("a stream port");
     engine.send(RtCommand::Play);
@@ -100,17 +99,22 @@ fn streaming_only_renders_once_a_client_connects() {
 }
 
 #[test]
-fn step_edits_can_be_pushed_while_running() {
+fn block_edits_can_be_pushed_while_running() {
     let song = Song::new();
     let engine = AudioEngine::start_silent(&song).expect("engine should start");
-    let pushed = engine.send(RtCommand::SetStep {
+    let pushed = engine.send(RtCommand::AddBlock {
         track: 0,
-        step: 0,
-        data: StepData {
-            active: true,
-            pitch: 60,
-            velocity: 120,
-        },
+        name: terminal_daw::core::render::BlockName::new("Verse"),
     });
     assert!(pushed, "command queue should accept the edit");
+    assert!(engine.send(RtCommand::SetTrackCount { count: 4 }));
+}
+
+#[test]
+fn a_resync_pushes_the_block_mirror() {
+    let mut song = Song::new();
+    song.tracks[0].add_block();
+    song.tracks[0].add_block();
+    let engine = AudioEngine::start_silent(&song).expect("engine should start");
+    assert!(engine.resync(&song), "a resync should fit in the queue");
 }
