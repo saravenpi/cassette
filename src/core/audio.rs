@@ -563,7 +563,7 @@ mod cpal_backend {
             })
         }
 
-        fn build<T>(&self, render: RenderFn) -> Result<cpal::Stream>
+        fn build<T>(&self, mut render: RenderFn) -> Result<cpal::Stream>
         where
             T: cpal::SizedSample + cpal::FromSample<f32>,
         {
@@ -677,15 +677,15 @@ pub fn select_backend(preference: BackendPreference) -> BackendChoice {
 
     #[cfg(feature = "cpal")]
     {
-        if cpal_backend::available() {
-            if let Ok(backend) = cpal_backend::CpalBackend::new() {
-                let sample_rate = backend.sample_rate();
-                return BackendChoice {
-                    backend: Box::new(backend),
-                    sample_rate,
-                    note: "direct device output".into(),
-                };
-            }
+        if cpal_backend::available()
+            && let Ok(backend) = cpal_backend::CpalBackend::new()
+        {
+            let sample_rate = backend.sample_rate();
+            return BackendChoice {
+                backend: Box::new(backend),
+                sample_rate,
+                note: "direct device output".into(),
+            };
         }
     }
 
