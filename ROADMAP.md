@@ -119,7 +119,8 @@ The keymap lives in `app/src/lib/keys.ts`, in the webview. It maps a
 Commands sit on keys the piano row does not use. Notes are checked first, so a
 key bound to both would make the command silently unreachable, which is why
 delete is `backspace` rather than `D` and why solo is `O` rather than `S`.
-`keys.ts` throws at load if a clash is ever introduced.
+`keys.ts` throws at load if a clash is ever introduced. `app/src/lib/keys.test.ts`
+covers the keymap; run it with `cd app && bun test`.
 
 ## Phase 4: Polish and features (done)
 
@@ -145,9 +146,11 @@ adapters and their tests are in place.
 
 [SUPERSEDED by: Phase 5 session view, 2026-09-24] `ui::view::View` rendered
 `UiState` to plain text. There is no plain-text renderer and no CLI binary: the
-engine crate is a library, and `--headless` and `--stream-port` went with it. A
-stale doc comment in `core/audio.rs` still names `--stream-port`. `ui/view.rs`
-survives as the serializable `UiState` snapshot alone.
+engine crate is a library, and `--headless` and `--stream-port` went with it.
+`ui/view.rs` survives as the serializable `UiState` snapshot alone. The
+`TcpStreamBackend` doc comment in `core/audio.rs` still says no front end starts
+the backend; the `ZBOUB_STREAM_PORT` route in 5.5 now contradicts it, so that
+comment is stale.
 
 ---
 
@@ -179,11 +182,34 @@ project with no sounding notes is silent until you play the keyboard.
 Engine side. Reading and writing a song file, block content, block editing UI,
 scenes and follow actions.
 
-Interface side. No front-end exposes the audio-over-SSH streaming backend, even
-though `AudioEngine::start_streaming` and `App::new_streaming` work and are
-tested. The keymap and the UI have no test coverage: `keys.ts` guards against a
-note/command clash at load, and nothing else checks it. The desktop app has
-never been run against real audio hardware.
+Interface side. The desktop app has never been run against real audio hardware,
+so treat "it makes noise" as unverified until someone listens on a machine with a
+working output device.
+
+### 5.5 Audio-over-SSH front door (done, 2026-09-24)
+
+The desktop app now starts the streaming backend when `ZBOUB_STREAM_PORT` is set
+to a `u16` greater than zero. Start it from `app/`:
+
+```bash
+ZBOUB_STREAM_PORT=9999 bun run tauri dev
+```
+
+Unset, empty, unparseable or zero keeps the normal device backend, so the default
+app does not stream. A failed start falls back to the normal backend, then to the
+silent backend, so the window always opens. The app header now renders
+`backendNote`, which carries the stream's port. See
+[music-over-ssh.md](./docs/music-over-ssh.md).
+
+### 5.6 Keymap tests (done, 2026-09-24)
+
+`app/src/lib/keys.test.ts` unit-tests the keymap in `app/src/lib/keys.ts`. A
+`test` script in `app/package.json` runs them, so both work from `app/`:
+
+```bash
+bun test
+bun run test
+```
 
 ---
 
@@ -211,6 +237,8 @@ headers.
 The Tauri shell `zboub69-app` in `app/src-tauri/` adds `tauri` and
 `tauri-build` for the window, `serde_json` to move events and snapshots over
 IPC, plus `crossbeam` and `serde`. It enables the engine's `cpal` feature for
-real device output. None of these appear in `core` or `models`.
+real device output. `tauri`, `tauri-build` and `serde_json` are shell-only;
+`crossbeam` and `serde` are shared with the engine, and `serde` is also used by
+`models`, `events` and `ui` for the wire types.
 
 `ratatui` and `crossterm` were removed with the terminal interface.

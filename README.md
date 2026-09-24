@@ -86,6 +86,10 @@ The engine picks the best sink it can and names it in the status bar:
    out. The app falls back to this if no device is reachable, so the window
    always opens.
 
+A fourth backend, `stream`, sends raw PCM over a loopback TCP socket instead of
+opening a device. The engine never picks it automatically; you select it with
+`ZBOUB_STREAM_PORT`, below.
+
 ### Getting sound
 
 If the status bar says `silent`, the note after it says why. The usual causes:
@@ -104,10 +108,21 @@ the keyboard all behave the same on the silent backend.
 
 ### Audio over SSH
 
-The streaming backend is still in the engine and still tested
-(`AudioEngine::start_streaming`, `App::new_streaming`), but no front-end exposes
-it: the terminal build's `--stream-port` flag went with the TUI. The protocol
-notes and the ffplay side of it are in [`docs/music-over-ssh.md`](./docs/music-over-ssh.md).
+The `stream` backend renders on the machine running the engine and writes raw PCM
+to a loopback socket, which you forward over SSH and play locally. This is opt-in:
+the default app picks a device backend and does not stream. Start the app with
+`ZBOUB_STREAM_PORT` set to the port you want:
+
+```bash
+ZBOUB_STREAM_PORT=9999 bun run tauri dev      # from app/
+```
+
+Any `u16` greater than zero selects the streaming backend. Unset, empty,
+unparseable or zero leaves the app on its normal device backend. A port that
+cannot be bound does not fall back to your sound card: the engine runs silent and
+the header shows the bind error, so the window always opens and says why. The
+header renders `backendNote`, which carries the port to forward. The protocol notes and the ffplay side are in
+[`docs/music-over-ssh.md`](./docs/music-over-ssh.md).
 
 ## Architecture
 
@@ -172,8 +187,12 @@ cargo test
 cargo clippy --all-targets   # clean
 ```
 
-The frontend type-checks separately:
+The frontend type-checks and its keymap has unit tests:
 
 ```bash
-cd app && bun run check
+cd app && bun run check    # type-check
+cd app && bun test         # keymap tests
 ```
+
+`bun test` and `bun run test` both run `app/src/lib/keys.test.ts`, which covers
+the keymap in `app/src/lib/keys.ts`.

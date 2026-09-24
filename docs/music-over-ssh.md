@@ -3,12 +3,13 @@
 How to hear zboub69 when the machine running the engine is not the machine you
 are sitting at.
 
-**Current state.** The streaming backend still exists in the engine, still
-works, and is still covered by a test, but no front end can start it. The
-desktop app does not surface it, and the terminal UI and its `zboub69
---stream-port` flag were removed. Section 2 says what you would have to do to
-use it. The protocol facts in sections 3, 5 and 6 and the local player recipe
-are still correct, which is why this file is worth keeping.
+**Current state.** The streaming backend exists in the engine, works, and is
+covered by a test. The desktop app starts it when you set `ZBOUB_STREAM_PORT` to
+a `u16` greater than zero. This is opt-in: the default app picks a device backend
+and does not stream. The terminal UI and its `zboub69 --stream-port` flag are
+gone. Section 2 gives the working route. The protocol facts in sections 3, 5 and
+6 and the local player recipe are still correct, which is why this file is worth
+keeping.
 
 ---
 
@@ -61,16 +62,31 @@ zboub69 --stream-port 9999
 ```
 
 [SUPERSEDED by: removal of the terminal UI, 2026-09-24] There is no `zboub69`
-binary any more, and no `--stream-port` flag or `ZBOUB_STREAM_PORT` variable is
-read anywhere in the source. The status-bar line, the `space` transport key, the
-`?` help key and the port shown in the interface all went with the TUI.
+binary any more: the crate is a library. The `--stream-port` command-line flag
+went with the terminal binary. The status-bar line, the `space` transport key,
+the `?` help key and the port shown in the interface all went with the TUI.
 
-The module doc comment on `TcpStreamBackend` in `src/core/audio.rs` still shows
-the removed command; treat it as stale.
+The module doc comment on `TcpStreamBackend` in `src/core/audio.rs` still says no
+front end starts the backend. The `ZBOUB_STREAM_PORT` route below makes that
+stale.
 
-### What you would have to do
+### How to start it
 
-The backend is reachable only through the engine API:
+Start the desktop app with `ZBOUB_STREAM_PORT` set to the port you want to
+forward. From `app/`:
+
+```bash
+ZBOUB_STREAM_PORT=9999 bun run tauri dev
+```
+
+Any `u16` greater than zero selects the streaming backend. Unset, empty,
+unparseable or zero leaves the app on its normal device backend, so the default
+app does not stream. A port that cannot be bound does not fall back to your sound
+card: the engine runs silent and the header shows the bind error, so the window
+always opens and says why. The header renders `backendNote`, which carries the
+port to forward.
+
+The same backend is reachable through the engine API:
 
 ```rust
 use zboub69::{AudioEngine, Song};
@@ -81,18 +97,11 @@ let port = engine.stream_port().expect("the stream backend reports its port");
 ```
 
 Pass `0` for the port and the OS picks a free one; `stream_port()` then returns
-the port actually bound. `App::new_streaming(port)` wraps the same call at the
-application level. Those two functions are the whole public surface:
-`AudioEngine::start_streaming` is called from `src/app.rs`, from the engine
-module's own tests, and from `tests/test_engine.rs`, and nowhere else.
-
-To use the backend from the desktop app you would have to start it there.
-`start_app()` in `app/src-tauri/src/lib.rs` calls `App::new()` and falls back to
-`App::new_silent()`; nothing calls `App::new_streaming`. Note also that the app
-header renders only `backend` and `sampleRate`. The `backendNote` field is in
-the snapshot and in `app/src/lib/types.ts`, but no component displays it, and
-that note is where the port appears, so you would want to render it to find out
-which port to forward.
+the port actually bound. The environment variable does not accept `0`: there,
+zero means the normal device backend, not "let the OS pick". `App::new_streaming(port)`
+wraps the same call at the application level. Those two functions are the whole
+public surface: `AudioEngine::start_streaming` is called from `src/app.rs`, from
+the engine module's own tests, and from `tests/test_engine.rs`.
 
 ### On your local machine
 
@@ -116,17 +125,21 @@ nobody is listening.
 
 ### Ports
 
-[SUPERSEDED by: removal of the terminal UI, 2026-09-24] The flag and the
-environment variable that used to choose the port:
+[SUPERSEDED by: removal of the terminal UI, 2026-09-24] The flag that used to
+choose the port:
 
 ```bash
 zboub69 --stream-port 0
 # status bar: streaming PCM on 127.0.0.1:47123
-
-ZBOUB_STREAM_PORT=9999 zboub69
 ```
 
-The behaviour survives in the API. Pass `0` to `start_streaming` or
+The port is an environment variable again, this time read by the desktop app:
+
+```bash
+ZBOUB_STREAM_PORT=9999 bun run tauri dev
+```
+
+The behaviour also survives in the API. Pass `0` to `start_streaming` or
 `new_streaming` to let the OS pick, then read the port back:
 
 ```rust
@@ -177,24 +190,26 @@ Check with `ffplay -version`.
 
 The tunnel is not up, or the ports do not match. Confirm the `ssh -N -L` command
 is still running in its terminal, and that the local port in `-L` matches the
-one `stream_port()` reported (or the one in the engine's note, if you rendered
-it).
+one `stream_port()` reported (or the port in `backendNote`, which the app header
+shows).
 
 **`Address already in use` on the server**
 
 [SUPERSEDED by: removal of the terminal UI, 2026-09-24] This entry used to say
-to start zboub69 with `--stream-port 0`. There is no flag: pass `0` to
-`start_streaming` instead. Note that `select_backend` catches the bind failure
-and falls back to the null backend with the note `silent: cannot bind
-127.0.0.1:<port>: …`, so a taken port shows up as a silent engine rather than as
-an error, and `stream_port()` returns `None`.
+to start zboub69 with `--stream-port 0`. There is no flag, and
+`ZBOUB_STREAM_PORT` does not accept `0`: pass `0` to `start_streaming` from the
+API to let the OS pick. A taken port does not raise an error. Through
+`select_backend` the bind failure falls back to the null backend with the note
+`silent: cannot bind 127.0.0.1:<port>: …`, and `stream_port()` returns `None`.
+The `ZBOUB_STREAM_PORT` front door falls back rather than erroring too.
 
 **Nothing happens when I press space**
 
-[SUPERSEDED by: removal of the terminal UI, 2026-09-24] There is no `space` key
-any more; the engine-level equivalent is `RtCommand::Play`. With the stream
-backend, no client means no rendering: the transport stays at frame 0 until a
-player connects. Start the local `ffplay` first.
+The desktop app's `space` key toggles play, which sends `togglePlay`; at the
+engine level that is `RtCommand::Play`. [SUPERSEDED by: removal of the terminal
+UI, 2026-09-24] The TUI's own `space` binding is gone. With the stream backend,
+no client means no rendering: the transport stays at frame 0 until a player
+connects. Start the local `ffplay` first.
 
 **Sometimes it starts mid-transport**
 
@@ -284,5 +299,5 @@ Worth knowing when something looks stuck:
 - **Reported by the engine.** `AudioEngine::backend_name()`, `stream_port()` and
   `note()` describe the running backend. [SUPERSEDED by: removal of the terminal
   UI, 2026-09-24] The status bar used to print them and `?` opened the in-app
-  help; neither exists now. The desktop app shows the backend name and sample
-  rate only, so the port is not visible anywhere in the interface today.
+  help; neither exists now. The desktop app header renders `backendNote`, which
+  carries the port, so the stream's port is visible there.

@@ -395,9 +395,10 @@ impl AudioBackend for SubprocessBackend {
 /// Nothing is rendered until a client connects, so the transport never runs
 /// ahead of something nobody can hear.
 ///
-/// No front-end starts this backend today. It is reachable through
-/// [`AudioEngine::start_streaming`](crate::core::engine::AudioEngine::start_streaming)
-/// and is covered by `tests/test_engine.rs`; see `docs/music-over-ssh.md`.
+/// The desktop app starts this backend when `ZBOUB_STREAM_PORT` is set to a
+/// nonzero port; it is never selected on its own. It is also reachable through
+/// [`AudioEngine::start_streaming`](crate::core::engine::AudioEngine::start_streaming),
+/// and `tests/test_engine.rs` covers it. See `docs/music-over-ssh.md`.
 pub struct TcpStreamBackend {
     sample_rate: u32,
     port: u16,
