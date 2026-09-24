@@ -87,9 +87,9 @@ mod tests {
     fn dropped_subscribers_are_skipped() {
         let mut bus = EventBus::new();
         let receiver = bus.subscribe();
-        assert_eq!(bus.send(Event::Quit), 1);
+        assert_eq!(bus.send(Event::Stop), 1);
         drop(receiver);
-        assert_eq!(bus.send(Event::Quit), 0);
+        assert_eq!(bus.send(Event::Stop), 0);
     }
 
     #[test]
@@ -97,7 +97,7 @@ mod tests {
         let mut bus = EventBus::new();
         let _receiver = bus.subscribe();
         for _ in 0..CHANNEL_CAPACITY + 5 {
-            bus.send(Event::Resize(80, 24));
+            bus.send(Event::AddBlock);
         }
     }
 }

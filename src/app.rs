@@ -1,21 +1,14 @@
-//! The application: terminal lifecycle, the event loop and command handling.
+//! The application: intent handling and the snapshot it publishes.
 //!
-//! The loop is deliberately small — poll input, drain the event bus, apply
-//! intent to the song and the engine, publish a [`UiState`] snapshot, draw.
-//! All timing and synthesis live in [`crate::core`].
+//! Deliberately small — drain intent into the song and the engine, then publish
+//! a [`UiState`] snapshot. The Tauri shell drives it: one command per intent,
+//! one tick per frame. All timing and synthesis live in [`crate::core`].
 
-use std::io;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use crossbeam::channel::Receiver;
-use crossterm::execute;
-use crossterm::terminal::{
-    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
-};
-use ratatui::Terminal;
-use ratatui::backend::CrosstermBackend;
 
 use crate::core::MAX_BLOCKS;
 use crate::core::engine::AudioEngine;
@@ -23,17 +16,12 @@ use crate::core::meter::MeterBank;
 use crate::core::render::{BlockName, RtCommand};
 use crate::events::Event;
 use crate::events::bus::EventBus;
-use crate::input::InputHandler;
 use crate::models::{Instrument, Song, TrackKind};
-use crate::ui::layout::Pane;
-use crate::ui::renderer;
-use crate::ui::view::{Cursor, TrackView, UiState, View};
+use crate::ui::view::{Cursor, TrackView, UiState};
 use crate::utils::time::Tempo;
 
-/// How long a played note rings when the terminal cannot report releases.
+/// How long a played note rings when the keyboard cannot report releases.
 const HELD_NOTE_MS: u64 = 500;
-/// UI frame budget.
-const FRAME_MS: u64 = 16;
 
 /// A note waiting to be released.
 struct HeldNote {
@@ -48,17 +36,13 @@ pub struct App {
     engine: AudioEngine,
     bus: EventBus,
     events: Receiver<Event>,
-    input: InputHandler,
     cursor: Cursor,
-    focus: Pane,
     meters: MeterBank,
     held: Vec<HeldNote>,
     octave: i32,
     /// Buffer of the block-name prompt, when one is open.
     rename: Option<String>,
     status: String,
-    show_help: bool,
-    running: bool,
     resync_pending: bool,
 }
 
@@ -78,8 +62,8 @@ impl App {
         Ok(Self::with(song, engine))
     }
 
-    /// Build an app whose engine makes no sound (headless / CI).
-    pub fn new_headless() -> Result<Self> {
+    /// Build an app whose engine makes no sound (no device, or CI).
+    pub fn new_silent() -> Result<Self> {
         let song = Song::new();
         let engine = AudioEngine::start_silent(&song).context("starting the silent engine")?;
         Ok(Self::with(song, engine))
@@ -90,7 +74,7 @@ impl App {
         let events = bus.subscribe();
         let meters = MeterBank::new(song.tracks.len());
         let status = format!(
-            "audio '{}' at {} Hz — {} · press ? for help",
+            "audio '{}' at {} Hz — {}",
             engine.backend_name(),
             engine.sample_rate(),
             engine.note()
@@ -100,75 +84,47 @@ impl App {
             engine,
             bus,
             events,
-            input: InputHandler::new(),
             cursor: Cursor::default(),
-            focus: Pane::Tracks,
             meters,
             held: Vec::new(),
             octave: 0,
             rename: None,
             status,
-            show_help: false,
-            running: true,
             resync_pending: false,
         }
     }
 
-    /// Run the full-screen terminal UI until the user quits.
-    pub fn run() -> Result<()> {
-        let mut terminal = setup_terminal()?;
-        let _guard = TerminalGuard;
-        let mut app = App::new()?;
-        app.event_loop(&mut terminal)
+    /// Apply one intent now. This is the path a Tauri command takes, so a note
+    /// sounds on the frame it arrives rather than the next one.
+    pub fn submit(&mut self, event: Event) {
+        self.bus.send(event);
+        self.drain();
     }
 
-    /// Run the terminal UI while streaming audio on `port` for a local player.
-    ///
-    /// Forward the port over SSH and play the stream on your own machine; see
-    /// the README section *Audio over SSH*.
-    pub fn run_streaming(port: u16) -> Result<()> {
-        let mut terminal = setup_terminal()?;
-        let _guard = TerminalGuard;
-        let mut app = App::new_streaming(port)?;
-        app.event_loop(&mut terminal)
-    }
-
-    /// Print a single plain-text frame and exit. Exercises the alternate
-    /// renderer without needing a terminal or an audio device.
-    pub fn run_headless() -> Result<()> {
-        let app = App::new_headless()?;
-        println!("{}", app.ui_state().render());
-        Ok(())
-    }
-
-    fn event_loop(&mut self, terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
-        while self.running {
-            for event in self.input.poll(Duration::from_millis(FRAME_MS)) {
-                self.bus.send(event);
-            }
-            while let Ok(event) = self.events.try_recv() {
-                self.handle(event);
-            }
-            if self.resync_pending {
-                self.engine.resync(&self.song);
-                self.resync_pending = false;
-            }
-            self.release_expired_notes();
-
-            let peaks = self.engine.shared().peaks();
-            self.meters.update(&peaks);
-
-            let state = self.ui_state();
-            terminal.draw(|frame| renderer::draw(frame, &state))?;
+    /// Apply everything adapters have queued since the last drain.
+    pub fn drain(&mut self) {
+        while let Ok(event) = self.events.try_recv() {
+            self.handle(event);
         }
-        Ok(())
+    }
+
+    /// Advance one frame: apply queued intent, resync if a slot ran out, expire
+    /// held notes and read the meters. Call it at display rate.
+    pub fn tick(&mut self) {
+        self.drain();
+        if self.resync_pending {
+            self.engine.resync(&self.song);
+            self.resync_pending = false;
+        }
+        self.release_expired_notes();
+        let peaks = self.engine.shared().peaks();
+        self.meters.update(&peaks);
     }
 
     // -- event handling ----------------------------------------------------
 
     fn handle(&mut self, event: Event) {
         match event {
-            Event::Quit => self.running = false,
             Event::TogglePlay => self.toggle_play(),
             Event::Stop => {
                 self.send(RtCommand::Stop);
@@ -179,7 +135,6 @@ impl App {
                 self.send(RtCommand::SetLooping { looping });
                 self.status = format!("looping {}", if looping { "on" } else { "off" });
             }
-            Event::ToggleHelp => self.show_help = !self.show_help,
             Event::MoveTrack(delta) => self.move_track(delta),
             Event::MoveBlock(delta) => self.move_block(delta),
             Event::AddBlock => self.add_block(),
@@ -202,7 +157,6 @@ impl App {
             Event::OctaveDelta(delta) => self.nudge_octave(delta),
             Event::NoteOn { pitch, velocity } => self.play_note(pitch, velocity),
             Event::NoteOff { pitch } => self.release_note(pitch),
-            Event::Resize(_, _) => {}
             // OSC control is routed by adapters; no binding yet.
             Event::OscControl { address, value } => {
                 self.status = format!("osc {address} = {value:.2}");
@@ -318,7 +272,6 @@ impl App {
             return;
         };
         self.rename = Some(String::new());
-        self.set_text_mode(true);
         self.status = format!("renaming {name}: type a new name, enter to confirm, esc to cancel");
     }
 
@@ -326,7 +279,6 @@ impl App {
         let Some(buffer) = self.rename.take() else {
             return;
         };
-        self.set_text_mode(false);
         let name = buffer.trim().to_string();
         if name.is_empty() {
             self.status = "rename left unchanged".into();
@@ -349,7 +301,6 @@ impl App {
 
     fn cancel_rename(&mut self) {
         if self.rename.take().is_some() {
-            self.set_text_mode(false);
             self.status = "rename cancelled".into();
         }
     }
@@ -436,7 +387,6 @@ impl App {
 
     fn nudge_octave(&mut self, delta: i32) {
         self.octave = (self.octave + delta).clamp(-4, 4);
-        self.input.keymap_mut().set_octave(self.octave);
         self.status = format!("keyboard octave {:+}", self.octave);
     }
 
@@ -508,10 +458,6 @@ impl App {
         });
     }
 
-    fn set_text_mode(&mut self, on: bool) {
-        self.input.keymap_mut().set_text_mode(on);
-    }
-
     /// Blocks the cursor may point at: one per block, plus the `+` slot.
     fn block_slots(&self) -> usize {
         self.song
@@ -528,8 +474,8 @@ impl App {
         Tempo::new(self.song.bpm()).frames_per_beat(self.engine.sample_rate())
     }
 
-    /// Build an immutable snapshot for rendering.
-    fn ui_state(&self) -> UiState {
+    /// Build an immutable snapshot for the webview.
+    pub fn ui_state(&self) -> UiState {
         let shared = self.engine.shared();
         let position_frames = shared.position_frames.load(Ordering::Relaxed);
 
@@ -569,37 +515,14 @@ impl App {
             looping: shared.looping.load(Ordering::Relaxed),
             transport_position_beats: position_frames as f32 / self.frames_per_beat() as f32,
             cursor: self.cursor,
-            focus: self.focus,
             octave: self.octave,
             tracks,
             status: self.status.clone(),
+            renaming: self.rename.is_some(),
             backend: self.engine.backend_name().to_string(),
             backend_note: self.engine.note().to_string(),
             sample_rate: self.engine.sample_rate(),
-            show_help: self.show_help,
         }
-    }
-}
-
-// -- terminal lifecycle ----------------------------------------------------
-
-type Backend = CrosstermBackend<io::Stdout>;
-
-fn setup_terminal() -> Result<Terminal<Backend>> {
-    enable_raw_mode().context("enabling raw mode")?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen).context("entering the alternate screen")?;
-    let backend = CrosstermBackend::new(stdout);
-    Terminal::new(backend).context("creating the terminal")
-}
-
-/// Restores the terminal on drop, including when the app panics.
-struct TerminalGuard;
-
-impl Drop for TerminalGuard {
-    fn drop(&mut self) {
-        let _ = disable_raw_mode();
-        let _ = execute!(io::stdout(), LeaveAlternateScreen);
     }
 }
 
@@ -608,15 +531,26 @@ mod tests {
     use super::*;
 
     fn headless_app() -> App {
-        App::new_headless().expect("headless app should build")
+        App::new_silent().expect("silent app should build")
     }
 
     #[test]
-    fn headless_app_starts_with_four_empty_tracks() {
+    fn silent_app_starts_with_four_empty_tracks() {
         let app = headless_app();
         assert_eq!(app.song.tracks.len(), 4);
         assert!(app.song.tracks.iter().all(|t| t.blocks.is_empty()));
-        assert!(app.ui_state().render().contains("zboub69"));
+        assert_eq!(app.ui_state().backend, "silent");
+    }
+
+    #[test]
+    fn submit_applies_intent_without_waiting_for_a_tick() {
+        let mut app = headless_app();
+        app.submit(Event::AddBlock);
+        assert_eq!(
+            app.song.tracks[0].blocks.len(),
+            1,
+            "a command must land on the frame it arrives, not the next"
+        );
     }
 
     #[test]
@@ -755,12 +689,5 @@ mod tests {
         let before = app.song.tracks[0].kind;
         app.handle(Event::CycleTrackKind);
         assert_ne!(app.song.tracks[0].kind, before);
-    }
-
-    #[test]
-    fn quits_on_the_quit_event() {
-        let mut app = headless_app();
-        app.handle(Event::Quit);
-        assert!(!app.running);
     }
 }

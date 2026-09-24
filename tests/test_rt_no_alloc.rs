@@ -9,10 +9,10 @@
 
 #[cfg(debug_assertions)]
 mod red_zone {
-    use terminal_daw::core::DEFAULT_SAMPLE_RATE;
-    use terminal_daw::core::MAX_TRACKS;
-    use terminal_daw::core::render::{BlockName, RenderCore, RtCommand};
-    use terminal_daw::models::Song;
+    use zboub69::core::DEFAULT_SAMPLE_RATE;
+    use zboub69::core::MAX_TRACKS;
+    use zboub69::core::render::{BlockName, RenderCore, RtCommand};
+    use zboub69::models::Song;
 
     #[global_allocator]
     static GLOBAL_ALLOC: assert_no_alloc::AllocDisabler = assert_no_alloc::AllocDisabler;

@@ -1,0 +1,34 @@
+[package]
+name = "zboub69-app"
+version = "0.1.0"
+description = "zboub69: the desktop shell (Tauri) around the audio engine"
+license = "MIT"
+edition = "2024"
+
+# A package of its own, outside the engine's build: `cargo test` at the repo root
+# neither builds it nor needs a webview. Build it from `app/` with `bun run tauri`.
+[workspace]
+
+[lib]
+# The `_lib` suffix keeps the lib name distinct from the binary name.
+name = "zboub69_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+crossbeam = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = [] }
+# The engine, with real device output. Without the `cpal` feature it would only
+# run the silent backend. Needs the platform audio headers:
+#   sudo apt install libasound2-dev
+zboub69 = { path = "../..", features = ["cpal"] }
+
+# No `panic = "abort"` here, unlike the engine: a webview-side panic should not
+# abort the process on the spot.
+[profile.release]
+lto = "thin"
+codegen-units = 1

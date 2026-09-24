@@ -1,14 +1,7 @@
 //! Input adapters. This is the only layer that talks to hardware.
 //!
-//! [`handler`] reads raw terminal key codes, [`keymap`] turns them into
-//! [`Event`]s, and the MIDI/OSC adapters below translate their protocols into
-//! the same event vocabulary so new devices need no changes in `core` or `ui`.
-
-pub mod handler;
-pub mod keymap;
-
-pub use handler::InputHandler;
-pub use keymap::Keymap;
+//! The MIDI and OSC adapters translate their protocols into [`Event`]s, the same
+//! vocabulary the webview speaks, so new devices need no changes in `core`.
 
 use crate::events::Event;
 

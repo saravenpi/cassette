@@ -1,7 +1,8 @@
 #![forbid(unsafe_code)]
-//! zboub69 — a keyboard-only terminal DAW.
+//! zboub69 — a session DAW with a Rust audio engine and a SvelteKit frontend.
 //!
-//! The crate is split along the boundaries described in `docs/ARCHITECTURE.md`:
+//! The crate is the engine and the app logic. It never depends on a frontend:
+//! the Tauri shell in `app/src-tauri/` drives it and the webview only draws.
 //!
 //! ```text
 //! input ──► events ──► core ◄── ui
@@ -10,10 +11,10 @@
 //! ```
 //!
 //! * [`models`] holds the song (tracks, blocks, instruments) as plain data.
-//! * [`core`] is the audio engine. It never depends on the terminal.
+//! * [`core`] is the audio engine. Real-time, allocation-free, frontend-agnostic.
 //! * [`events`] is the typed, bounded message bus between adapters and the app.
-//! * [`input`] translates keyboards, MIDI and OSC into [`events::Event`].
-//! * [`ui`] is a thin presentation layer over an immutable [`ui::view::UiState`].
+//! * [`input`] translates MIDI and OSC into [`events::Event`].
+//! * [`ui`] is the serializable [`ui::view::UiState`] snapshot the webview draws.
 
 pub mod app;
 pub mod core;

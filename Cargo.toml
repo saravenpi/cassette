@@ -2,16 +2,12 @@
 name = "zboub69"
 version = "0.1.0"
 edition = "2024"
-description = "A keyboard-only terminal DAW inspired by Ableton Live"
+description = "A session DAW with a Rust audio engine and a SvelteKit frontend"
 license = "MIT"
 
 [lib]
-name = "terminal_daw"
-path = "src/lib.rs"
-
-[[bin]]
 name = "zboub69"
-path = "src/main.rs"
+path = "src/lib.rs"
 
 [features]
 default = []
@@ -21,13 +17,15 @@ default = []
 cpal = ["dep:cpal"]
 
 [dependencies]
-ratatui = "0.28"
-crossterm = "0.28"
 anyhow = "1.0"
 crossbeam = "0.8"
 rtrb = "0.3"
 assert_no_alloc = "1.1.2"
+serde = { version = "1", features = ["derive"] }
 cpal = { version = "0.15", optional = true }
+
+[dev-dependencies]
+serde_json = "1"
 
 [profile.release]
 lto = "thin"

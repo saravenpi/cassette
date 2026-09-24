@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "the webview reads the snapshot and sends intent; the app's own commands need no permission of their own",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

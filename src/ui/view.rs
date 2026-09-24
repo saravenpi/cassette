@@ -1,25 +1,25 @@
-//! The logical screen model.
+//! The snapshot the webview draws.
 //!
 //! [`UiState`] is built once per frame from the song and the audio engine's
-//! shared state. It holds no references into `core`, so both the ratatui
-//! renderer and the [`View`] plain-text renderer can consume it.
+//! shared state. It holds no references into `core`, so it crosses the Tauri IPC
+//! boundary as plain serializable data.
+
+use serde::{Deserialize, Serialize};
 
 use crate::models::TrackKind;
-use crate::ui::layout::Pane;
-
-/// Beats per bar assumed by the position readout.
-pub const BEATS_PER_BAR: u32 = 4;
 
 /// Session cursor: which block of which track is selected. A block index equal
 /// to the track's block count means the `+` slot.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Cursor {
     pub block: usize,
     pub track: usize,
 }
 
 /// A track, reduced to what the UI needs.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TrackView {
     pub name: String,
     pub kind: TrackKind,
@@ -40,7 +40,7 @@ pub struct TrackView {
     pub blocks: Vec<String>,
     /// Whether the cursor sits on this track's `+` slot.
     pub add_slot: bool,
-    /// Index into the renderer's track palette.
+    /// Index into the frontend's track palette.
     pub color_index: u8,
 }
 
@@ -52,7 +52,8 @@ impl TrackView {
 }
 
 /// Everything worth drawing this frame.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UiState {
     pub bpm: f32,
     pub playing: bool,
@@ -60,94 +61,21 @@ pub struct UiState {
     /// Transport position in beats.
     pub transport_position_beats: f32,
     pub cursor: Cursor,
-    pub focus: Pane,
     pub octave: i32,
     pub tracks: Vec<TrackView>,
     pub status: String,
+    /// Whether the block-name prompt is open, so the webview routes typing to it.
+    pub renaming: bool,
     pub backend: String,
     /// Why the engine chose its backend.
     pub backend_note: String,
     pub sample_rate: u32,
-    pub show_help: bool,
 }
 
 impl UiState {
     /// The track under the cursor, if any.
     pub fn selected(&self) -> Option<&TrackView> {
         self.tracks.get(self.cursor.track)
-    }
-}
-
-/// Bar and beat (both one-based) for a position in beats.
-pub fn bar_beat(beats: f32) -> (u32, u32) {
-    let beats = beats.max(0.0);
-    let whole = beats as u32;
-    (whole / BEATS_PER_BAR + 1, whole % BEATS_PER_BAR + 1)
-}
-
-/// Render a state to a plain string. Implemented by [`UiState`] so the app can
-/// run headless (no terminal, no ratatui).
-pub trait View {
-    /// Produce a textual snapshot.
-    fn render(&self) -> String;
-}
-
-pub(crate) fn meter_bar(level: f32, width: usize) -> String {
-    let filled = ((level.clamp(0.0, 1.0) * width as f32).round() as usize).min(width);
-    let mut bar = String::with_capacity(width);
-    for i in 0..width {
-        bar.push(if i < filled { '#' } else { '-' });
-    }
-    bar
-}
-
-impl View for UiState {
-    fn render(&self) -> String {
-        let (bar, beat) = bar_beat(self.transport_position_beats);
-        let mut out = String::new();
-        out.push_str(&format!(
-            "zboub69  bpm {:.0}  {}  loop {}  bar {bar}.{beat}  backend {} @ {} Hz\n",
-            self.bpm,
-            if self.playing { "PLAYING" } else { "stopped" },
-            if self.looping { "on" } else { "off" },
-            self.backend,
-            self.sample_rate,
-        ));
-        out.push_str(&format!(
-            "focus {:?}  keyboard octave {:+}\n",
-            self.focus, self.octave
-        ));
-        out.push_str(&format!("{}\n\n", self.backend_note));
-
-        out.push_str("tracks\n");
-        for (index, track) in self.tracks.iter().enumerate() {
-            let selected = index == self.cursor.track;
-            out.push_str(&format!(
-                "  {} {:>2} {:<8} {:<5} ",
-                if selected { '>' } else { ' ' },
-                index + 1,
-                track.name,
-                track.kind.name(),
-            ));
-            for (block_index, name) in track.blocks.iter().enumerate() {
-                let on_cursor = selected && block_index == self.cursor.block;
-                let cell = if on_cursor {
-                    format!("[{name}]")
-                } else {
-                    format!(" {name} ")
-                };
-                out.push_str(&cell);
-            }
-            out.push_str(if track.add_slot { "[+]" } else { " + " });
-            out.push_str(&format!(
-                " {} vol {:.2}\n",
-                meter_bar(track.level, 10),
-                track.volume
-            ));
-        }
-
-        out.push_str(&format!("\n{}\n", self.status));
-        out
     }
 }
 
@@ -184,52 +112,30 @@ mod tests {
             looping: true,
             transport_position_beats: 5.0,
             cursor: Cursor { track: 0, block: 1 },
-            focus: Pane::Tracks,
             octave: 0,
             tracks: vec![
                 track("Midi 1", &["Verse", "Chorus"], false),
                 track("Audio 1", &[], true),
             ],
             status: "ready".into(),
+            renaming: false,
             backend: "silent".into(),
             backend_note: "silent: no device".into(),
             sample_rate: 44_100,
-            show_help: false,
         }
-    }
-
-    #[test]
-    fn plain_render_contains_the_essentials() {
-        let text = state().render();
-        assert!(text.contains("zboub69"));
-        assert!(text.contains("PLAYING"));
-        assert!(text.contains("Midi 1"));
-        assert!(text.contains("tracks"));
-        assert!(text.contains("ready"));
-        assert!(text.contains("bar 2.2"));
-    }
-
-    #[test]
-    fn empty_tracks_still_render_a_plus_slot() {
-        let state = UiState {
-            tracks: vec![track("Midi 1", &[], true)],
-            ..state()
-        };
-        let text = state.render();
-        assert!(text.contains("[+]"), "the add slot should be visible");
-    }
-
-    #[test]
-    fn cursor_block_is_marked() {
-        let text = state().render();
-        assert!(
-            text.contains("[Chorus]"),
-            "cursor block should be bracketed"
-        );
     }
 
     #[test]
     fn selected_track_follows_the_cursor() {
         assert_eq!(state().selected().map(|t| t.name.as_str()), Some("Midi 1"));
+    }
+
+    #[test]
+    fn the_snapshot_crosses_ipc_as_camel_case_json() {
+        let json = serde_json::to_value(state()).expect("snapshot should serialize");
+        assert_eq!(json["transportPositionBeats"], 5.0);
+        assert_eq!(json["tracks"][0]["addSlot"], false);
+        assert_eq!(json["tracks"][1]["addSlot"], true);
+        assert_eq!(json["tracks"][0]["kind"], "midi");
     }
 }

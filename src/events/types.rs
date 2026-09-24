@@ -1,21 +1,21 @@
 //! The typed events that cross module boundaries.
 //!
 //! Events carry *intent* (`AddBlock`, `NoteOn`), never presentation data and
-//! never raw sample buffers.
+//! never raw sample buffers. This is the vocabulary the webview speaks: a
+//! Tauri command deserializes one and hands it to the app.
+
+use serde::{Deserialize, Serialize};
 
 /// A single piece of user intent.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum Event {
-    /// Leave the application.
-    Quit,
     /// Start playing, or stop if already playing.
     TogglePlay,
     /// Stop and rewind.
     Stop,
     /// Enable or disable looping.
     ToggleLoop,
-    /// Show or hide the help overlay.
-    ToggleHelp,
     /// Move the track cursor.
     MoveTrack(i32),
     /// Move the block cursor within the selected track.
@@ -52,6 +52,4 @@ pub enum Event {
     NoteOff { pitch: u8 },
     /// A control-surface value arrived over OSC.
     OscControl { address: String, value: f32 },
-    /// The terminal was resized.
-    Resize(u16, u16),
 }

@@ -1,9 +1,12 @@
 //! A track: an instrument, a mixer strip, and its blocks.
 
+use serde::{Deserialize, Serialize};
+
 use crate::models::Instrument;
 
 /// What a track carries.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum TrackKind {
     /// Plays the built-in synth from note data.
     Midi,

@@ -5,9 +5,9 @@ use std::net::TcpStream;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-use terminal_daw::core::engine::AudioEngine;
-use terminal_daw::core::render::RtCommand;
-use terminal_daw::models::Song;
+use zboub69::core::engine::AudioEngine;
+use zboub69::core::render::RtCommand;
+use zboub69::models::Song;
 
 #[test]
 fn silent_engine_starts_cleanly() {
@@ -104,7 +104,7 @@ fn block_edits_can_be_pushed_while_running() {
     let engine = AudioEngine::start_silent(&song).expect("engine should start");
     let pushed = engine.send(RtCommand::AddBlock {
         track: 0,
-        name: terminal_daw::core::render::BlockName::new("Verse"),
+        name: zboub69::core::render::BlockName::new("Verse"),
     });
     assert!(pushed, "command queue should accept the edit");
     assert!(engine.send(RtCommand::SetTrackCount { count: 4 }));
