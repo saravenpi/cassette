@@ -1,6 +1,6 @@
 [package]
 name = "zboub69-app"
-version = "0.1.0"
+version = "0.2.0"
 description = "zboub69: the desktop shell (Tauri) around the audio engine"
 license = "MIT"
 edition = "2024"

@@ -27,3 +27,41 @@ The first release: a keyboard-only terminal DAW.
 - The step sequencer, the step grid and the pattern model, replaced by blocks.
 - Offline rendering and the WAV bounce (`E`).
 - Performance recording of live notes.
+
+## [0.2.0] - 2026-09-24
+
+The interface moves out of the terminal. The audio engine is unchanged in kind and
+still owns all timing and synthesis.
+
+### Added
+
+- A desktop app: a SvelteKit frontend served by a Tauri shell, with the engine
+  running on a thread of its own. Keys and clicks both drive it.
+- `ZBOUB_STREAM_PORT`, a front door for the audio-over-SSH streaming backend.
+- Keymap unit tests: `cd app && bun test`.
+- A full per-platform icon set, and explicit bundle targets (`deb`, `appimage`,
+  `nsis`, `dmg`) in place of `all`.
+- The app header renders `backendNote`, so the stream port is visible.
+
+### Changed
+
+- The crate is renamed `terminal_daw` to `zboub69`, and is now library-only.
+- `ui::view::UiState` is the wire contract and derives serde; `events::Event` is
+  the intent vocabulary the webview sends back.
+
+### Fixed
+
+- The `cpal` feature did not compile (`render` was an immutable binding). The
+  backend had been dead code behind a non-default feature. Found by building the
+  shell, which enables the feature.
+- Space could fire a focused transport button, because only the keydown default
+  was cancelled. A button runs its Space activation on keyup.
+- The README listed `S` for solo; the keymap binds `O`, because `S` is a piano note.
+- Keyup read the note pitch without consulting rename mode.
+- `cargo doc` warned on a private intra-doc link.
+
+### Removed
+
+- The terminal interface: `ratatui`, `crossterm`, `src/main.rs`, the terminal
+  keymap and input handler, the terminal lifecycle, and the `--headless` and
+  `--stream-port` flags.
