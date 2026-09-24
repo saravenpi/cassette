@@ -46,8 +46,38 @@ fn send(event: Event, commands: State<'_, Commands>) -> Result<(), String> {
         .map_err(|_| "zboub69: the engine thread has stopped".to_string())
 }
 
-/// Start the engine, falling back to silence so the window always opens.
+/// Read the stream port out of `ZBOUB_STREAM_PORT`. Only a nonzero `u16` counts;
+/// unset, empty, unparseable and zero all mean "no stream".
+fn stream_port(raw: Option<&str>) -> Option<u16> {
+    raw.and_then(|raw| raw.parse::<u16>().ok())
+        .filter(|port| *port > 0)
+}
+
+/// Start the engine, streaming when `ZBOUB_STREAM_PORT` asks for it, and falling
+/// back to silence so the window always opens.
 fn start_app() -> App {
+    let requested = std::env::var("ZBOUB_STREAM_PORT").ok();
+
+    let Some(port) = stream_port(requested.as_deref()) else {
+        return default_app();
+    };
+
+    match App::new_streaming(port) {
+        Ok(app) => {
+            eprintln!("zboub69: streaming PCM on 127.0.0.1:{port}");
+            app
+        }
+        Err(error) => {
+            eprintln!(
+                "zboub69: streaming on port {port} did not start ({error:#}); using the default backend"
+            );
+            default_app()
+        }
+    }
+}
+
+/// Start the default engine, or the silent one when no device answers.
+fn default_app() -> App {
     App::new().unwrap_or_else(|error| {
         eprintln!("zboub69: audio did not start ({error:#}); running silent");
         App::new_silent().expect("the silent engine always starts")
@@ -93,4 +123,23 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![state, send])
         .run(tauri::generate_context!())
         .expect("zboub69: the tauri runtime failed");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_nonzero_port_asks_for_the_stream() {
+        assert_eq!(stream_port(Some("9999")), Some(9999));
+    }
+
+    #[test]
+    fn anything_else_asks_for_the_default_backend() {
+        assert_eq!(stream_port(None), None);
+        assert_eq!(stream_port(Some("")), None);
+        assert_eq!(stream_port(Some("0")), None);
+        assert_eq!(stream_port(Some("65536")), None);
+        assert_eq!(stream_port(Some("nope")), None);
+    }
 }

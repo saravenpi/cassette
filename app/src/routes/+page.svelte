@@ -80,7 +80,8 @@
 		}
 
 		function onKeyUp(event: KeyboardEvent) {
-			const pitch = pitchFor(event.code, snapshot?.octave ?? 0);
+			const renaming = snapshot?.renaming ?? false;
+			const pitch = renaming ? null : pitchFor(event.code, snapshot?.octave ?? 0);
 			if (pitch !== null) noteOff(pitch);
 
 			// A focused <button> runs its Space activation as the default action of
@@ -128,6 +129,7 @@
 
 		<div class="engine">
 			<span>{snapshot?.backend ?? '…'}</span>
+			<span class="dim note">{snapshot?.backendNote ?? ''}</span>
 			<span class="dim">{snapshot?.sampleRate ?? 0} Hz</span>
 		</div>
 	</header>
@@ -234,7 +236,15 @@
 
 	.engine {
 		margin-left: auto;
+		min-width: 0;
 		font-size: 12px;
+	}
+
+	.engine .note {
+		max-width: 300px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.play {
