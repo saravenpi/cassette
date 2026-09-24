@@ -82,6 +82,10 @@
 		function onKeyUp(event: KeyboardEvent) {
 			const pitch = pitchFor(event.code, snapshot?.octave ?? 0);
 			if (pitch !== null) noteOff(pitch);
+
+			// A focused <button> runs its Space activation as the default action of
+			// keyup, so cancelling only the keydown leaves it free to fire a second time.
+			if (isAppKey(event, snapshot?.renaming ?? false)) event.preventDefault();
 		}
 
 		function releaseAll() {
