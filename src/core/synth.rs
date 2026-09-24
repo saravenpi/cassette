@@ -53,7 +53,7 @@ impl EnvRates {
 }
 
 /// A single oscillator + envelope. `gate_left` counts frames until release;
-/// [`HELD`] means the note is held until an explicit note-off.
+/// `HELD` means the note is held until an explicit note-off.
 #[derive(Clone, Copy, Debug)]
 struct Voice {
     stage: Stage,
@@ -335,7 +335,7 @@ impl SynthEngine {
     }
 
     /// Trigger a note. `gate` is the number of frames before release, or
-    /// [`HELD`] to sustain until [`SynthEngine::note_off`].
+    /// `HELD` to sustain until [`SynthEngine::note_off`].
     pub fn note_on(&mut self, track: usize, pitch: u8, velocity: u8, gate: u32) {
         if track >= self.track_count || velocity == 0 {
             return;

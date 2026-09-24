@@ -387,8 +387,6 @@ impl AudioBackend for SubprocessBackend {
 /// forward the port to your local machine and play the stream there.
 ///
 /// ```text
-/// # server
-/// zboub69 --stream-port 9999
 /// # local machine
 /// ssh -N -L 9999:127.0.0.1:9999 user@server
 /// ffplay -f f32le -ar 44100 -ch_layout stereo tcp://127.0.0.1:9999
@@ -396,6 +394,10 @@ impl AudioBackend for SubprocessBackend {
 ///
 /// Nothing is rendered until a client connects, so the transport never runs
 /// ahead of something nobody can hear.
+///
+/// No front-end starts this backend today. It is reachable through
+/// [`AudioEngine::start_streaming`](crate::core::engine::AudioEngine::start_streaming)
+/// and is covered by `tests/test_engine.rs`; see `docs/music-over-ssh.md`.
 pub struct TcpStreamBackend {
     sample_rate: u32,
     port: u16,

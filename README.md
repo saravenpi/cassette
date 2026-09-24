@@ -64,7 +64,7 @@ cargo clippy --all-targets
 | `-` `=` | track volume |
 | `[` `]` | pan left / right |
 | `,` `.` | tempo |
-| `M` `S` | mute / solo the selected track |
+| `M` `O` | mute / solo the selected track |
 | `Z` `X` | shift the play octave |
 | `A W S E D F T G Y H U J K` | play notes |
 
