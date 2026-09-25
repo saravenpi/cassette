@@ -416,6 +416,11 @@ src/
 
 ### 5.3 TerminalDAW module structure (current project)
 
+[SUPERSEDED by: Phase 6 timeline, 2026-09-24] The list below is from 2026-09-16.
+`src/main.rs` went with the terminal interface, `core/midi.rs`, `core/clip.rs`
+and `core/mixer.rs` do not exist, and the crate is named `zboub69` now. The
+current layout is in `docs/ARCHITECTURE.md` section 1.
+
 ```
 src/
 ├── main.rs        # Entry point

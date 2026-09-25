@@ -215,6 +215,11 @@ pub struct AudioEngine {
 ### Phase 3: UI Framework (Week 3)
 
 #### **1. Three-Pane Layout Implementation**
+
+[SUPERSEDED by: Phase 6 timeline, 2026-09-24] The terminal three-pane layout went
+with the terminal interface. The interface is a webview: a sidebar (sample file
+browser, VST pane, effects pane) and a timeline with one lane per track. There is
+no piano roll; see `docs/ARCHITECTURE.md` section 6.
 - **Browser/Pattern Editor**: Event-driven content browsing
 - **Mixer Panel**: Real-time visualization, track controls
 - **Piano Roll**: MIDI input display and editing

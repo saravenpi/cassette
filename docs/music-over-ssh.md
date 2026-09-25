@@ -66,9 +66,10 @@ binary any more: the crate is a library. The `--stream-port` command-line flag
 went with the terminal binary. The status-bar line, the `space` transport key,
 the `?` help key and the port shown in the interface all went with the TUI.
 
-The module doc comment on `TcpStreamBackend` in `src/core/audio.rs` still says no
-front end starts the backend. The `ZBOUB_STREAM_PORT` route below makes that
-stale.
+[SUPERSEDED by: the doc comment was corrected, 2026-09-24] This used to say the
+module doc comment on `TcpStreamBackend` in `src/core/audio.rs` still claimed no
+front end starts the backend. The comment now names the `ZBOUB_STREAM_PORT` route
+and points back at this file, so the code and the documentation agree.
 
 ### How to start it
 
