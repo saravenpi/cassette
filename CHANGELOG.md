@@ -129,3 +129,28 @@ Removed.
 - The session view's list of named block slots.
 - `BlockName`, `RtCommand::AddBlock`, `TrackView::add_slot` and
   `app/src/lib/types.ts`, all replaced by the timeline model.
+
+## [0.4.0] - 2026-09-25
+
+Universal audio decoding, arbitrary sample lengths, low-latency playback, timeline seeking, and file browser filtering.
+
+### Added
+
+- Universal audio file decoding via Symphonia: MP3, FLAC, M4A, AAC, OGG, Opus, AIFF, and WAV.
+- Native OS drag and drop: dropping audio files from the file manager directly onto timeline lanes.
+- Timeline seeking: clicking or dragging on the ruler seeks the transport to that beat.
+- `Event::Seek` and `RtCommand::Seek` transport control.
+- Non-audio file filtering in the file browser: hidden by default with a count and toggle button.
+
+### Changed
+
+- Sample pool supports arbitrary length audio files through `Arc<[f32]>` buffers without allocations on the audio callback.
+- Sample drops within two beats of lane start snap to beat 0.0.
+
+### Fixed
+
+- Audio truncation at 480,000 frames (sample pool) and 200,000 frames (Tauri waveform decoder).
+- External file loading: removed sample root directory restriction from waveform reader.
+- Playback delay: blocks covering the playhead now start immediately when the track is idle.
+- Subprocess latency: added low-delay flags to `ffplay` pipeline and requested 256-frame buffers in `cpal`.
+
