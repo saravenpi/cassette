@@ -42,7 +42,9 @@
 				? (lane.beats < 2.0 ? 0 : snapBeats(lane.beats))
 				: snapBeats(freeStart(blocks));
 			for (const path of paths) {
-				if (AUDIO_EXTS.test(path)) {
+				if (path.endsWith('.json')) {
+					session.dispatch({ loadProject: { path } });
+				} else if (AUDIO_EXTS.test(path)) {
 					session.dispatch({ importSample: { track: targetTrack, path, startBeats } });
 				}
 			}

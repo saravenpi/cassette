@@ -86,9 +86,17 @@
 	role="list"
 	aria-label="Blocks on {track.name}"
 	data-lane-track={index}
-	style="width: {width}px; height: {height ?? ROW_HEIGHT}px; --bar: {barWidth}px"
+	style="width: {width}px; height: {height ?? ROW_HEIGHT}px"
 	ondblclick={onDoubleClick}
 >
+	<svg class="grid-lines" width={width} height="100%" aria-hidden="true">
+		<defs>
+			<pattern id="grid-{index}" width={barWidth} height="100%" patternUnits="userSpaceOnUse">
+				<line x1="0" y1="0" x2="0" y2="100%" stroke="var(--line)" stroke-width="1" />
+			</pattern>
+		</defs>
+		<rect width="100%" height="100%" fill="url(#grid-{index})" />
+	</svg>
 	{#each items as item (item.key)}
 		<Block
 			block={item.block}
@@ -108,10 +116,11 @@
 		flex: none;
 		border-bottom: 1px solid var(--line);
 		background-color: var(--bg);
-		background-image: repeating-linear-gradient(
-			to right,
-			var(--line) 0 1px,
-			transparent 1px var(--bar)
-		);
+	}
+
+	.grid-lines {
+		position: absolute;
+		inset: 0;
+		pointer-events: none;
 	}
 </style>

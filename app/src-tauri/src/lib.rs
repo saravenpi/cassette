@@ -66,6 +66,8 @@ enum SampleKind {
     Wav,
     /// Another audio file format the engine can load.
     Audio,
+    /// A project file the engine can load.
+    Project,
     /// Anything else, listed but not loadable.
     Other,
 }
@@ -184,6 +186,12 @@ fn describe(entry: &std::fs::DirEntry) -> SampleEntry {
     let directory = meta.as_ref().is_some_and(std::fs::Metadata::is_dir);
     let kind = if directory {
         SampleKind::Dir
+    } else if path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("json"))
+    {
+        SampleKind::Project
     } else if is_audio(&path) {
         if path
             .extension()
@@ -371,12 +379,18 @@ mod tests {
 
     #[test]
     fn every_entry_kind_has_a_lowercase_name() {
-        let kinds = [SampleKind::Dir, SampleKind::Wav, SampleKind::Other];
+        let kinds = [
+            SampleKind::Dir,
+            SampleKind::Wav,
+            SampleKind::Audio,
+            SampleKind::Project,
+            SampleKind::Other,
+        ];
         let names: Vec<String> = kinds
             .iter()
             .map(|kind| serde_json::to_value(kind).expect("a kind should serialize"))
             .map(|value| value.as_str().unwrap_or_default().to_string())
             .collect();
-        assert_eq!(names, ["dir", "wav", "other"]);
+        assert_eq!(names, ["dir", "wav", "audio", "project", "other"]);
     }
 }

@@ -178,4 +178,20 @@ Right-aligned track headers, custom UI palette, square geometry, ruler grid alig
 
 - Ruler and track grid misalignment: lanes and ruler now both start at x=0 with identical width and zero playhead offset.
 
+## [0.6.0] - 2026-09-25
+
+macOS frameless overlay, project loading, flat SVG grid lines, and browser renaming.
+
+### Added
+
+- Project loading: load and restore session structure, BPM, blocks, and sample references from JSON via `LoadProject` and `App::load_project`.
+- Project loading in UI: transport `Load` button with file picker, `.json` drag and drop on the window, and double-click to load from the browser.
+- Frameless overlay on macOS: `titleBarStyle: Overlay` with `hiddenTitle: true` and macOS-aware top bar padding to integrate window controls cleanly.
+
+### Changed
+
+- Transport export button renamed from "Export WAV" to "Export".
+- Sidebar tab renamed from "File browser" to "Browser".
+- Timeline lane grid background replaced with flat SVG vector lines, removing all CSS gradients.
+
 

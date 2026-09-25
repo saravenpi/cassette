@@ -12,9 +12,29 @@
 	const position = $derived(
 		formatPosition(snapshot?.transportPositionBeats ?? 0, snapshot?.beatsPerBar ?? 4)
 	);
+	const isMac = typeof navigator !== 'undefined' && /Macintosh|Mac OS X/.test(navigator.userAgent);
+
+	let fileInput = $state<HTMLInputElement | null>(null);
+
+	function triggerLoad(): void {
+		if (fileInput) {
+			fileInput.value = '';
+			fileInput.click();
+		} else {
+			session.dispatch({ loadProject: { path: null } });
+		}
+	}
+
+	function onFileSelected(event: Event): void {
+		const target = event.currentTarget as HTMLInputElement;
+		const file = target.files?.[0];
+		if (!file) return;
+		const path = (file as unknown as { path?: string }).path;
+		session.dispatch({ loadProject: { path: path ?? null } });
+	}
 </script>
 
-<header>
+<header data-tauri-drag-region class:mac={isMac}>
 	<span class="wordmark">zboub69</span>
 
 	<div class="group" role="group" aria-label="Transport">
@@ -43,9 +63,17 @@
 		</button>
 	</div>
 
-	<div class="group" role="group" aria-label="Export">
-		<button onclick={() => session.dispatch({ exportAudio: { path: null } })}>Export WAV</button>
+	<div class="group" role="group" aria-label="Project">
+		<button onclick={() => session.dispatch({ exportAudio: { path: null } })}>Export</button>
 		<button onclick={() => session.dispatch({ exportProject: { path: null } })}>Save</button>
+		<button onclick={triggerLoad}>Load</button>
+		<input
+			type="file"
+			accept=".json"
+			style="display: none"
+			bind:this={fileInput}
+			onchange={onFileSelected}
+		/>
 	</div>
 
 	<div class="group" role="group" aria-label="Tempo">
@@ -88,6 +116,11 @@
 		padding: 6px 12px;
 		background: var(--panel);
 		border-bottom: 1px solid var(--line);
+		user-select: none;
+	}
+
+	header.mac {
+		padding-left: 78px;
 	}
 
 	.wordmark {

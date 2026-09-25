@@ -91,3 +91,14 @@ fn an_event_survives_a_round_trip() {
     );
     assert_eq!(parse(&json), event);
 }
+
+#[test]
+fn a_load_project_reads_camel_case_fields() {
+    let event = parse(r#"{"loadProject":{"path":"/projects/my-song.json"}}"#);
+    assert_eq!(
+        event,
+        Event::LoadProject {
+            path: Some("/projects/my-song.json".into()),
+        }
+    );
+}

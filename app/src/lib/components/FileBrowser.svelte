@@ -105,6 +105,17 @@
 							<span class="name">{entry.name}</span>
 							<span class="meta">{sizeLabel(entry.size)}</span>
 						</button>
+					{:else if entry.kind === 'project'}
+						<button
+							class="row project"
+							class:picked={selected?.path === entry.path}
+							title="Double-click to load this project"
+							onclick={() => (selected = entry)}
+							ondblclick={() => session.dispatch({ loadProject: { path: entry.path } })}
+						>
+							<span class="name">{entry.name}</span>
+							<span class="meta">project</span>
+						</button>
 					{:else}
 						<div class="row other">
 							<span class="name">{entry.name}</span>

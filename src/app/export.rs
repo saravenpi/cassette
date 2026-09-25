@@ -5,9 +5,12 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::App;
+use crate::core::meter::MeterBank;
 use crate::core::render::{RenderCore, RtCommand};
 use crate::core::sample::SampleMsg;
 use crate::core::wav;
+use crate::models::Song;
+use crate::ui::view::Cursor;
 
 impl App {
     pub(crate) fn export_audio(&mut self, target_path: Option<String>) {
@@ -90,10 +93,53 @@ impl App {
             Err(error) => self.status = format!("serializing project failed: {error}"),
         }
     }
+
+    pub(crate) fn load_project(&mut self, target_path: Option<String>) {
+        let path = target_path.map(PathBuf::from).or_else(latest_project_path);
+        let Some(path) = path else {
+            self.status = "no saved project found to load".into();
+            return;
+        };
+        let content = match std::fs::read_to_string(&path) {
+            Ok(content) => content,
+            Err(error) => {
+                self.status = format!("load project failed: {error}");
+                return;
+            }
+        };
+        let song: Song = match serde_json::from_str(&content) {
+            Ok(song) => song,
+            Err(error) => {
+                self.status = format!("parsing project failed: {error}");
+                return;
+            }
+        };
+        self.song = song;
+        self.cursor = Cursor::default();
+        self.meters = MeterBank::new(self.song.tracks.len());
+
+        let sources: Vec<String> = self
+            .song
+            .tracks
+            .iter()
+            .flat_map(|t| t.blocks.iter())
+            .filter(|b| !b.source.is_empty())
+            .map(|b| b.source.clone())
+            .collect();
+        for source in sources {
+            if !self.samples.contains_key(&source) {
+                self.load_sample_source(&source);
+            }
+        }
+
+        self.engine.resync(&self.song);
+        self.repush_lanes();
+        self.status = format!("loaded project from {}", path.display());
+    }
 }
 
-fn default_export_path(prefix: &str, ext: &str) -> PathBuf {
-    let base = if let Ok(dir) = std::env::var("ZBOUB_SAMPLES_DIR")
+fn default_directory() -> PathBuf {
+    if let Ok(dir) = std::env::var("ZBOUB_SAMPLES_DIR")
         && !dir.is_empty()
     {
         PathBuf::from(dir)
@@ -106,12 +152,35 @@ fn default_export_path(prefix: &str, ext: &str) -> PathBuf {
         }
     } else {
         PathBuf::from(".")
-    };
+    }
+}
 
+fn default_export_path(prefix: &str, ext: &str) -> PathBuf {
+    let base = default_directory();
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());
     base.join(format!("zboub69-{prefix}-{timestamp}.{ext}"))
+}
+
+fn latest_project_path() -> Option<PathBuf> {
+    let base = default_directory();
+    let entries = std::fs::read_dir(&base).ok()?;
+    let mut projects: Vec<(SystemTime, PathBuf)> = entries
+        .filter_map(|e| e.ok())
+        .filter_map(|e| {
+            let path = e.path();
+            let name = path.file_name()?.to_str()?;
+            if name.starts_with("zboub69-project-") && name.ends_with(".json") {
+                let mtime = e.metadata().ok()?.modified().ok()?;
+                Some((mtime, path))
+            } else {
+                None
+            }
+        })
+        .collect();
+    projects.sort_by_key(|b| std::cmp::Reverse(b.0));
+    projects.into_iter().next().map(|(_, path)| path)
 }
 
 #[cfg(test)]
@@ -147,5 +216,21 @@ mod tests {
         assert!(content.contains("bpm"));
         let _ = std::fs::remove_file(&path);
         assert!(app.status.contains("exported project to"));
+    }
+
+    #[test]
+    fn project_load_restores_song_and_tempo() {
+        let mut app = headless_app();
+        app.song.set_bpm(142.0);
+        let temp_dir = std::env::temp_dir();
+        let path = temp_dir.join("zboub69_test_load.json");
+        app.export_project(Some(path.to_string_lossy().into_owned()));
+
+        let mut fresh = headless_app();
+        assert_eq!(fresh.song.bpm(), 120.0);
+        fresh.load_project(Some(path.to_string_lossy().into_owned()));
+        assert_eq!(fresh.song.bpm(), 142.0);
+        assert!(fresh.status.contains("loaded project from"));
+        let _ = std::fs::remove_file(&path);
     }
 }

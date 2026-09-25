@@ -106,6 +106,28 @@ impl App {
         }
         (0..MAX_SAMPLE_SLOTS as u8).find(|slot| !self.samples.values().any(|taken| taken == slot))
     }
+
+    pub(crate) fn load_sample_source(&mut self, path: &str) -> Option<u8> {
+        if let Some(&slot) = self.samples.get(path) {
+            return Some(slot);
+        }
+        let sample = wav::decode(Path::new(path), usize::MAX).ok()?;
+        let slot = self.slot_for(path)?;
+        if let Some(producer) = self.producer.as_mut()
+            && !push_load(Some(producer), slot, &sample)
+        {
+            let _ = producer.push(SampleMsg::Free { slot });
+            return None;
+        }
+        self.loaded_samples
+            .insert(slot, std::sync::Arc::from(sample.frames.as_slice()));
+        self.samples.insert(path.to_string(), slot);
+        self.send(crate::core::render::RtCommand::SetSampleRate {
+            slot,
+            rate: sample.sample_rate as f32,
+        });
+        Some(slot)
+    }
 }
 
 fn push_load(producer: Option<&mut Producer<SampleMsg>>, slot: u8, sample: &Sample) -> bool {

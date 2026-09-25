@@ -221,6 +221,7 @@ impl App {
             Event::RecordAudio { path } => self.record_audio(path),
             Event::ToggleRecord => self.record_audio(None),
             Event::ExportProject { path } => self.export_project(path),
+            Event::LoadProject { path } => self.load_project(path),
         }
     }
 

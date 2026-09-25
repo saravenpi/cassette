@@ -137,4 +137,8 @@ pub enum Event {
     ExportProject {
         path: Option<String>,
     },
+    /// Load the project structure from a JSON file.
+    LoadProject {
+        path: Option<String>,
+    },
 }

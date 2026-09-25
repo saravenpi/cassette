@@ -11,7 +11,7 @@
 	type Tab = 'files' | 'vst' | 'effects';
 
 	const TABS: { id: Tab; label: string }[] = [
-		{ id: 'files', label: 'File browser' },
+		{ id: 'files', label: 'Browser' },
 		{ id: 'vst', label: 'VST' },
 		{ id: 'effects', label: 'Effects' }
 	];

@@ -62,7 +62,7 @@ export interface UiState {
 	sampleRate: number;
 }
 
-export type SampleKind = 'dir' | 'wav' | 'audio' | 'other';
+export type SampleKind = 'dir' | 'wav' | 'audio' | 'project' | 'other';
 
 /** One entry the file browser can show. */
 export interface SampleEntry {
@@ -122,5 +122,6 @@ export type EngineEvent =
 	| 'toggleRecord'
 	| { exportAudio: { path: string | null } }
 	| { recordAudio: { path: string | null } }
-	| { exportProject: { path: string | null } };
+	| { exportProject: { path: string | null } }
+	| { loadProject: { path: string | null } };
 
