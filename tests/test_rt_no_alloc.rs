@@ -11,20 +11,39 @@
 mod red_zone {
     use zboub69::core::DEFAULT_SAMPLE_RATE;
     use zboub69::core::MAX_TRACKS;
-    use zboub69::core::render::{BlockName, RenderCore, RtCommand};
+    use zboub69::core::render::{MirroredBlock, RenderCore, RtCommand};
+    use zboub69::core::sample::{NO_SLOT, SampleMsg};
     use zboub69::models::Song;
 
     #[global_allocator]
     static GLOBAL_ALLOC: assert_no_alloc::AllocDisabler = assert_no_alloc::AllocDisabler;
+
+    /// One MIDI lane's worth of mirror, built before the guard goes up.
+    fn lane() -> Vec<MirroredBlock> {
+        vec![
+            MirroredBlock {
+                start_beats: 0.0,
+                end_beats: 4.0,
+                slot: NO_SLOT,
+                gain: 0.0,
+            },
+            MirroredBlock {
+                start_beats: 8.0,
+                end_beats: 12.0,
+                slot: NO_SLOT,
+                gain: 0.0,
+            },
+        ]
+    }
 
     #[test]
     fn the_render_loop_allocates_nothing() {
         let song = Song::new();
         let mut core = RenderCore::new(&song, DEFAULT_SAMPLE_RATE);
         core.apply(RtCommand::Play);
-        core.apply(RtCommand::AddBlock {
+        core.apply(RtCommand::SetBlocks {
             track: 0,
-            name: BlockName::new("Verse"),
+            blocks: lane(),
         });
         core.apply(RtCommand::NoteOn {
             track: 0,
@@ -52,12 +71,17 @@ mod red_zone {
     fn applying_commands_allocates_nothing() {
         let song = Song::new();
         let mut core = RenderCore::new(&song, DEFAULT_SAMPLE_RATE);
-        let name = BlockName::new("Chorus");
+        // A mirror is moved in, never built inside the guard.
+        let blocks = lane();
 
         assert_no_alloc::assert_no_alloc(|| {
             core.apply(RtCommand::SetBpm { bpm: 128.0 });
-            core.apply(RtCommand::SetTrackCount { count: 4 });
-            core.apply(RtCommand::AddBlock { track: 0, name });
+            core.apply(RtCommand::SetLooping { looping: true });
+            core.apply(RtCommand::SetSampleRate {
+                slot: 0,
+                rate: 44_100.0,
+            });
+            core.apply(RtCommand::SetBlocks { track: 0, blocks });
             core.apply(RtCommand::NoteOn {
                 track: 0,
                 pitch: 64,
@@ -70,6 +94,46 @@ mod red_zone {
             core.apply(RtCommand::Stop);
         });
 
-        assert_eq!(core.block_count(0), 1);
+        assert_eq!(core.block_count(0), 2);
+    }
+
+    /// Fill one slot with `frames` frames of a constant value.
+    fn load_slot(core: &mut RenderCore, slot: u8, frames: usize) {
+        core.push_sample(SampleMsg::Begin {
+            slot,
+            frames: frames as u32,
+            rate: 44_100.0,
+        });
+        for _ in 0..frames {
+            core.push_sample(SampleMsg::Frame(0.5));
+        }
+        core.push_sample(SampleMsg::End { slot });
+    }
+
+    #[test]
+    fn playing_a_mirrored_sample_allocates_nothing() {
+        let song = Song::new();
+        let mut core = RenderCore::new(&song, DEFAULT_SAMPLE_RATE);
+        load_slot(&mut core, 0, 4_096);
+        core.apply(RtCommand::SetBlocks {
+            track: 0,
+            blocks: vec![MirroredBlock {
+                start_beats: 0.0,
+                end_beats: 4.0,
+                slot: 0,
+                gain: 0.5,
+            }],
+        });
+        core.apply(RtCommand::Play);
+
+        let mut out = vec![0.0f32; 1024 * 2];
+
+        assert_no_alloc::assert_no_alloc(|| {
+            for _ in 0..64 {
+                let _ = core.process(&mut out);
+            }
+        });
+
+        assert!(core.position_frames() > 0, "the loop did run");
     }
 }

@@ -4,6 +4,9 @@
 //! mutates existing memory. Envelope increments are derived from the
 //! [`Instrument`] and the sample rate whenever an instrument changes.
 
+use rtrb::Consumer;
+
+use crate::core::sample::{MAX_SAMPLE_SLOTS, NO_SLOT, SampleMsg, SamplePool};
 use crate::core::{MAX_TRACKS, MAX_VOICES};
 use crate::models::{Instrument, Waveform};
 use crate::utils::frequency::note_to_freq;
@@ -164,10 +167,64 @@ impl Voice {
     }
 }
 
+/// One track's sample voice: where its slot is playing, and how fast it moves.
+///
+/// The position is a phase in the slot's own frames, so a rate ratio of one
+/// advances one source frame per engine frame. It is `f64` so a long sample
+/// never loses the fractional part that the interpolation reads.
+#[derive(Clone, Copy, Debug)]
+struct SamplePlayer {
+    slot: u8,
+    position: f64,
+    step: f64,
+    gain: f32,
+    pitch: u8,
+    /// Which block started this voice, so a block's end cannot release another
+    /// block's sample.
+    tag: u8,
+    /// Remaining amplitude of the release fade, 1.0 while held.
+    level: f32,
+    /// Per-frame change in `level`; negative once the voice is releasing.
+    level_step: f32,
+}
+
+impl SamplePlayer {
+    /// A player with nothing loaded.
+    const IDLE: SamplePlayer = SamplePlayer {
+        slot: NO_SLOT,
+        position: 0.0,
+        step: 1.0,
+        gain: 0.0,
+        pitch: 0,
+        tag: 0,
+        level: 1.0,
+        level_step: 0.0,
+    };
+
+    /// Whether the player currently has a slot to read.
+    fn playing(&self) -> bool {
+        self.slot != NO_SLOT
+    }
+}
+
+/// The interpolated frame the player sits on, or `None` once it has run out.
+fn sample_at(player: &SamplePlayer, pool: &SamplePool) -> Option<f32> {
+    let frames = pool.frames(player.slot);
+    let at = player.position.floor();
+    if at < 0.0 || at >= frames.len() as f64 {
+        return None;
+    }
+    let at = at as usize;
+    let next = (at + 1).min(frames.len() - 1);
+    let frac = (player.position - at as f64) as f32;
+    Some(frames[at] + (frames[next] - frames[at]) * frac)
+}
+
 /// One track's voices and mixer state.
 #[derive(Clone, Copy, Debug)]
 struct TrackVoices {
     voices: [Voice; MAX_VOICES],
+    sample: SamplePlayer,
     instrument: Instrument,
     rates: EnvRates,
     volume: f32,
@@ -180,6 +237,7 @@ impl TrackVoices {
     fn new(instrument: Instrument, sample_rate: f32) -> Self {
         Self {
             voices: [Voice::IDLE; MAX_VOICES],
+            sample: SamplePlayer::IDLE,
             instrument,
             rates: EnvRates::from(&instrument, sample_rate),
             volume: 0.8,
@@ -230,7 +288,23 @@ fn waveform(shape: Waveform, phase: f32, rng: &mut u32) -> f32 {
     }
 }
 
+/// Amplitude a sample voice plays at: the instrument's own gain.
+///
+/// The block's length does not enter here. What stops a sample longer than its
+/// block is the timeline releasing the voice when the playhead passes the
+/// block's end, which is a cut with a short fade rather than an amplitude the
+/// engine guesses in advance.
+pub fn sample_gain(instrument: &Instrument) -> f32 {
+    instrument.gain.clamp(0.0, 1.0)
+}
+
+/// Frames a released sample voice takes to fade out, so a cut does not click.
+pub const RELEASE_FADE_FRAMES: u32 = 128;
+
 /// A fixed-array polyphonic synthesizer for up to [`MAX_TRACKS`] tracks.
+///
+/// Each track carries both its synth voices and one sample voice; the two are
+/// summed into the track's mono mix.
 pub struct SynthEngine {
     sample_rate: f32,
     tracks: [TrackVoices; MAX_TRACKS],
@@ -239,6 +313,9 @@ pub struct SynthEngine {
     any_solo: bool,
     master: f32,
     rng: u32,
+    pool: SamplePool,
+    sample_consumer: Option<Consumer<SampleMsg>>,
+    sample_ratios: [f32; MAX_SAMPLE_SLOTS],
 }
 
 impl SynthEngine {
@@ -254,6 +331,9 @@ impl SynthEngine {
             any_solo: false,
             master: 0.85,
             rng: 0x1234_5678,
+            pool: SamplePool::new(),
+            sample_consumer: None,
+            sample_ratios: [1.0; MAX_SAMPLE_SLOTS],
         }
     }
 
@@ -272,6 +352,7 @@ impl SynthEngine {
         let count = count.min(MAX_TRACKS);
         for track in &mut self.tracks[count..self.track_count.max(count)] {
             track.voices = [Voice::IDLE; MAX_VOICES];
+            track.sample = SamplePlayer::IDLE;
         }
         self.track_count = count;
         self.recompute_active_voices();
@@ -322,6 +403,113 @@ impl SynthEngine {
         self.update_solo();
     }
 
+    /// Hand the engine the control thread's end of the sample ring.
+    ///
+    /// [`SynthEngine::drain_samples`] then moves the messages into the pool.
+    /// Without a consumer the ring is not read, and samples arrive only through
+    /// [`SynthEngine::push_sample`].
+    pub fn set_sample_ring(&mut self, consumer: Consumer<SampleMsg>) {
+        self.sample_consumer = Some(consumer);
+    }
+
+    /// Move everything waiting on the sample ring into the pool.
+    ///
+    /// Allocation-free: the pool wrote its memory before the stream started.
+    pub fn drain_samples(&mut self) {
+        let SynthEngine {
+            pool,
+            sample_consumer,
+            ..
+        } = self;
+        if let Some(consumer) = sample_consumer.as_mut() {
+            pool.drain(consumer);
+        }
+    }
+
+    /// Apply one sample message straight to the pool, for tests and for a
+    /// control side that feeds the engine a message at a time.
+    pub fn push_sample(&mut self, message: SampleMsg) {
+        self.pool.push(message);
+    }
+
+    /// Tell the engine what rate a slot's frames were decoded at.
+    ///
+    /// The engine keeps the ratio of that rate to its own. A WAV at another
+    /// rate therefore plays pitch-shifted: 44.1 kHz material in a 48 kHz session
+    /// runs slightly fast and high. That is Ableton's default Repitch warp mode,
+    /// and it is what this engine does on purpose, not a bug.
+    pub fn set_sample_rate(&mut self, slot: u8, rate: f32) {
+        let slot = slot as usize;
+        if slot >= MAX_SAMPLE_SLOTS {
+            return;
+        }
+        let engine_rate = self.sample_rate.max(1.0);
+        self.sample_ratios[slot] = if rate > 0.0 { rate / engine_rate } else { 1.0 };
+    }
+
+    /// Start a sample voice on `track`, entered `offset_frames` into `slot`.
+    ///
+    /// Returns `false`, changing nothing, when the track is not one of the
+    /// engine's, when the slot is [`NO_SLOT`], when the slot holds no finished
+    /// load, or when `gain` is not positive. A track holds one sample voice, so
+    /// a new trigger replaces the one already playing; that voice is summed with
+    /// the track's synth voices rather than replacing them.
+    pub fn play_sample(
+        &mut self,
+        track: usize,
+        pitch: u8,
+        slot: u8,
+        offset_frames: u32,
+        gain: f32,
+        tag: u8,
+    ) -> bool {
+        if track >= self.track_count || slot == NO_SLOT || gain <= 0.0 || !self.pool.is_ready(slot)
+        {
+            return false;
+        }
+        let player = &mut self.tracks[track].sample;
+        let was_idle = !player.playing();
+        *player = SamplePlayer {
+            slot,
+            position: offset_frames as f64,
+            step: self.sample_ratios[slot as usize] as f64,
+            gain,
+            pitch,
+            tag,
+            level: 1.0,
+            level_step: 0.0,
+        };
+        if was_idle {
+            self.active_voices += 1;
+        }
+        true
+    }
+
+    /// Begin the release fade on `track`'s sample voice, if `tag` started it.
+    ///
+    /// The timeline calls this when the playhead passes a block's end, so a
+    /// sample longer than its block is cut with the block rather than running
+    /// on. A mismatch is ignored, which is what keeps a block ending from
+    /// silencing the sample a later block started.
+    pub fn release_sample(&mut self, track: usize, tag: u8) -> bool {
+        if track >= self.track_count {
+            return false;
+        }
+        let player = &mut self.tracks[track].sample;
+        if !player.playing() || player.tag != tag || player.level_step < 0.0 {
+            return false;
+        }
+        player.level_step = -1.0 / RELEASE_FADE_FRAMES as f32;
+        true
+    }
+
+    /// How many sample slots currently hold a playable sample.
+    pub fn sample_slots_ready(&self) -> usize {
+        (0..MAX_SAMPLE_SLOTS as u8)
+            .filter(|slot| self.pool.is_ready(*slot))
+            .count()
+    }
+
     fn update_solo(&mut self) {
         self.any_solo = self.tracks[..self.track_count].iter().any(|t| t.solo);
     }
@@ -329,9 +517,10 @@ impl SynthEngine {
     fn recompute_active_voices(&mut self) {
         self.active_voices = self.tracks[..self.track_count]
             .iter()
-            .flat_map(|t| t.voices.iter())
-            .filter(|v| !v.is_idle())
-            .count();
+            .map(|t| {
+                t.voices.iter().filter(|v| !v.is_idle()).count() + usize::from(t.sample.playing())
+            })
+            .sum();
     }
 
     /// Trigger a note. `gate` is the number of frames before release, or
@@ -375,6 +564,10 @@ impl SynthEngine {
     }
 
     /// Release any voices playing `pitch` on `track`.
+    ///
+    /// A sample voice the timeline triggered carries
+    /// [`crate::core::render::EVENT_PITCH`], which no keyboard sends, so it is
+    /// never released this way; a sample player started at a real pitch is.
     pub fn note_off(&mut self, track: usize, pitch: u8) {
         if track >= self.track_count {
             return;
@@ -384,9 +577,14 @@ impl SynthEngine {
                 voice.gate_left = 0;
             }
         }
+        let player = &mut self.tracks[track].sample;
+        if player.playing() && player.pitch == pitch {
+            *player = SamplePlayer::IDLE;
+            self.active_voices = self.active_voices.saturating_sub(1);
+        }
     }
 
-    /// Release every voice on every track.
+    /// Release every synth voice and stop every sample voice.
     pub fn all_notes_off(&mut self) {
         for track in &mut self.tracks[..self.track_count] {
             for voice in &mut track.voices {
@@ -394,7 +592,9 @@ impl SynthEngine {
                     voice.gate_left = 0;
                 }
             }
+            track.sample = SamplePlayer::IDLE;
         }
+        self.recompute_active_voices();
     }
 
     /// Whether any voice is currently producing sound.
@@ -404,7 +604,9 @@ impl SynthEngine {
 
     /// Render one stereo frame, accumulating per-track peaks into `peaks`.
     ///
-    /// Returns `(left, right)` already clamped to `[-1, 1]`.
+    /// Returns `(left, right)` already clamped to `[-1, 1]`. Each track's sample
+    /// voice, when it has one, is summed into the track's mono mix after the
+    /// synth voices, so both reach the same meter and mixer.
     pub fn process_frame(&mut self, peaks: &mut [f32; MAX_TRACKS]) -> (f32, f32) {
         if self.active_voices == 0 {
             return (0.0, 0.0);
@@ -417,6 +619,7 @@ impl SynthEngine {
             master,
             rng,
             active_voices,
+            pool,
             ..
         } = self;
 
@@ -435,6 +638,31 @@ impl SynthEngine {
                     finished += 1;
                 }
                 mono += sample;
+            }
+
+            if track.sample.playing() {
+                match sample_at(&track.sample, pool) {
+                    Some(frame) => {
+                        track.sample.level =
+                            (track.sample.level + track.sample.level_step).min(1.0);
+                        if track.sample.level <= 0.0 {
+                            track.sample = SamplePlayer::IDLE;
+                            finished += 1;
+                        } else {
+                            mono += frame * track.sample.gain * track.sample.level;
+                            track.sample.position += track.sample.step;
+                            let end = pool.frames(track.sample.slot).len() as f64;
+                            if track.sample.position >= end {
+                                track.sample = SamplePlayer::IDLE;
+                                finished += 1;
+                            }
+                        }
+                    }
+                    None => {
+                        track.sample = SamplePlayer::IDLE;
+                        finished += 1;
+                    }
+                }
             }
 
             let magnitude = mono.abs();
@@ -463,13 +691,50 @@ impl SynthEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::Instrument;
+    use crate::models::{Instrument, Waveform};
+    use rtrb::RingBuffer;
+
+    /// Pitch the timeline triggers sample voices at, as `render.rs` does.
+    const EVENT: u8 = 255;
 
     fn engine() -> SynthEngine {
         let mut e = SynthEngine::new(44_100);
         e.set_track_count(1);
         e.configure_track(0, Instrument::preset("Lead"), 1.0, 0.0, false, false);
         e
+    }
+
+    fn tracks(count: usize) -> SynthEngine {
+        let mut e = SynthEngine::new(44_100);
+        e.set_track_count(count);
+        for track in 0..count {
+            e.configure_track(track, Instrument::preset("Lead"), 1.0, 0.0, false, false);
+        }
+        e
+    }
+
+    fn load(e: &mut SynthEngine, slot: u8, frames: &[f32], rate: f32) {
+        e.push_sample(SampleMsg::Begin {
+            slot,
+            frames: frames.len() as u32,
+            rate,
+        });
+        for frame in frames {
+            e.push_sample(SampleMsg::Frame(*frame));
+        }
+        e.push_sample(SampleMsg::End { slot });
+    }
+
+    fn constant(e: &mut SynthEngine, slot: u8, count: usize, value: f32) {
+        load(e, slot, &vec![value; count], 44_100.0);
+    }
+
+    fn run(e: &mut SynthEngine, frames: usize) -> [f32; MAX_TRACKS] {
+        let mut peaks = [0.0; MAX_TRACKS];
+        for _ in 0..frames {
+            e.process_frame(&mut peaks);
+        }
+        peaks
     }
 
     #[test]
@@ -539,5 +804,242 @@ mod tests {
         let mut e = engine();
         e.note_on(9, 69, 100, HELD);
         assert!(!e.is_active());
+    }
+
+    #[test]
+    fn pushed_slots_are_reported_ready() {
+        let mut e = engine();
+        assert_eq!(e.sample_slots_ready(), 0);
+        constant(&mut e, 0, 8, 0.5);
+        constant(&mut e, 1, 8, 0.5);
+        assert_eq!(e.sample_slots_ready(), 2);
+    }
+
+    #[test]
+    fn the_ring_feeds_the_pool() {
+        let mut e = engine();
+        let (mut producer, consumer) = RingBuffer::<SampleMsg>::new(16);
+        e.set_sample_ring(consumer);
+        producer
+            .push(SampleMsg::Begin {
+                slot: 0,
+                frames: 2,
+                rate: 44_100.0,
+            })
+            .expect("room for the header");
+        producer
+            .push(SampleMsg::Frame(0.5))
+            .expect("room for a frame");
+        producer
+            .push(SampleMsg::Frame(0.5))
+            .expect("room for a frame");
+        producer
+            .push(SampleMsg::End { slot: 0 })
+            .expect("room for the tail");
+        e.drain_samples();
+        assert_eq!(e.sample_slots_ready(), 1);
+    }
+
+    #[test]
+    fn a_loaded_sample_sounds_on_its_track() {
+        let mut e = engine();
+        constant(&mut e, 0, 512, 0.5);
+        assert!(e.play_sample(0, EVENT, 0, 0, 1.0, 0));
+        let peaks = run(&mut e, 400);
+        assert!(
+            (peaks[0] - 0.5).abs() < 1e-6,
+            "the sample reached the meter"
+        );
+        assert!(e.is_active(), "a sample voice keeps the engine awake");
+    }
+
+    #[test]
+    fn a_sample_plays_only_on_its_own_track() {
+        let mut e = tracks(2);
+        constant(&mut e, 0, 512, 0.5);
+        assert!(e.play_sample(0, EVENT, 0, 0, 1.0, 0));
+        let mut peaks = [0.0; MAX_TRACKS];
+        let mut other = 0.0f32;
+        for _ in 0..400 {
+            e.process_frame(&mut peaks);
+            other = other.max(peaks[1]);
+        }
+        assert!(peaks[0] > 0.4, "the triggered track sounds");
+        assert_eq!(other, 0.0, "the other track stays quiet");
+    }
+
+    #[test]
+    fn an_empty_slot_is_refused_and_stays_silent() {
+        let mut e = engine();
+        assert!(!e.play_sample(0, EVENT, 0, 0, 1.0, 0), "nothing is loaded");
+        assert!(
+            !e.play_sample(0, EVENT, NO_SLOT, 0, 1.0, 0),
+            "no slot at all"
+        );
+        assert!(!e.play_sample(9, EVENT, 0, 0, 1.0, 0), "no such track");
+        constant(&mut e, 0, 512, 0.5);
+        assert!(!e.play_sample(0, EVENT, 0, 0, 0.0, 0), "silent gain");
+        assert!(!e.is_active());
+        assert_eq!(run(&mut e, 64), [0.0; MAX_TRACKS]);
+    }
+
+    #[test]
+    fn a_sample_enters_at_its_offset() {
+        let mut e = engine();
+        let mut frames = vec![0.25f32; 200];
+        frames.extend_from_slice(&[0.75f32; 200]);
+        load(&mut e, 0, &frames, 44_100.0);
+        assert!(e.play_sample(0, EVENT, 0, 200, 1.0, 0));
+        let peaks = run(&mut e, 1);
+        assert!(
+            (peaks[0] - 0.75).abs() < 1e-6,
+            "the voice started on frame 200, got {}",
+            peaks[0]
+        );
+    }
+
+    #[test]
+    fn the_rate_ratio_changes_how_fast_a_sample_runs() {
+        let mut frames = vec![0.0f32; 100];
+        frames.extend_from_slice(&[1.0f32; 100]);
+
+        let mut fast = engine();
+        fast.set_sample_rate(0, 44_100.0);
+        load(&mut fast, 0, &frames, 44_100.0);
+        assert!(fast.play_sample(0, EVENT, 0, 0, 1.0, 0));
+        let fast_peaks = run(&mut fast, 150);
+
+        let mut slow = engine();
+        slow.set_sample_rate(0, 22_050.0);
+        load(&mut slow, 0, &frames, 44_100.0);
+        assert!(slow.play_sample(0, EVENT, 0, 0, 1.0, 0));
+        let slow_peaks = run(&mut slow, 150);
+
+        assert!(fast_peaks[0] > 0.5, "at engine rate it is half way through");
+        assert_eq!(slow_peaks[0], 0.0, "at half rate it read half as far");
+    }
+
+    #[test]
+    fn a_sample_and_a_synth_voice_on_one_track_sum() {
+        let mut sample_only = engine();
+        constant(&mut sample_only, 0, 512, 0.25);
+        assert!(sample_only.play_sample(0, EVENT, 0, 0, 1.0, 0));
+
+        let mut voice_only = engine();
+        voice_only.note_on(0, 69, 100, HELD);
+
+        let mut both = engine();
+        constant(&mut both, 0, 512, 0.25);
+        assert!(both.play_sample(0, EVENT, 0, 0, 1.0, 0));
+        both.note_on(0, 69, 100, HELD);
+
+        let sample_peak = run(&mut sample_only, 400)[0];
+        let voice_peak = run(&mut voice_only, 400)[0];
+        let sum_peak = run(&mut both, 400)[0];
+
+        assert!(voice_peak > 0.01, "the synth voice sounds on its own");
+        assert!(sample_peak > 0.24, "the sample sounds on its own");
+        assert!(
+            sum_peak > sample_peak,
+            "the two add up: {sum_peak} against {sample_peak}"
+        );
+    }
+
+    #[test]
+    fn a_finished_sample_goes_idle_and_the_track_stops() {
+        let mut e = engine();
+        constant(&mut e, 0, 100, 0.5);
+        assert!(e.play_sample(0, EVENT, 0, 0, 1.0, 0));
+        assert!(e.is_active());
+        run(&mut e, 100);
+        assert!(!e.is_active(), "the voice count was given back");
+        assert_eq!(run(&mut e, 100), [0.0; MAX_TRACKS]);
+    }
+
+    #[test]
+    fn all_notes_off_stops_a_sample_voice() {
+        let mut e = engine();
+        constant(&mut e, 0, 512, 0.5);
+        assert!(e.play_sample(0, EVENT, 0, 0, 1.0, 0));
+        e.all_notes_off();
+        assert!(!e.is_active());
+        let mut peaks = [0.0; MAX_TRACKS];
+        assert_eq!(e.process_frame(&mut peaks), (0.0, 0.0));
+    }
+
+    #[test]
+    fn a_new_trigger_replaces_the_playing_sample() {
+        let mut e = engine();
+        constant(&mut e, 0, 512, 0.25);
+        constant(&mut e, 1, 512, 0.5);
+        assert!(e.play_sample(0, EVENT, 0, 0, 1.0, 0));
+        assert!(e.play_sample(0, EVENT, 1, 0, 1.0, 0));
+        let peaks = run(&mut e, 1);
+        assert!((peaks[0] - 0.5).abs() < 1e-6, "the newer slot is playing");
+    }
+
+    #[test]
+    fn a_lower_track_count_releases_its_samples() {
+        let mut e = tracks(2);
+        constant(&mut e, 0, 512, 0.5);
+        assert!(e.play_sample(1, EVENT, 0, 0, 1.0, 0));
+        e.set_track_count(1);
+        assert!(!e.is_active());
+        assert_eq!(run(&mut e, 32), [0.0; MAX_TRACKS]);
+    }
+
+    #[test]
+    fn an_unloaded_slot_plays_nothing_once_it_is_freed() {
+        let mut e = engine();
+        constant(&mut e, 0, 512, 0.5);
+        assert!(e.play_sample(0, EVENT, 0, 0, 1.0, 0));
+        e.push_sample(SampleMsg::Free { slot: 0 });
+        assert_eq!(run(&mut e, 8), [0.0; MAX_TRACKS]);
+        assert!(!e.is_active());
+    }
+
+    #[test]
+    fn sample_gain_is_the_instrument_gain_and_ignores_block_length() {
+        let instrument = Instrument::new(Waveform::Sine, 0.0, 0.1, 0.5, 2.0, 0.8, 0);
+        assert!((sample_gain(&instrument) - 0.8).abs() < 1e-6);
+        let loud = Instrument::new(Waveform::Sine, 0.0, 0.1, 0.5, 0.0, 1.0, 0);
+        assert_eq!(sample_gain(&loud), 1.0);
+    }
+
+    #[test]
+    fn releasing_a_sample_fades_it_out_and_frees_the_voice() {
+        let mut e = engine();
+        constant(&mut e, 0, 2_000, 0.5);
+        assert!(e.play_sample(0, EVENT, 0, 0, 1.0, 7));
+        assert!(e.release_sample(0, 7));
+        let mut peak_before = 0.0f32;
+        let mut peaks = [0.0; MAX_TRACKS];
+        let (l, _) = e.process_frame(&mut peaks);
+        peak_before = peak_before.max(l.abs());
+        assert!(peak_before > 0.0, "the fade starts loud, not silent");
+        for _ in 0..RELEASE_FADE_FRAMES + 2 {
+            e.process_frame(&mut peaks);
+        }
+        assert!(!e.is_active(), "a released sample voice is freed");
+        assert!(peak_before > 0.0);
+    }
+
+    #[test]
+    fn a_release_for_another_blocks_tag_is_ignored() {
+        let mut e = engine();
+        constant(&mut e, 0, 2_000, 0.5);
+        assert!(e.play_sample(0, EVENT, 0, 0, 1.0, 3));
+        assert!(!e.release_sample(0, 4), "a different block's end");
+        assert!(!e.release_sample(9, 3), "no such track");
+        assert!(e.is_active());
+    }
+
+    #[test]
+    fn releasing_a_sample_twice_is_a_no_op() {
+        let mut e = engine();
+        constant(&mut e, 0, 2_000, 0.5);
+        assert!(e.play_sample(0, EVENT, 0, 0, 1.0, 1));
+        assert!(e.release_sample(0, 1));
+        assert!(!e.release_sample(0, 1), "already releasing");
     }
 }

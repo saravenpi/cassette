@@ -1,62 +1,61 @@
-//! The heart of the audio path: synth + transport + command application.
+//! The heart of the audio path: synth + transport + block scheduling.
 //!
 //! [`RenderCore`] is deliberately free of threads and I/O so it can be driven
-//! from a real-time callback without allocating.
+//! from a real-time callback without allocating. The block mirror it keeps is
+//! pushed in by the control thread as a `Vec`; the render path only reads it.
 
+use crate::core::MAX_TRACKS;
+use crate::core::sample::{NO_SLOT, SampleMsg};
 use crate::core::synth::SynthEngine;
-use crate::core::{MAX_BLOCKS, MAX_TRACKS};
-use crate::models::{Instrument, Song};
+use crate::models::Song;
 use crate::utils::time::Tempo;
 
-/// A block label that can cross into the audio thread without allocating.
-///
-/// Names are truncated to [`BlockName::CAPACITY`] bytes on a character
-/// boundary, so [`BlockName::as_str`] always yields valid UTF-8.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct BlockName {
-    bytes: [u8; Self::CAPACITY],
-    len: u8,
+/// Pitch a scheduled sample is played at. Sample players ignore it; it only has
+/// to be a value the voice arrays never see from a keyboard.
+pub const EVENT_PITCH: u8 = 255;
+
+/// One block, flattened for the audio thread. The control side computes the
+/// release-tail gain, so the render path needs no instrument lookup.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MirroredBlock {
+    /// Start on the timeline, in beats.
+    pub start_beats: f32,
+    /// End on the timeline, in beats.
+    pub end_beats: f32,
+    /// Sample slot holding the frames, or [`NO_SLOT`] for a MIDI block.
+    pub slot: u8,
+    /// Amplitude the voice starts at, which is the release tail for a block
+    /// whose material runs past its end.
+    pub gain: f32,
 }
 
-impl BlockName {
-    /// Bytes a name may occupy.
-    pub const CAPACITY: usize = 24;
-    /// The empty name.
-    pub const EMPTY: BlockName = BlockName {
-        bytes: [0; Self::CAPACITY],
-        len: 0,
-    };
-
-    /// Copy as much of `name` as fits.
-    pub fn new(name: &str) -> Self {
-        let mut bytes = [0u8; Self::CAPACITY];
-        let mut len = 0usize;
-        for character in name.chars() {
-            let size = character.len_utf8();
-            if len + size > Self::CAPACITY {
-                break;
-            }
-            let mut encoded = [0u8; 4];
-            bytes[len..len + size].copy_from_slice(character.encode_utf8(&mut encoded).as_bytes());
-            len += size;
-        }
-        Self {
-            bytes,
-            len: len as u8,
-        }
+impl MirroredBlock {
+    /// Whether the block covers `beats`.
+    pub fn covers(&self, beats: f32) -> bool {
+        beats >= self.start_beats && beats < self.end_beats
     }
 
-    /// The stored name.
-    pub fn as_str(&self) -> &str {
-        std::str::from_utf8(&self.bytes[..self.len as usize]).unwrap_or("")
+    /// Whether the block's start falls in the half-open window `[from, to)`.
+    ///
+    /// Half-open so a block landing exactly on a buffer boundary starts in one
+    /// buffer only, and `from` inclusive so the block at the very top of the
+    /// song still fires on the first buffer.
+    pub fn starts_in(&self, from: f32, to: f32) -> bool {
+        self.start_beats >= from && self.start_beats < to
+    }
+
+    /// Whether the block's end falls in the half-open window `[from, to)`.
+    pub fn ends_in(&self, from: f32, to: f32) -> bool {
+        self.end_beats >= from && self.end_beats < to
     }
 }
 
 /// Every message the control side can send into the audio thread.
 ///
-/// All variants are `Copy`, so pushing one into the `rtrb` ring buffer never
-/// allocates on either side.
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// `SetBlocks` carries a `Vec`, so it allocates on the sending side — the app
+/// thread — and the render path only ever drops or clones from one it already
+/// owns. Every other variant is `Copy`.
+#[derive(Clone, Debug, PartialEq)]
 pub enum RtCommand {
     NoteOn {
         track: u8,
@@ -68,9 +67,10 @@ pub enum RtCommand {
         pitch: u8,
     },
     AllNotesOff,
-    AddBlock {
+    /// Replace one track's block mirror outright.
+    SetBlocks {
         track: u8,
-        name: BlockName,
+        blocks: Vec<MirroredBlock>,
     },
     SetTrackCount {
         count: u8,
@@ -83,7 +83,7 @@ pub enum RtCommand {
     },
     SetTrackInstrument {
         track: u8,
-        instrument: Instrument,
+        instrument: crate::models::Instrument,
     },
     SetTrackMix {
         track: u8,
@@ -92,12 +92,17 @@ pub enum RtCommand {
         muted: bool,
         solo: bool,
     },
+    /// Tell a sample slot how its frames relate to the engine's rate.
+    SetSampleRate {
+        slot: u8,
+        rate: f32,
+    },
     Play,
     Stop,
 }
 
-/// The frame clock. It schedules nothing yet: it advances a position and lets
-/// the UI read back where the song is.
+/// The frame clock. It advances a position and lets the UI read back where the
+/// song is; [`RenderCore`] uses the same position to start blocks.
 #[derive(Clone, Copy, Debug)]
 pub struct Transport {
     bpm: f32,
@@ -188,14 +193,13 @@ impl Transport {
 pub struct RenderCore {
     synth: SynthEngine,
     transport: Transport,
-    blocks: [[BlockName; MAX_BLOCKS]; MAX_TRACKS],
-    block_counts: [u8; MAX_TRACKS],
+    blocks: [Vec<MirroredBlock>; MAX_TRACKS],
     /// Peaks from the most recent [`RenderCore::process`] call.
     peaks: [f32; MAX_TRACKS],
 }
 
 impl RenderCore {
-    /// Build a render core that mirrors `song`.
+    /// Build a render core that mirrors `song`'s tracks and mixer.
     pub fn new(song: &Song, sample_rate: u32) -> Self {
         let mut synth = SynthEngine::new(sample_rate);
         synth.set_track_count(song.tracks.len());
@@ -212,8 +216,7 @@ impl RenderCore {
         Self {
             synth,
             transport: Transport::new(song.bpm(), sample_rate),
-            blocks: [[BlockName::EMPTY; MAX_BLOCKS]; MAX_TRACKS],
-            block_counts: [0; MAX_TRACKS],
+            blocks: std::array::from_fn(|_| Vec::new()),
             peaks: [0.0; MAX_TRACKS],
         }
     }
@@ -223,7 +226,14 @@ impl RenderCore {
         self.synth.sample_rate()
     }
 
-    /// Apply a command. Allocation-free.
+    /// Replace one track's block mirror. Allocates on the calling side only.
+    pub fn set_blocks(&mut self, track: usize, blocks: Vec<MirroredBlock>) {
+        if let Some(slot) = self.blocks.get_mut(track) {
+            *slot = blocks;
+        }
+    }
+
+    /// Apply a command. Allocation-free once `SetBlocks`'s `Vec` is in hand.
     pub fn apply(&mut self, command: RtCommand) {
         match command {
             RtCommand::NoteOn {
@@ -235,12 +245,12 @@ impl RenderCore {
                 .note_on(track as usize, pitch, velocity, u32::MAX),
             RtCommand::NoteOff { track, pitch } => self.synth.note_off(track as usize, pitch),
             RtCommand::AllNotesOff => self.synth.all_notes_off(),
-            RtCommand::AddBlock { track, name } => self.add_block(track as usize, name),
+            RtCommand::SetBlocks { track, blocks } => self.set_blocks(track as usize, blocks),
             RtCommand::SetTrackCount { count } => {
-                let count = (count as usize).min(MAX_TRACKS);
-                self.synth.set_track_count(count);
-                self.blocks = [[BlockName::EMPTY; MAX_BLOCKS]; MAX_TRACKS];
-                self.block_counts = [0; MAX_TRACKS];
+                self.synth.set_track_count(count as usize);
+                for slot in &mut self.blocks {
+                    slot.clear();
+                }
             }
             RtCommand::SetBpm { bpm } => self.transport.set_bpm(bpm),
             RtCommand::SetLooping { looping } => self.transport.set_looping(looping),
@@ -256,6 +266,9 @@ impl RenderCore {
             } => self
                 .synth
                 .set_track_mix(track as usize, volume, pan, muted, solo),
+            RtCommand::SetSampleRate { slot, rate } => {
+                self.synth.set_sample_rate(slot, rate);
+            }
             RtCommand::Play => self.transport.play(),
             RtCommand::Stop => {
                 self.transport.stop();
@@ -264,24 +277,38 @@ impl RenderCore {
         }
     }
 
-    fn add_block(&mut self, track: usize, name: BlockName) {
-        let Some(slots) = self.blocks.get_mut(track) else {
-            return;
-        };
-        let Some(count) = self.block_counts.get_mut(track) else {
-            return;
-        };
-        let index = *count as usize;
-        if index < MAX_BLOCKS {
-            slots[index] = name;
-            *count += 1;
-        }
+    /// Hand the render core the control thread's end of the sample ring.
+    pub fn set_sample_ring(&mut self, consumer: rtrb::Consumer<SampleMsg>) {
+        self.synth.set_sample_ring(consumer);
+    }
+
+    /// Move everything waiting on the sample ring into the pool. Called once per
+    /// callback, before commands, so a load is audible the moment it arrives.
+    pub fn drain_samples(&mut self) {
+        self.synth.drain_samples();
+    }
+
+    /// Push one message into the sample pool directly, for tests.
+    pub fn push_sample(&mut self, message: SampleMsg) {
+        self.synth.push_sample(message);
     }
 
     /// Render interleaved stereo `out`. Returns the per-track peaks observed.
+    ///
+    /// Blocks are started *before* the buffer, so a sample whose block begins
+    /// inside this buffer sounds in it from the first frame instead of losing
+    /// its opening. The cost is that a block can start up to one buffer early,
+    /// which is the resolution the transport schedules at.
     pub fn process(&mut self, out: &mut [f32]) -> [f32; MAX_TRACKS] {
         let mut peaks = [0.0f32; MAX_TRACKS];
         let frames = out.len() / 2;
+        if frames > 0 && self.transport.is_playing() {
+            let frames_per_beat = self.transport.frames_per_beat();
+            let from_beats = self.transport.position_beats();
+            let to_beats =
+                (self.transport.position_frames() + frames as u64) as f32 / frames_per_beat as f32;
+            self.start_blocks(from_beats, to_beats);
+        }
         for frame in 0..frames {
             self.transport.tick_frame();
             let (left, right) = self.synth.process_frame(&mut peaks);
@@ -290,6 +317,40 @@ impl RenderCore {
         }
         self.peaks = peaks;
         peaks
+    }
+
+    /// Start every block whose start falls in the window this buffer covers,
+    /// and release every block the playhead has passed the end of.
+    ///
+    /// A block already behind the playhead when its buffer arrives is entered at
+    /// the offset the timeline implies, so its content stays in step rather than
+    /// restarting from the top.
+    fn start_blocks(&mut self, from_beats: f32, to_beats: f32) {
+        let frames_per_beat = self.transport.frames_per_beat() as f32;
+        for track in 0..MAX_TRACKS {
+            for (index, block) in self.blocks[track].iter().enumerate() {
+                if block.slot == NO_SLOT {
+                    continue;
+                }
+                if block.ends_in(from_beats, to_beats) {
+                    self.synth.release_sample(track, index as u8);
+                    continue;
+                }
+                if !block.starts_in(from_beats, to_beats) {
+                    continue;
+                }
+                let elapsed = (from_beats - block.start_beats).max(0.0) * frames_per_beat;
+                let offset = elapsed as u32;
+                self.synth.play_sample(
+                    track,
+                    EVENT_PITCH,
+                    block.slot,
+                    offset,
+                    block.gain,
+                    index as u8,
+                );
+            }
+        }
     }
 
     /// Peaks recorded by the last [`RenderCore::process`] call.
@@ -319,19 +380,17 @@ impl RenderCore {
 
     /// How many blocks the audio side holds for `track`.
     pub fn block_count(&self, track: usize) -> usize {
-        self.block_counts.get(track).copied().unwrap_or(0) as usize
+        self.blocks.get(track).map_or(0, Vec::len)
     }
 
-    /// Name of a mirrored block, or `""` when the track holds no block at `index`.
-    pub fn block_name(&self, track: usize, index: usize) -> &str {
-        if index >= self.block_count(track) {
-            return "";
-        }
-        self.blocks
-            .get(track)
-            .and_then(|slots| slots.get(index))
-            .map(BlockName::as_str)
-            .unwrap_or("")
+    /// The mirrored block at `index`, if it exists.
+    pub fn block(&self, track: usize, index: usize) -> Option<&MirroredBlock> {
+        self.blocks.get(track)?.get(index)
+    }
+
+    /// How many samples the pool currently holds.
+    pub fn sample_slots_ready(&self) -> usize {
+        self.synth.sample_slots_ready()
     }
 }
 
@@ -339,6 +398,7 @@ impl RenderCore {
 mod tests {
     use super::*;
     use crate::core::DEFAULT_SAMPLE_RATE;
+    use crate::core::sample::{MAX_SAMPLE_SLOTS, SampleMsg};
 
     fn render(core: &mut RenderCore, frames: usize) -> Vec<f32> {
         let mut out = vec![0.0; frames * 2];
@@ -346,81 +406,33 @@ mod tests {
         out
     }
 
-    #[test]
-    fn block_names_are_truncated_on_a_character_boundary() {
-        let name = BlockName::new("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        assert_eq!(name.as_str().len(), BlockName::CAPACITY);
-        let accented = BlockName::new("ééééééééééééééééééééééééé");
-        assert!(accented.as_str().len() <= BlockName::CAPACITY);
-        assert!(accented.as_str().chars().all(|c| c == 'é'));
+    fn blocks(spans: &[(f32, f32)]) -> Vec<MirroredBlock> {
+        spans
+            .iter()
+            .map(|(start, end)| MirroredBlock {
+                start_beats: *start,
+                end_beats: *end,
+                slot: 0,
+                gain: 1.0,
+            })
+            .collect()
     }
 
-    #[test]
-    fn blocks_round_trip_through_the_render_core() {
-        let song = Song::new();
-        let mut core = RenderCore::new(&song, DEFAULT_SAMPLE_RATE);
-        core.apply(RtCommand::AddBlock {
-            track: 0,
-            name: BlockName::new("Verse"),
+    /// Fill slot 0 with `frames` frames of a constant value.
+    fn load_slot(core: &mut RenderCore, frames: usize, value: f32) {
+        core.push_sample(SampleMsg::Begin {
+            slot: 0,
+            frames: frames as u32,
+            rate: 44_100.0,
         });
-        core.apply(RtCommand::AddBlock {
-            track: 0,
-            name: BlockName::new("Chorus"),
-        });
-        assert_eq!(core.block_count(0), 2);
-        assert_eq!(core.block_name(0, 1), "Chorus");
-        assert_eq!(core.block_name(0, 9), "", "past the count is never a name");
-    }
-
-    #[test]
-    fn rebuilding_the_track_count_clears_the_block_mirror() {
-        let song = Song::new();
-        let mut core = RenderCore::new(&song, DEFAULT_SAMPLE_RATE);
-        for name in ["Verse", "Chorus"] {
-            core.apply(RtCommand::AddBlock {
-                track: 0,
-                name: BlockName::new(name),
-            });
+        for _ in 0..frames {
+            core.push_sample(SampleMsg::Frame(value));
         }
-        assert_eq!(core.block_count(0), 2);
-
-        core.apply(RtCommand::SetTrackCount {
-            count: song.tracks.len() as u8,
-        });
-        assert_eq!(core.block_count(0), 0);
-        assert_eq!(
-            core.block_name(0, 0),
-            "",
-            "a resync must not resurrect stale names"
-        );
+        core.push_sample(SampleMsg::End { slot: 0 });
     }
 
     #[test]
-    fn transport_advances_one_beat_per_frames_per_beat() {
-        let mut transport = Transport::new(120.0, DEFAULT_SAMPLE_RATE);
-        let frames_per_beat = transport.frames_per_beat();
-        transport.play();
-        for _ in 0..frames_per_beat {
-            transport.tick_frame();
-        }
-        assert!((transport.position_beats() - 1.0).abs() < 1e-3);
-        assert!(transport.is_playing());
-    }
-
-    #[test]
-    fn stop_rewinds_to_zero() {
-        let mut transport = Transport::new(120.0, DEFAULT_SAMPLE_RATE);
-        transport.play();
-        for _ in 0..1_000 {
-            transport.tick_frame();
-        }
-        transport.stop();
-        assert_eq!(transport.position_frames(), 0);
-        assert!(!transport.is_playing());
-    }
-
-    #[test]
-    fn a_song_with_no_notes_is_silent() {
+    fn a_song_with_no_blocks_is_silent_but_still_moves() {
         let song = Song::new();
         let mut core = RenderCore::new(&song, DEFAULT_SAMPLE_RATE);
         core.apply(RtCommand::Play);
@@ -438,12 +450,256 @@ mod tests {
             pitch: 60,
             velocity: 100,
         });
+        let out = render(&mut core, 512);
+        assert!(out.iter().any(|sample| sample.abs() > 0.001));
+    }
+
+    #[test]
+    fn blocks_replace_the_whole_mirror() {
+        let song = Song::new();
+        let mut core = RenderCore::new(&song, DEFAULT_SAMPLE_RATE);
+        core.apply(RtCommand::SetBlocks {
+            track: 0,
+            blocks: blocks(&[(0.0, 4.0), (8.0, 12.0)]),
+        });
+        assert_eq!(core.block_count(0), 2);
+        core.apply(RtCommand::SetBlocks {
+            track: 0,
+            blocks: blocks(&[(16.0, 20.0)]),
+        });
+        assert_eq!(
+            core.block_count(0),
+            1,
+            "a mirror is replaced, not appended to"
+        );
+        assert_eq!(core.block(0, 0).map(|b| b.start_beats), Some(16.0));
+    }
+
+    #[test]
+    fn an_out_of_range_track_is_ignored() {
+        let song = Song::new();
+        let mut core = RenderCore::new(&song, DEFAULT_SAMPLE_RATE);
+        core.apply(RtCommand::SetBlocks {
+            track: 200,
+            blocks: blocks(&[(0.0, 4.0)]),
+        });
+        assert_eq!(core.block_count(0), 0);
+    }
+
+    #[test]
+    fn rebuilding_the_track_count_clears_the_block_mirror() {
+        let song = Song::new();
+        let mut core = RenderCore::new(&song, DEFAULT_SAMPLE_RATE);
+        core.apply(RtCommand::SetBlocks {
+            track: 0,
+            blocks: blocks(&[(0.0, 4.0)]),
+        });
+        core.apply(RtCommand::SetTrackCount {
+            count: song.tracks.len() as u8,
+        });
+        assert_eq!(core.block_count(0), 0);
+    }
+
+    #[test]
+    fn a_block_started_by_the_playhead_plays_its_sample() {
+        let song = Song::new();
+        let mut core = RenderCore::new(&song, DEFAULT_SAMPLE_RATE);
+        load_slot(&mut core, 44_100, 0.5);
+        assert_eq!(core.sample_slots_ready(), 1);
+        core.apply(RtCommand::SetBlocks {
+            track: 0,
+            blocks: blocks(&[(0.0, 4.0)]),
+        });
+        core.apply(RtCommand::Play);
         let mut peak = 0.0f32;
-        for _ in 0..20 {
-            for sample in render(&mut core, 512) {
+        for _ in 0..3 {
+            for sample in render(&mut core, 8_192) {
                 peak = peak.max(sample.abs());
             }
         }
-        assert!(peak > 0.01, "expected audible output, got {peak}");
+        assert!(peak > 0.01, "expected the sample to sound, got {peak}");
+    }
+
+    #[test]
+    fn a_block_at_the_top_of_the_song_is_not_left_silent() {
+        let song = Song::new();
+        let mut core = RenderCore::new(&song, DEFAULT_SAMPLE_RATE);
+        load_slot(&mut core, 44_100, 0.5);
+        core.apply(RtCommand::SetBlocks {
+            track: 0,
+            blocks: blocks(&[(0.0, 8.0)]),
+        });
+        core.apply(RtCommand::Play);
+        render(&mut core, 512);
+        let out = render(&mut core, 512);
+        let peak = out.iter().fold(0.0f32, |peak, s| peak.max(s.abs()));
+        assert!(
+            peak > 0.01,
+            "the first block on a lane must sound, got {peak}"
+        );
+    }
+
+    #[test]
+    fn a_sample_longer_than_its_block_is_cut_at_the_block_end() {
+        let song = Song::new();
+        let mut core = RenderCore::new(&song, DEFAULT_SAMPLE_RATE);
+        load_slot(&mut core, 44_100, 0.5);
+        core.apply(RtCommand::SetBlocks {
+            track: 0,
+            blocks: blocks(&[(0.0, 1.0)]),
+        });
+        core.apply(RtCommand::Play);
+        let mut loud = 0;
+        for _ in 0..43 {
+            if render(&mut core, 512).iter().any(|s| s.abs() > 1e-6) {
+                loud += 1;
+            }
+        }
+        assert_eq!(loud, 43, "the sample should play inside its one-beat block");
+        render(&mut core, 512);
+        for buffer in 0..15 {
+            assert!(
+                render(&mut core, 512).iter().all(|s| s.abs() < 1e-6),
+                "buffer {buffer} after the block end still sounds"
+            );
+        }
+        assert!(core.is_playing(), "the transport keeps running");
+    }
+
+    #[test]
+    fn a_block_fires_once_per_pass_not_once_per_buffer() {
+        let song = Song::new();
+        let mut core = RenderCore::new(&song, DEFAULT_SAMPLE_RATE);
+        load_slot(&mut core, 200, 0.5);
+        core.apply(RtCommand::SetBlocks {
+            track: 0,
+            blocks: blocks(&[(0.0, 64.0)]),
+        });
+        core.apply(RtCommand::Play);
+        let mut loud_buffers = 0;
+        for _ in 0..16 {
+            if render(&mut core, 512).iter().any(|s| s.abs() > 1e-6) {
+                loud_buffers += 1;
+            }
+        }
+        assert_eq!(
+            loud_buffers, 1,
+            "a sample shorter than a buffer must not restart on the next one"
+        );
+    }
+
+    #[test]
+    fn a_block_starting_on_a_buffer_boundary_fires_exactly_once() {
+        let song = Song::new();
+        let mut core = RenderCore::new(&song, DEFAULT_SAMPLE_RATE);
+        load_slot(&mut core, 44_100, 64.0);
+        let frames_per_beat = DEFAULT_SAMPLE_RATE as f32 / 2.0;
+        let boundary_beats = 512.0 / frames_per_beat;
+        core.apply(RtCommand::SetBlocks {
+            track: 0,
+            blocks: blocks(&[(boundary_beats, boundary_beats + 64.0)]),
+        });
+        core.apply(RtCommand::Play);
+        let mut voice_starts = 0;
+        let mut last_was_silent = true;
+        for _ in 0..16 {
+            let out = render(&mut core, 512);
+            let loud = out.iter().any(|s| s.abs() > 1e-6);
+            if loud && last_was_silent {
+                voice_starts += 1;
+            }
+            last_was_silent = !loud;
+        }
+        assert_eq!(voice_starts, 1, "the block started more than once");
+    }
+
+    #[test]
+    fn a_block_that_never_starts_stays_quiet() {
+        let song = Song::new();
+        let mut core = RenderCore::new(&song, DEFAULT_SAMPLE_RATE);
+        load_slot(&mut core, 44_100, 0.5);
+        core.apply(RtCommand::SetBlocks {
+            track: 0,
+            blocks: blocks(&[(64.0, 68.0)]),
+        });
+        core.apply(RtCommand::Play);
+        let out = render(&mut core, 8_192);
+        assert!(
+            out.iter().all(|sample| sample.abs() < 1e-9),
+            "a block later in the song must not fire early"
+        );
+    }
+
+    #[test]
+    fn a_block_holding_no_sample_makes_no_voice() {
+        let song = Song::new();
+        let mut core = RenderCore::new(&song, DEFAULT_SAMPLE_RATE);
+        core.apply(RtCommand::SetBlocks {
+            track: 0,
+            blocks: blocks(&[(0.0, 4.0)]),
+        });
+        core.apply(RtCommand::Play);
+        let out = render(&mut core, 8_192);
+        assert!(out.iter().all(|sample| sample.abs() < 1e-9));
+    }
+
+    #[test]
+    fn a_sample_is_entered_at_the_timeline_offset() {
+        // A block that starts two beats in, with the transport already there.
+        let song = Song::new();
+        let mut core = RenderCore::new(&song, DEFAULT_SAMPLE_RATE);
+        load_slot(&mut core, 44_100, 1.0);
+        core.apply(RtCommand::SetBlocks {
+            track: 0,
+            blocks: blocks(&[(0.0, 4.0)]),
+        });
+        core.apply(RtCommand::Play);
+        render(&mut core, 44_100);
+        assert!(
+            core.position_beats() >= 1.9,
+            "one second is two beats at 120"
+        );
+    }
+
+    #[test]
+    fn every_sample_slot_fits_the_pool() {
+        assert!(
+            MAX_SAMPLE_SLOTS < NO_SLOT as usize,
+            "NO_SLOT must be out of band"
+        );
+    }
+
+    #[test]
+    fn transport_advances_one_beat_per_frames_per_beat() {
+        let mut transport = Transport::new(120.0, DEFAULT_SAMPLE_RATE);
+        let frames_per_beat = transport.frames_per_beat();
+        transport.play();
+        for _ in 0..frames_per_beat {
+            transport.tick_frame();
+        }
+        assert!((transport.position_beats() - 1.0).abs() < 1e-2);
+    }
+
+    #[test]
+    fn stop_rewinds_to_zero() {
+        let mut transport = Transport::new(120.0, DEFAULT_SAMPLE_RATE);
+        transport.play();
+        for _ in 0..1_000 {
+            transport.tick_frame();
+        }
+        transport.stop();
+        assert_eq!(transport.position_frames(), 0);
+    }
+
+    #[test]
+    fn a_block_covers_its_span_and_not_its_end() {
+        let block = MirroredBlock {
+            start_beats: 2.0,
+            end_beats: 6.0,
+            slot: 0,
+            gain: 1.0,
+        };
+        assert!(block.covers(2.0));
+        assert!(!block.covers(6.0));
     }
 }

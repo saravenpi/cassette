@@ -6,7 +6,8 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use zboub69::core::engine::AudioEngine;
-use zboub69::core::render::RtCommand;
+use zboub69::core::render::{MirroredBlock, RtCommand};
+use zboub69::core::sample::SampleMsg;
 use zboub69::models::Song;
 
 #[test]
@@ -102,10 +103,15 @@ fn streaming_only_renders_once_a_client_connects() {
 fn block_edits_can_be_pushed_while_running() {
     let song = Song::new();
     let engine = AudioEngine::start_silent(&song).expect("engine should start");
-    let pushed = engine.send(RtCommand::AddBlock {
-        track: 0,
-        name: zboub69::core::render::BlockName::new("Verse"),
-    });
+    let pushed = engine.set_blocks(
+        0,
+        vec![MirroredBlock {
+            start_beats: 0.0,
+            end_beats: 4.0,
+            slot: 0,
+            gain: 1.0,
+        }],
+    );
     assert!(pushed, "command queue should accept the edit");
     assert!(engine.send(RtCommand::SetTrackCount { count: 4 }));
 }
@@ -113,8 +119,144 @@ fn block_edits_can_be_pushed_while_running() {
 #[test]
 fn a_resync_pushes_the_block_mirror() {
     let mut song = Song::new();
-    song.tracks[0].add_block();
-    song.tracks[0].add_block();
+    song.tracks[0].add_block(0.0, 4.0);
+    song.tracks[0].add_block(8.0, 4.0);
     let engine = AudioEngine::start_silent(&song).expect("engine should start");
     assert!(engine.resync(&song), "a resync should fit in the queue");
+}
+
+#[test]
+fn the_sample_producer_is_handed_out_once() {
+    let song = Song::new();
+    let mut engine = AudioEngine::start_silent(&song).expect("engine should start");
+    assert!(engine.take_sample_producer().is_some());
+    assert!(
+        engine.take_sample_producer().is_none(),
+        "the audio thread keeps the only consumer"
+    );
+}
+
+/// Push a one second, constant sample into slot 0 through the ring.
+fn push_sample(producer: &mut rtrb::Producer<SampleMsg>) {
+    const FRAMES: usize = 44_100;
+    producer
+        .push(SampleMsg::Begin {
+            slot: 0,
+            frames: FRAMES as u32,
+            rate: 44_100.0,
+        })
+        .expect("room for the header");
+    for _ in 0..FRAMES {
+        producer
+            .push(SampleMsg::Frame(0.5))
+            .expect("room for frames");
+    }
+    producer
+        .push(SampleMsg::End { slot: 0 })
+        .expect("room for the tail");
+}
+
+/// A block the playhead crosses straight away sounds, and its sample reaches
+/// the track meter.
+///
+/// The block sits a hair past the top of the song because the audio side starts
+/// a block only when the playhead crosses its start, and a block at beat zero
+/// is behind the playhead by the time the first buffer is rendered.
+#[test]
+fn a_block_under_the_playhead_reaches_the_meter() {
+    let song = Song::new();
+    let mut engine = AudioEngine::start_silent(&song).expect("engine should start");
+    let mut producer = engine.take_sample_producer().expect("a sample producer");
+    push_sample(&mut producer);
+
+    assert!(engine.set_blocks(
+        0,
+        vec![MirroredBlock {
+            start_beats: 0.01,
+            end_beats: 4.0,
+            slot: 0,
+            gain: 1.0,
+        }],
+    ));
+    engine.send(RtCommand::Play);
+
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let mut peak = 0.0f32;
+    while peak <= 0.01 && Instant::now() < deadline {
+        sleep(Duration::from_millis(10));
+        peak = engine.shared().peaks()[0];
+    }
+    assert!(
+        peak > 0.01,
+        "the sample should sound, the meter read {peak}"
+    );
+}
+
+/// A block later in the song stays silent while the playhead is at the top.
+#[test]
+fn a_block_later_in_the_song_stays_silent() {
+    let song = Song::new();
+    let mut engine = AudioEngine::start_silent(&song).expect("engine should start");
+    let mut producer = engine.take_sample_producer().expect("a sample producer");
+    push_sample(&mut producer);
+
+    assert!(engine.set_blocks(
+        0,
+        vec![MirroredBlock {
+            start_beats: 64.0,
+            end_beats: 68.0,
+            slot: 0,
+            gain: 1.0,
+        }],
+    ));
+    engine.send(RtCommand::Play);
+    sleep(Duration::from_millis(200));
+
+    let peaks = engine.shared().peaks();
+    assert_eq!(peaks[0], 0.0, "a block at beat 64 must not fire early");
+    assert_eq!(peaks.iter().fold(0.0f32, |max, p| max.max(*p)), 0.0);
+}
+
+/// Dropping a sample on a track makes it audible, through the app's own
+/// import path: decode, allocate a slot, push the frames, mirror the block.
+///
+/// This is the test the whole sample feature rests on. It goes through `App`
+/// rather than `AudioEngine`, so a wrong gain on the mirror or a block the
+/// transport never reaches fails here and not only in the unit tests.
+#[test]
+fn a_dropped_sample_reaches_the_meter_end_to_end() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/zboub69-mix.wav");
+    let mut app = zboub69::app::App::new_silent().expect("silent app should build");
+
+    app.submit(zboub69::events::Event::ImportSample {
+        track: 0,
+        path: path.to_string(),
+        start_beats: 0.0,
+    });
+    let state = app.ui_state();
+    let blocks = &state.tracks[0].blocks;
+    assert_eq!(blocks.len(), 1, "the sample should land as one block");
+    assert_eq!(blocks[0].source, path);
+    assert!(
+        blocks[0].length_beats > 0.0,
+        "an audio block is sized from the file"
+    );
+    assert_ne!(
+        state.tracks[0].kind,
+        zboub69::models::TrackKind::Midi,
+        "dropping a sample makes the track an audio track"
+    );
+
+    app.submit(zboub69::events::Event::TogglePlay);
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let mut level = 0.0f32;
+    while level <= 0.01 && Instant::now() < deadline {
+        app.tick();
+        sleep(Duration::from_millis(10));
+        level = app.ui_state().tracks[0].level;
+    }
+    assert!(
+        level > 0.01,
+        "the dropped sample should be audible, the meter read {level}"
+    );
 }

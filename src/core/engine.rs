@@ -15,12 +15,15 @@ use rtrb::{Consumer, Producer, RingBuffer};
 use crate::core::audio::{
     AudioBackend, BackendPreference, NullBackend, RenderFn, SharedState, select_backend,
 };
-use crate::core::render::{BlockName, RenderCore, RtCommand};
+use crate::core::render::{MirroredBlock, RenderCore, RtCommand};
+use crate::core::sample::{NO_SLOT, SAMPLE_RING_CAPACITY, SampleMsg};
+use crate::core::synth::sample_gain;
 use crate::core::{DEFAULT_SAMPLE_RATE, RT_COMMAND_CAPACITY};
 use crate::models::Song;
 
 /// Everything the audio thread owns: the render core, the command consumer and
-/// the shared snapshot it publishes.
+/// the shared snapshot it publishes. The sample ring's consumer lives inside the
+/// render core, which drains it into the preallocated pool.
 struct AudioThread {
     core: RenderCore,
     consumer: Consumer<RtCommand>,
@@ -28,8 +31,12 @@ struct AudioThread {
 }
 
 impl AudioThread {
+    /// Fill `out`, taking in anything the control thread has sent first.
+    ///
+    /// Samples are drained before commands, so a load pushed a moment ago is
+    /// audible in this callback and a block can trigger it in the same one.
     fn process(&mut self, out: &mut [f32]) {
-        // Drain commands first so edits take effect within this callback.
+        self.core.drain_samples();
         while let Ok(command) = self.consumer.pop() {
             self.core.apply(command);
         }
@@ -47,6 +54,7 @@ impl AudioThread {
 pub struct AudioEngine {
     backend: Box<dyn AudioBackend>,
     producer: Mutex<Producer<RtCommand>>,
+    sample_producer: Option<Producer<SampleMsg>>,
     shared: Arc<SharedState>,
     sample_rate: u32,
     backend_name: &'static str,
@@ -91,9 +99,12 @@ impl AudioEngine {
     ) -> Result<Self> {
         let shared = Arc::new(SharedState::new(sample_rate));
         let (producer, consumer) = RingBuffer::<RtCommand>::new(RT_COMMAND_CAPACITY);
+        let (sample_producer, sample_consumer) = RingBuffer::<SampleMsg>::new(SAMPLE_RING_CAPACITY);
 
+        let mut core = RenderCore::new(song, sample_rate);
+        core.set_sample_ring(sample_consumer);
         let mut thread = AudioThread {
-            core: RenderCore::new(song, sample_rate),
+            core,
             consumer,
             shared: shared.clone(),
         };
@@ -105,6 +116,7 @@ impl AudioEngine {
             stream_port: backend.stream_port(),
             backend,
             producer: Mutex::new(producer),
+            sample_producer: Some(sample_producer),
             shared,
             sample_rate,
             note,
@@ -145,8 +157,32 @@ impl AudioEngine {
         }
     }
 
+    /// Take the sample ring's producer, once.
+    ///
+    /// Returns `None` from then on. Pushing [`SampleMsg`]s into it is how decoded
+    /// frames reach the audio thread without it ever allocating; the control side
+    /// owns the producer for the life of the session, and dropping it tells the
+    /// audio thread the ring is closed.
+    pub fn take_sample_producer(&mut self) -> Option<Producer<SampleMsg>> {
+        self.sample_producer.take()
+    }
+
+    /// Replace one track's block mirror on the audio thread. Returns `false` if
+    /// the command queue is full.
+    pub fn set_blocks(&self, track: usize, blocks: Vec<MirroredBlock>) -> bool {
+        self.send(RtCommand::SetBlocks {
+            track: track as u8,
+            blocks,
+        })
+    }
+
     /// Re-send the entire song to the audio thread. Recovery path when the
     /// command queue has overflowed, and used after bulk edits.
+    ///
+    /// The block mirror is rebuilt from the song's blocks. Only the song is
+    /// available here, so the slots are left empty: the app knows which sample
+    /// each block points at and pushes the real mirror with
+    /// [`AudioEngine::set_blocks`].
     pub fn resync(&self, song: &Song) -> bool {
         let mut ok = true;
         // Setting the track count also clears the audio-side block mirror.
@@ -167,12 +203,17 @@ impl AudioEngine {
                 muted: track.muted,
                 solo: track.solo,
             });
-            for block in &track.blocks {
-                ok &= self.send(RtCommand::AddBlock {
-                    track: track_id,
-                    name: BlockName::new(&block.name),
-                });
-            }
+            let blocks: Vec<MirroredBlock> = track
+                .blocks
+                .iter()
+                .map(|block| MirroredBlock {
+                    start_beats: block.start_beats,
+                    end_beats: block.start_beats + block.length_beats,
+                    slot: NO_SLOT,
+                    gain: sample_gain(&track.instrument),
+                })
+                .collect();
+            ok &= self.set_blocks(track_index, blocks);
         }
         ok
     }

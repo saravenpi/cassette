@@ -11,12 +11,14 @@ pub mod audio;
 pub mod engine;
 pub mod meter;
 pub mod render;
+pub mod sample;
 pub mod synth;
+pub mod wav;
 
 /// Hard ceiling on tracks. Keeps every audio-side array fixed-size.
 pub const MAX_TRACKS: usize = 16;
-/// Hard ceiling on blocks per track, mirroring the UI-side list.
-pub const MAX_BLOCKS: usize = 16;
+/// Hard ceiling on blocks per track, mirroring the audio-side mirror.
+pub const MAX_BLOCKS: usize = 64;
 /// Voices per track (polyphony).
 pub const MAX_VOICES: usize = 8;
 /// Sample rate used when no device suggests one.
