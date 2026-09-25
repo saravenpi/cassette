@@ -60,7 +60,7 @@
 		color: var(--dim);
 		background: transparent;
 		border: 0;
-		border-radius: 2px;
+		border-radius: 0;
 	}
 
 	.crumb:hover {

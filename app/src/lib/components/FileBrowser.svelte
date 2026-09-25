@@ -215,7 +215,7 @@
 		color: var(--text);
 		background: var(--panel-2);
 		border: 1px solid var(--accent);
-		border-radius: 2px;
+		border-radius: 0;
 	}
 
 	.filter-footer {

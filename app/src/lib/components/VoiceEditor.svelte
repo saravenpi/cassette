@@ -127,7 +127,7 @@
 		height: 52px;
 		background: var(--bg);
 		border: 1px solid var(--line);
-		border-radius: 2px;
+		border-radius: 0;
 	}
 
 	.envelope polyline {

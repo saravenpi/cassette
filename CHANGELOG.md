@@ -154,3 +154,28 @@ Universal audio decoding, arbitrary sample lengths, low-latency playback, timeli
 - Playback delay: blocks covering the playhead now start immediately when the track is idle.
 - Subprocess latency: added low-delay flags to `ffplay` pipeline and requested 256-frame buffers in `cpal`.
 
+## [0.5.0] - 2026-09-25
+
+Right-aligned track headers, custom UI palette, square geometry, ruler grid alignment, and project audio export and recording.
+
+### Added
+
+- Project audio export: offline render to standard 16-bit stereo WAV with release tail via `ExportAudio` and `encode_pcm16`.
+- Take and project recording: direct recording to timestamped WAV files via `RecordAudio` and the transport `Rec` button.
+- Project definition serialization: export session structure (tracks, tempo, blocks, presets) to JSON via `ExportProject`.
+- Per-track height resizing: drag the bottom border of any track row to adjust its height between 32px and 300px; double-click to reset.
+- Transport controls: added `Rec`, `Export WAV`, and `Save` buttons to the header bar.
+
+### Changed
+
+- Background color updated to `#0B0B0B` and primary accent to `#E55B3F`.
+- Track palette updated to five distinct tones: `#84B7BD` (blue), `#A8B365` (green), `#D9AF67` (yellow), `#E55B3F` (orange), `#947164` (brown).
+- Geometry updated to strict square corners: removed all `border-radius` across the application.
+- Track headers (name, type, mute, solo, faders, meter) moved to the right side of lanes, sticky to the right edge.
+- Default track height increased from 24px to 64px for clearer waveform rendering and control layout.
+
+### Fixed
+
+- Ruler and track grid misalignment: lanes and ruler now both start at x=0 with identical width and zero playhead offset.
+
+

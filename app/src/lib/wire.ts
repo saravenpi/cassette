@@ -118,4 +118,9 @@ export type EngineEvent =
 			};
 	  }
 	| { noteOn: { pitch: number; velocity: number } }
-	| { noteOff: { pitch: number } };
+	| { noteOff: { pitch: number } }
+	| 'toggleRecord'
+	| { exportAudio: { path: string | null } }
+	| { recordAudio: { path: string | null } }
+	| { exportProject: { path: string | null } };
+

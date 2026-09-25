@@ -74,7 +74,7 @@
 		color: var(--text);
 		background: var(--panel-2);
 		padding: 0 3px;
-		border-radius: 2px;
+		border-radius: 0;
 	}
 
 	.voices {
@@ -91,7 +91,7 @@
 		text-align: left;
 		font-size: 11px;
 		padding: 3px 8px;
-		border-radius: 2px;
+		border-radius: 0;
 	}
 
 	.voice.on {

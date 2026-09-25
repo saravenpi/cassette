@@ -109,13 +109,14 @@
 	.block {
 		position: absolute;
 		top: 2px;
-		height: 20px;
+		bottom: 2px;
+		height: calc(100% - 4px);
 		display: flex;
 		align-items: center;
 		overflow: hidden;
 		border: 1px solid var(--line);
 		border-left: 3px solid var(--fill);
-		border-radius: 2px;
+		border-radius: 0;
 		background: color-mix(in srgb, var(--fill) 26%, var(--panel));
 		font-size: 10px;
 		cursor: grab;
@@ -164,7 +165,7 @@
 		color: var(--head);
 		background: var(--bg);
 		border: 1px solid var(--head);
-		border-radius: 2px;
+		border-radius: 0;
 	}
 
 	.handle {

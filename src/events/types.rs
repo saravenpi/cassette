@@ -123,4 +123,18 @@ pub enum Event {
         address: String,
         value: f32,
     },
+    /// Export the project audio to a WAV file.
+    ExportAudio {
+        path: Option<String>,
+    },
+    /// Record the project audio to a file.
+    RecordAudio {
+        path: Option<String>,
+    },
+    /// Toggle live recording.
+    ToggleRecord,
+    /// Export the project structure to a JSON file.
+    ExportProject {
+        path: Option<String>,
+    },
 }

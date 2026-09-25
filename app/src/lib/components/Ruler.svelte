@@ -10,9 +10,10 @@
 		pxPerBeat: number;
 		beatsPerBar: number;
 		bars: number;
+		width?: number;
 	}
 
-	let { pxPerBeat, beatsPerBar, bars }: Props = $props();
+	let { pxPerBeat, beatsPerBar, bars, width }: Props = $props();
 
 	interface Mark {
 		key: string;
@@ -68,7 +69,7 @@
 <div
 	class="ruler"
 	role="presentation"
-	style="height: {RULER_HEIGHT}px"
+	style="width: {width !== undefined ? `${width}px` : '100%'}; height: {RULER_HEIGHT}px"
 	onpointerdown={onPointerDown}
 >
 	{#each marks as mark (mark.key)}
@@ -81,7 +82,7 @@
 <style>
 	.ruler {
 		position: relative;
-		flex: 1;
+		flex: none;
 		background: var(--panel);
 		cursor: pointer;
 		user-select: none;

@@ -1,22 +1,25 @@
 :root {
-	--bg: #16181d;
-	--panel: #1d2027;
-	--panel-2: #232732;
-	--line: #2e3442;
+	--bg: #0B0B0B;
+	--panel: #141414;
+	--panel-2: #1c1c1c;
+	--line: #262626;
 	--text: #e6e9f0;
 	--dim: #8b93a7;
-	--accent: #4a9eff;
+	--accent: #E55B3F;
 	--head: #c8f06e;
 	--warn: #ff7a6b;
-	--radius: 8px;
+	--radius: 0px;
 
 	color-scheme: dark;
 	font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
 	font-size: 14px;
 }
 
-* {
+*,
+*::before,
+*::after {
 	box-sizing: border-box;
+	border-radius: 0 !important;
 }
 
 html,
@@ -33,7 +36,7 @@ button {
 	color: inherit;
 	background: var(--panel-2);
 	border: 1px solid var(--line);
-	border-radius: 6px;
+	border-radius: 0;
 	padding: 4px 10px;
 	cursor: pointer;
 }
@@ -58,7 +61,7 @@ kbd {
 	background: var(--panel-2);
 	border: 1px solid var(--line);
 	border-bottom-width: 2px;
-	border-radius: 4px;
+	border-radius: 0;
 	padding: 1px 5px;
 	color: var(--dim);
 }

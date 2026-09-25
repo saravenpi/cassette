@@ -57,6 +57,41 @@ pub fn decode(path: &Path, max_frames: usize) -> Result<Sample> {
         .with_context(|| format!("decoding {}", path.display()))
 }
 
+pub fn encode_pcm16(path: &Path, frames: &[f32], channels: u16, sample_rate: u32) -> Result<()> {
+    let bits: u16 = 16;
+    let block_align = channels * (bits / 8);
+    let byte_rate = sample_rate * block_align as u32;
+    let data_len = frames.len() * 2;
+    let total_len = 36 + data_len;
+
+    let mut bytes = Vec::with_capacity(44 + data_len);
+    bytes.extend_from_slice(b"RIFF");
+    bytes.extend_from_slice(&(total_len as u32).to_le_bytes());
+    bytes.extend_from_slice(b"WAVEfmt ");
+    bytes.extend_from_slice(&16u32.to_le_bytes());
+    bytes.extend_from_slice(&FORMAT_PCM.to_le_bytes());
+    bytes.extend_from_slice(&channels.to_le_bytes());
+    bytes.extend_from_slice(&sample_rate.to_le_bytes());
+    bytes.extend_from_slice(&byte_rate.to_le_bytes());
+    bytes.extend_from_slice(&block_align.to_le_bytes());
+    bytes.extend_from_slice(&bits.to_le_bytes());
+    bytes.extend_from_slice(b"data");
+    bytes.extend_from_slice(&(data_len as u32).to_le_bytes());
+
+    for &sample in frames {
+        let clamped = sample.clamp(-1.0, 1.0);
+        let pcm = (clamped * 32767.0).round() as i16;
+        bytes.extend_from_slice(&pcm.to_le_bytes());
+    }
+
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("creating directory for {}", path.display()))?;
+    }
+    std::fs::write(path, bytes).with_context(|| format!("writing {}", path.display()))?;
+    Ok(())
+}
+
 pub fn decode_bytes(bytes: &[u8], max_frames: usize) -> Result<Sample> {
     let mut hint = Hint::new();
     hint.with_extension("wav");
@@ -465,5 +500,21 @@ mod tests {
             assert!(sample.sample_rate > 0);
             assert!(!sample.frames.is_empty());
         }
+    }
+
+    #[test]
+    fn encoding_pcm16_survives_roundtrip() {
+        let temp_dir = std::env::temp_dir();
+        let path = temp_dir.join("zboub69_test_roundtrip.wav");
+        let original_frames = vec![0.0f32, 0.5f32, -0.5f32, 0.25f32];
+        encode_pcm16(&path, &original_frames, 1, 44_100).expect("encoding should succeed");
+        let decoded = decode(&path, 100).expect("decoding should succeed");
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(decoded.channels, 1);
+        assert_eq!(decoded.sample_rate, 44_100);
+        assert_eq!(decoded.frames.len(), 4);
+        assert!((decoded.frames[0]).abs() < 1e-3);
+        assert!((decoded.frames[1] - 0.5).abs() < 1e-3);
+        assert!((decoded.frames[2] + 0.5).abs() < 1e-3);
     }
 }

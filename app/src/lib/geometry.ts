@@ -25,7 +25,10 @@ export const MIN_BARS = 8;
 export const MIN_LABEL_PX = 44;
 
 /** Track rows, the ruler strip and the header column, in pixels. */
-export const ROW_HEIGHT = 24;
+export const DEFAULT_ROW_HEIGHT = 64;
+export const ROW_HEIGHT = 64;
+export const MIN_ROW_HEIGHT = 32;
+export const MAX_ROW_HEIGHT = 300;
 export const RULER_HEIGHT = 56;
 export const HEADER_WIDTH = 200;
 

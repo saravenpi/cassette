@@ -1,7 +1,10 @@
 //! Oscillator waveforms and the per-track instrument (timbre + envelope).
 
+use serde::{Deserialize, Serialize};
+
 /// The oscillator shape used by a track's voices.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Waveform {
     Sine,
     Square,
@@ -42,7 +45,8 @@ impl Waveform {
 ///
 /// Times are seconds; `sustain` is a level in `[0, 1]`; `octave` transposes the
 /// incoming note before it reaches the oscillator.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Instrument {
     pub waveform: Waveform,
     pub attack: f32,

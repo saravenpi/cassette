@@ -1,12 +1,15 @@
 //! The song: tracks and tempo.
 
+use serde::{Deserialize, Serialize};
+
 use crate::models::track::TrackKind;
 use crate::models::{Instrument, Track};
 use crate::utils::math::clamp;
 use crate::utils::time::Tempo;
 
 /// A whole session.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Song {
     bpm: f32,
     pub tracks: Vec<Track>,

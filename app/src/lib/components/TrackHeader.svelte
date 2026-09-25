@@ -13,9 +13,10 @@
 	interface Props {
 		track: TrackView;
 		index: number;
+		height?: number;
 	}
 
-	let { track, index }: Props = $props();
+	let { track, index, height }: Props = $props();
 
 	let draggedVolume = $state<number | null>(null);
 	let draggedPan = $state<number | null>(null);
@@ -46,12 +47,34 @@
 	}
 </script>
 
-<div class="head" style="width: {HEADER_WIDTH}px; height: {ROW_HEIGHT}px; --fill: {color}">
-	<button class="pick" aria-pressed={selected} onclick={() => session.dispatch({ selectTrack: { track: index } })}>
-		<span class="chip"></span>
-		<span class="name">{track.name}</span>
-		<span class="kind">{track.kind === 'midi' ? 'MID' : 'AUD'}</span>
-	</button>
+<div class="head" style="width: {HEADER_WIDTH}px; height: {height ?? ROW_HEIGHT}px; --fill: {color}">
+	<div class="top-row">
+		<button class="pick" aria-pressed={selected} onclick={() => session.dispatch({ selectTrack: { track: index } })}>
+			<span class="chip"></span>
+			<span class="name">{track.name}</span>
+			<span class="kind">{track.kind === 'midi' ? 'MID' : 'AUD'}</span>
+		</button>
+		<div class="buttons">
+			<button
+				class="toggle"
+				class:on={track.muted}
+				aria-pressed={track.muted}
+				aria-label="Mute {track.name}"
+				onclick={() => mix(volume, pan, !track.muted, track.solo)}
+			>
+				M
+			</button>
+			<button
+				class="toggle"
+				class:on={track.solo}
+				aria-pressed={track.solo}
+				aria-label="Solo {track.name}"
+				onclick={() => mix(volume, pan, track.muted, !track.solo)}
+			>
+				S
+			</button>
+		</div>
+	</div>
 
 	<div class="mix">
 		<input
@@ -79,45 +102,44 @@
 			onblur={releaseFaders}
 		/>
 		<span class="meter"><i style="width: {level}%"></i></span>
-		<button
-			class="toggle"
-			class:on={track.muted}
-			aria-pressed={track.muted}
-			aria-label="Mute {track.name}"
-			onclick={() => mix(volume, pan, !track.muted, track.solo)}
-		>
-			M
-		</button>
-		<button
-			class="toggle"
-			class:on={track.solo}
-			aria-pressed={track.solo}
-			aria-label="Solo {track.name}"
-			onclick={() => mix(volume, pan, track.muted, !track.solo)}
-		>
-			S
-		</button>
 	</div>
 </div>
 
 <style>
 	.head {
-		display: grid;
-		grid-auto-rows: 1fr;
+		display: flex;
+		flex-direction: column;
+		justify-content: center;
+		gap: 6px;
 		flex: none;
 		overflow: hidden;
 		background: var(--panel);
-		border-right: 1px solid var(--line);
+		border-left: 1px solid var(--line);
 		border-bottom: 1px solid var(--line);
+		padding: 4px 6px;
+	}
+
+	.top-row {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		min-width: 0;
+	}
+
+	.buttons {
+		display: flex;
+		align-items: center;
+		gap: 3px;
+		flex: none;
 	}
 
 	.pick {
 		display: flex;
 		align-items: center;
 		gap: 5px;
-		width: 100%;
-		height: 100%;
-		padding: 0 6px;
+		flex: 1;
+		min-width: 0;
+		padding: 2px 4px;
 		text-align: left;
 		overflow: hidden;
 		background: transparent;
@@ -133,12 +155,13 @@
 		flex: none;
 		width: 6px;
 		height: 8px;
-		border-radius: 1px;
+		border-radius: 0;
 		background: var(--fill);
 	}
 
 	.name {
 		font-size: 11px;
+		font-weight: 500;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
@@ -156,22 +179,21 @@
 		display: flex;
 		align-items: center;
 		gap: 4px;
-		padding: 0 6px;
 	}
 
 	.fader {
 		flex: 1;
 		width: 0;
-		height: 12px;
+		height: 14px;
 		margin: 0;
 		accent-color: var(--dim);
 	}
 
 	.meter {
 		flex: none;
-		width: 40px;
-		height: 4px;
-		border-radius: 2px;
+		width: 36px;
+		height: 6px;
+		border-radius: 0;
 		background: var(--panel-2);
 		overflow: hidden;
 	}
@@ -184,11 +206,13 @@
 
 	.toggle {
 		flex: none;
-		height: 11px;
-		line-height: 1;
+		height: 16px;
+		min-width: 16px;
+		line-height: 14px;
 		padding: 0 4px;
-		font-size: 8px;
-		border-radius: 2px;
+		font-size: 9px;
+		font-weight: 600;
+		border-radius: 0;
 	}
 
 	.toggle.on {

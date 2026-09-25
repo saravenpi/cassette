@@ -5,14 +5,11 @@
  */
 
 const TRACK_PALETTE: readonly string[] = [
-	'#4f8f8a',
-	'#6f9f5f',
-	'#a8a04f',
-	'#c08a4a',
-	'#c0665a',
-	'#a25f8f',
-	'#7d6bb0',
-	'#6b7a8f'
+	'#84B7BD',
+	'#A8B365',
+	'#D9AF67',
+	'#E55B3F',
+	'#947164'
 ];
 
 /** The fill for a track, wrapping if the engine ever hands out an index past the end. */

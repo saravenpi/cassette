@@ -15,9 +15,10 @@
 		index: number;
 		width: number;
 		barWidth: number;
+		height?: number;
 	}
 
-	let { track, index, width, barWidth }: Props = $props();
+	let { track, index, width, barWidth, height }: Props = $props();
 
 	interface LaneItem {
 		key: string;
@@ -85,7 +86,7 @@
 	role="list"
 	aria-label="Blocks on {track.name}"
 	data-lane-track={index}
-	style="width: {width}px; height: {ROW_HEIGHT}px; --bar: {barWidth}px"
+	style="width: {width}px; height: {height ?? ROW_HEIGHT}px; --bar: {barWidth}px"
 	ondblclick={onDoubleClick}
 >
 	{#each items as item (item.key)}

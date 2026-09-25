@@ -49,7 +49,8 @@ pub const MAX_LENGTH_BEATS: f32 = 512.0;
 /// A MIDI block carries note data (none yet); an audio block points at a file
 /// on disk. Both live at a position on the timeline and have a length in beats,
 /// so the lane can draw them and the engine can find the one under the playhead.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Block {
     pub name: String,
     pub kind: TrackKind,
@@ -106,7 +107,8 @@ impl Block {
 }
 
 /// A single track of the song.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Track {
     pub name: String,
     pub kind: TrackKind,

@@ -8,6 +8,7 @@
 //! ([`timeline`]), track state ([`tracks`]), audio samples ([`samples`]) and the
 //! transport ([`transport`]).
 
+mod export;
 mod samples;
 mod timeline;
 mod tracks;
@@ -216,6 +217,10 @@ impl App {
             Event::OscControl { address, value } => {
                 self.status = format!("osc {address} = {value:.2}");
             }
+            Event::ExportAudio { path } => self.export_audio(path),
+            Event::RecordAudio { path } => self.record_audio(path),
+            Event::ToggleRecord => self.record_audio(None),
+            Event::ExportProject { path } => self.export_project(path),
         }
     }
 

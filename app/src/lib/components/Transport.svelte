@@ -34,6 +34,18 @@
 		>
 			Loop
 		</button>
+		<button
+			class="rec"
+			aria-label="Record project to file"
+			onclick={() => session.dispatch({ recordAudio: { path: null } })}
+		>
+			&bull; Rec
+		</button>
+	</div>
+
+	<div class="group" role="group" aria-label="Export">
+		<button onclick={() => session.dispatch({ exportAudio: { path: null } })}>Export WAV</button>
+		<button onclick={() => session.dispatch({ exportProject: { path: null } })}>Save</button>
 	</div>
 
 	<div class="group" role="group" aria-label="Tempo">
@@ -100,6 +112,15 @@
 	.on {
 		border-color: var(--head);
 		color: var(--head);
+	}
+
+	.rec {
+		color: var(--accent);
+		font-weight: 600;
+	}
+
+	.rec:hover {
+		border-color: var(--accent);
 	}
 
 	.readout {
