@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 /// A single piece of user intent.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Event {
     /// Start playing, or stop if already playing.
     TogglePlay,
