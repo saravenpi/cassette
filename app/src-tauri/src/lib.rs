@@ -11,18 +11,23 @@
 //! sounds the moment the key goes down. Timing, synthesis and the meters all stay
 //! in the engine; the webview only draws.
 
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, UNIX_EPOCH};
 
 use crossbeam::channel::{Receiver, RecvTimeoutError, Sender, unbounded};
 use tauri::State;
 
-use zboub69::app::App;
+use zboub69::app::{App, WAVEFORM_BUCKETS, peaks};
 use zboub69::events::Event;
 use zboub69::ui::view::UiState;
 
 /// One frame at 60 Hz, the fastest the webview can draw.
 const FRAME: Duration = Duration::from_micros(16_667);
+/// Frames the waveform command decodes before reducing them to peaks.
+const WAVEFORM_FRAMES: usize = 200_000;
+/// Entries one directory listing returns at most.
+const MAX_ENTRIES: usize = 2_000;
 
 /// The latest snapshot, published by the engine thread.
 type Snapshot = Arc<Mutex<Option<UiState>>>;
@@ -51,6 +56,142 @@ fn send(event: Event, commands: State<'_, Commands>) -> Result<(), String> {
 fn stream_port(raw: Option<&str>) -> Option<u16> {
     raw.and_then(|raw| raw.parse::<u16>().ok())
         .filter(|port| *port > 0)
+}
+
+/// What a sample-browser row points at.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+enum SampleKind {
+    /// A directory the browser can open.
+    Dir,
+    /// A file the engine can load.
+    Wav,
+    /// Anything else, listed but not loadable.
+    Other,
+}
+
+/// One row of the sample browser.
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SampleEntry {
+    name: String,
+    path: String,
+    kind: SampleKind,
+    size: u64,
+    modified_ms: u64,
+}
+
+/// The user's home directory, or the working directory when `HOME` is unset.
+#[tauri::command]
+fn home_dir() -> String {
+    std::env::var("HOME").unwrap_or_else(|_| ".".into())
+}
+
+/// The directory the sample browser opens on: `$ZBOUB_SAMPLES_DIR` when set,
+/// else `~/Music` when it exists, else the home directory.
+#[tauri::command]
+fn samples_root() -> String {
+    if let Ok(dir) = std::env::var("ZBOUB_SAMPLES_DIR")
+        && !dir.is_empty()
+    {
+        return dir;
+    }
+    let home = home_dir();
+    let music = Path::new(&home).join("Music");
+    if music.is_dir() {
+        return music.to_string_lossy().into_owned();
+    }
+    home
+}
+
+/// The parent of `path`, so the browser can go up. `None` at the root.
+#[tauri::command]
+fn parent_of(path: String) -> Option<String> {
+    Path::new(&path)
+        .parent()
+        .map(|parent| parent.to_string_lossy().into_owned())
+}
+
+/// List one directory of the sample root: directories first, then names, at
+/// most [`MAX_ENTRIES`] of them. A `dir` outside the root is refused.
+#[tauri::command]
+fn list_samples(dir: Option<String>) -> Result<Vec<SampleEntry>, String> {
+    let root = resolve(&samples_root())?;
+    let requested = dir.unwrap_or_else(|| root.to_string_lossy().into_owned());
+    let target = resolve(&requested)?;
+    if !target.starts_with(&root) {
+        return Err(format!(
+            "zboub69: {requested} is outside the sample root {}",
+            root.display()
+        ));
+    }
+    let listing = std::fs::read_dir(&target)
+        .map_err(|error| format!("zboub69: cannot read {}: {error}", target.display()))?;
+    let mut entries: Vec<SampleEntry> = listing
+        .take(MAX_ENTRIES)
+        .filter_map(|entry| entry.ok())
+        .map(|entry| describe(&entry))
+        .collect();
+    entries.sort_by_key(|entry| (entry.kind != SampleKind::Dir, entry.name.to_lowercase()));
+    Ok(entries)
+}
+
+/// Peaks of a `.wav` inside the sample root, for drawing an audio block.
+#[tauri::command]
+fn read_waveform(path: String) -> Result<Vec<f32>, String> {
+    if !is_wav(Path::new(&path)) {
+        return Err(format!("zboub69: {path} is not a wav file"));
+    }
+    let root = resolve(&samples_root())?;
+    let target = resolve(&path)?;
+    if !target.starts_with(&root) {
+        return Err(format!(
+            "zboub69: {path} is outside the sample root {}",
+            root.display()
+        ));
+    }
+    let sample = zboub69::core::wav::decode(&target, WAVEFORM_FRAMES)
+        .map_err(|error| format!("zboub69: cannot read {path}: {error}"))?;
+    Ok(peaks(&sample.frames, WAVEFORM_BUCKETS))
+}
+
+/// Canonicalise a path, reporting the failure as a message rather than panicking.
+fn resolve(path: &str) -> Result<PathBuf, String> {
+    std::fs::canonicalize(path).map_err(|error| format!("zboub69: cannot read {path}: {error}"))
+}
+
+/// Whether a path carries a `.wav` extension, whatever its case.
+fn is_wav(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("wav"))
+}
+
+/// Describe one directory entry, with a zero timestamp when the filesystem does
+/// not offer one.
+fn describe(entry: &std::fs::DirEntry) -> SampleEntry {
+    let path = entry.path();
+    let meta = entry.metadata().ok();
+    let directory = meta.as_ref().is_some_and(std::fs::Metadata::is_dir);
+    let kind = if directory {
+        SampleKind::Dir
+    } else if is_wav(&path) {
+        SampleKind::Wav
+    } else {
+        SampleKind::Other
+    };
+    let modified_ms = meta
+        .as_ref()
+        .and_then(|meta| meta.modified().ok())
+        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+        .map_or(0, |since| since.as_millis() as u64);
+    SampleEntry {
+        name: entry.file_name().to_string_lossy().into_owned(),
+        path: path.to_string_lossy().into_owned(),
+        kind,
+        size: meta.as_ref().map_or(0, std::fs::Metadata::len),
+        modified_ms,
+    }
 }
 
 /// Start the engine, streaming when `ZBOUB_STREAM_PORT` asks for it, and falling
@@ -120,7 +261,15 @@ pub fn run() {
                 .spawn(move || engine_thread(receiver, published))?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![state, send])
+        .invoke_handler(tauri::generate_handler![
+            state,
+            send,
+            samples_root,
+            list_samples,
+            home_dir,
+            parent_of,
+            read_waveform
+        ])
         .run(tauri::generate_context!())
         .expect("zboub69: the tauri runtime failed");
 }
@@ -141,5 +290,73 @@ mod tests {
         assert_eq!(stream_port(Some("0")), None);
         assert_eq!(stream_port(Some("65536")), None);
         assert_eq!(stream_port(Some("nope")), None);
+    }
+
+    #[test]
+    fn a_wav_extension_is_recognised_whatever_its_case() {
+        assert!(is_wav(Path::new("/samples/Kick.WAV")));
+        assert!(is_wav(Path::new("/samples/kick.wav")));
+        assert!(!is_wav(Path::new("/samples/kick.mp3")));
+        assert!(!is_wav(Path::new("/samples/kick")));
+    }
+
+    #[test]
+    fn a_parent_is_offered_except_at_the_root() {
+        assert_eq!(
+            parent_of("/home/user/music".into()),
+            Some("/home/user".into())
+        );
+        assert_eq!(parent_of("music".into()), Some("".into()));
+        assert_eq!(parent_of("/".into()), None);
+    }
+
+    #[test]
+    fn a_missing_directory_is_an_error_not_a_panic() {
+        let listing = list_samples(Some("/nonexistent/zboub69".into()));
+        assert!(
+            listing.is_err(),
+            "a missing directory must report, not panic"
+        );
+    }
+
+    #[test]
+    fn a_directory_outside_the_sample_root_is_refused() {
+        let root = samples_root();
+        let outside = if root.starts_with("/etc") {
+            "/usr"
+        } else {
+            "/etc"
+        };
+        let listing = list_samples(Some(outside.into()));
+        assert!(
+            listing.is_err(),
+            "the browser must not walk out of its root: {listing:?}"
+        );
+    }
+
+    #[test]
+    fn an_entry_crosses_ipc_as_camel_case_json() {
+        let entry = SampleEntry {
+            name: "kick.wav".into(),
+            path: "/samples/kick.wav".into(),
+            kind: SampleKind::Wav,
+            size: 1_024,
+            modified_ms: 42,
+        };
+        let json = serde_json::to_value(&entry).expect("an entry should serialize");
+        assert_eq!(json["modifiedMs"], 42);
+        assert_eq!(json["kind"], "wav");
+        assert_eq!(json["size"], 1_024);
+    }
+
+    #[test]
+    fn every_entry_kind_has_a_lowercase_name() {
+        let kinds = [SampleKind::Dir, SampleKind::Wav, SampleKind::Other];
+        let names: Vec<String> = kinds
+            .iter()
+            .map(|kind| serde_json::to_value(kind).expect("a kind should serialize"))
+            .map(|value| value.as_str().unwrap_or_default().to_string())
+            .collect();
+        assert_eq!(names, ["dir", "wav", "other"]);
     }
 }

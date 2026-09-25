@@ -1,0 +1,277 @@
+import {
+	MIN_BARS,
+	MIN_LABEL_PX,
+	SNAP_BEATS,
+	ZOOM_DEFAULT,
+	ZOOM_MAX,
+	ZOOM_MIN,
+	barsFor,
+	beatsToPx,
+	clampZoom,
+	envelopePoints,
+	formatPosition,
+	freeStart,
+	labelStep,
+	position,
+	pxToBeats,
+	snapBeats,
+	waveformPoints,
+	zoomBy
+} from './geometry';
+
+// bun test injects these as globals; @types/bun is not a dependency, so svelte-check
+// needs the shapes declared here to see them.
+interface Matchers {
+	toBe(expected: unknown): void;
+	toEqual(expected: unknown): void;
+	toBeNull(): void;
+	toBeCloseTo(expected: number, digits?: number): void;
+	toHaveLength(expected: number): void;
+	not: Matchers;
+}
+
+declare const describe: (name: string, fn: () => void) => void;
+declare const test: (name: string, fn: () => void) => void;
+declare const expect: (actual: unknown) => Matchers;
+
+describe('beatsToPx and pxToBeats', () => {
+	test('scales a beat count by the pixels per beat', () => {
+		expect(beatsToPx(4, 32)).toBe(128);
+		expect(beatsToPx(0, 32)).toBe(0);
+		expect(beatsToPx(1.5, 8)).toBe(12);
+	});
+
+	test('survives a round trip through the other direction', () => {
+		for (const scale of [ZOOM_MIN, 32, 64, ZOOM_MAX]) {
+			expect(pxToBeats(beatsToPx(7.5, scale), scale)).toBeCloseTo(7.5, 6);
+			expect(pxToBeats(beatsToPx(0.25, scale), scale)).toBeCloseTo(0.25, 6);
+		}
+	});
+
+	test('reads a pixel offset back as the beat under it', () => {
+		expect(pxToBeats(128, 32)).toBe(4);
+		expect(pxToBeats(0, 32)).toBe(0);
+	});
+});
+
+describe('snapBeats', () => {
+	test('rounds to the nearest beat', () => {
+		expect(snapBeats(2.4)).toBe(2);
+		expect(snapBeats(2.6)).toBe(3);
+		expect(snapBeats(15.5)).toBe(16);
+	});
+
+	test('leaves a beat already on the grid alone', () => {
+		for (const beat of [0, 1, 2, 7, 64]) {
+			expect(snapBeats(beat)).toBe(beat);
+		}
+	});
+
+	test('lands on a multiple of the snap grid', () => {
+		for (const beat of [0.2, 1.1, 3.9, 12.6]) {
+			const snapped = snapBeats(beat);
+			expect(snapped % SNAP_BEATS).toBe(0);
+		}
+	});
+
+	test('leaves the value alone when the drag is free', () => {
+		expect(snapBeats(2.4, true)).toBe(2.4);
+		expect(snapBeats(2.6, true)).toBe(2.6);
+	});
+
+	test('never returns a position above the top of the song', () => {
+		expect(snapBeats(-3)).toBe(0);
+		expect(snapBeats(-3, true)).toBe(0);
+		expect(snapBeats(-0.4)).toBe(0);
+	});
+});
+
+describe('clampZoom', () => {
+	test('keeps a scale inside the zoom range', () => {
+		expect(clampZoom(ZOOM_DEFAULT)).toBe(ZOOM_DEFAULT);
+		expect(clampZoom(ZOOM_MIN - 1)).toBe(ZOOM_MIN);
+		expect(clampZoom(ZOOM_MAX + 1)).toBe(ZOOM_MAX);
+	});
+});
+
+describe('zoomBy', () => {
+	test('moves one step in the given direction', () => {
+		expect(zoomBy(ZOOM_DEFAULT, 1)).toBe(40);
+		expect(zoomBy(ZOOM_DEFAULT, -1)).toBeCloseTo(25.6, 6);
+	});
+
+	test('does not drift over a round trip', () => {
+		expect(zoomBy(zoomBy(ZOOM_DEFAULT, 1), -1)).toBeCloseTo(ZOOM_DEFAULT, 6);
+	});
+
+	test('stops at the ends of the range', () => {
+		expect(zoomBy(ZOOM_MAX, 1)).toBe(ZOOM_MAX);
+		expect(zoomBy(ZOOM_MIN, -1)).toBe(ZOOM_MIN);
+		expect(zoomBy(ZOOM_MAX * 4, 1)).toBe(ZOOM_MAX);
+		expect(zoomBy(0, -1)).toBe(ZOOM_MIN);
+	});
+});
+
+describe('position', () => {
+	test('counts bars and beats from one', () => {
+		expect(position(0, 4)).toEqual({ bar: 1, beat: 1, fraction: 0 });
+		expect(position(1, 4)).toEqual({ bar: 1, beat: 2, fraction: 0 });
+		expect(position(4, 4)).toEqual({ bar: 2, beat: 1, fraction: 0 });
+		expect(position(16, 4)).toEqual({ bar: 5, beat: 1, fraction: 0 });
+	});
+
+	test('keeps the fraction of a beat inside the beat it belongs to', () => {
+		expect(position(1.5, 4)).toEqual({ bar: 1, beat: 2, fraction: 0.5 });
+		const late = position(7.9, 4);
+		expect(late.bar).toBe(2);
+		expect(late.beat).toBe(4);
+		expect(late.fraction).toBeCloseTo(0.9, 6);
+	});
+
+	test('clamps a position above the top of the song', () => {
+		expect(position(-4, 4)).toEqual({ bar: 1, beat: 1, fraction: 0 });
+	});
+
+	test('falls back to four beats a bar when the engine reports none', () => {
+		expect(position(4, 0)).toEqual({ bar: 2, beat: 1, fraction: 0 });
+	});
+});
+
+describe('formatPosition', () => {
+	test('reads a beat as bar.beat', () => {
+		expect(formatPosition(0, 4)).toBe('1.1');
+		expect(formatPosition(5, 4)).toBe('2.2');
+		expect(formatPosition(7.9, 4)).toBe('2.4');
+	});
+
+	test('follows the engine when the bar is not four beats', () => {
+		expect(formatPosition(3, 3)).toBe('2.1');
+		expect(formatPosition(2, 3)).toBe('1.3');
+	});
+});
+
+describe('barsFor', () => {
+	test('draws a minimum number of bars on an empty song', () => {
+		expect(barsFor(0, 4)).toBe(MIN_BARS);
+		expect(barsFor(4, 4)).toBe(MIN_BARS);
+	});
+
+	test('covers the material when the song is longer than the minimum', () => {
+		expect(barsFor(32, 4)).toBe(8);
+		expect(barsFor(33, 4)).toBe(9);
+		expect(barsFor(64, 8)).toBe(8);
+	});
+
+	test('never draws fewer bars than the engine reported', () => {
+		expect(barsFor(4, 4, 20)).toBe(20);
+		expect(barsFor(200, 4, 12)).toBe(50);
+	});
+
+	test('falls back to four beats a bar when the engine reports none', () => {
+		expect(barsFor(32, 0)).toBe(8);
+	});
+});
+
+describe('labelStep', () => {
+	test('numbers every bar when the bars are wide', () => {
+		expect(labelStep(128)).toBe(1);
+		expect(labelStep(MIN_LABEL_PX)).toBe(1);
+		expect(labelStep(MIN_LABEL_PX / 2)).toBe(2);
+	});
+
+	test('skips bars as they narrow, in powers of two', () => {
+		expect(labelStep(32)).toBe(2);
+		expect(labelStep(16)).toBe(4);
+		expect(labelStep(8)).toBe(8);
+		expect(labelStep(4)).toBe(16);
+	});
+
+	test('stops widening rather than looping forever', () => {
+		expect(labelStep(0)).toBe(64);
+	});
+});
+
+describe('freeStart', () => {
+	test('puts the first block at the top of the song', () => {
+		expect(freeStart([])).toBe(0);
+	});
+
+	test('ends where the material ends', () => {
+		expect(freeStart([{ startBeats: 0, lengthBeats: 4 }])).toBe(4);
+		expect(freeStart([{ startBeats: 8, lengthBeats: 2 }])).toBe(10);
+	});
+
+	test('takes the furthest end, whatever order the blocks arrive in', () => {
+		expect(
+			freeStart([
+				{ startBeats: 16, lengthBeats: 4 },
+				{ startBeats: 0, lengthBeats: 8 }
+			])
+		).toBe(20);
+	});
+});
+
+describe('waveformPoints', () => {
+	test('returns nothing for an empty peak list', () => {
+		expect(waveformPoints([], 40)).toBe('');
+	});
+
+	test('puts a silent peak on the centre line', () => {
+		expect(waveformPoints([0], 40)).toBe('0,20 0,20');
+	});
+
+	test('puts a full peak against both edges', () => {
+		expect(waveformPoints([1], 40)).toBe('0,0 0,40');
+	});
+
+	test('mirrors the peaks around the centre line', () => {
+		expect(waveformPoints([0.5, 1], 40)).toBe('0,10 1,0 1,40 0,30');
+	});
+
+	test('clamps a peak the engine should never send', () => {
+		expect(waveformPoints([-1, 2], 40)).toBe('0,20 1,0 1,40 0,20');
+	});
+});
+
+describe('envelopePoints', () => {
+	const WIDTH = 240;
+	const HEIGHT = 40;
+	const PLATEAU = 80;
+
+	test('starts silent, peaks at the attack and ends silent', () => {
+		const points = envelopePoints(0.5, 0.5, 0.5, 0.5, WIDTH, HEIGHT, PLATEAU);
+		const [start, peak, , , end] = points.split(' ');
+		expect(start).toBe('0,40');
+		expect(peak.endsWith(',0')).toBe(true);
+		expect(Number(end.split(',')[0])).toBeCloseTo(WIDTH, 6);
+		expect(end.endsWith(',40')).toBe(true);
+	});
+
+	test('holds the sustain level across the plateau', () => {
+		const points = envelopePoints(0.5, 0.5, 0.25, 0.5, WIDTH, HEIGHT, PLATEAU).split(' ');
+		const held = points[2].split(',')[1];
+		expect(Number(held)).toBeCloseTo(30, 6);
+		expect(points[3].split(',')[1]).toBe(held);
+	});
+
+	test('gives the three times the width the plateau leaves', () => {
+		const even = envelopePoints(1, 1, 1, 1, WIDTH, HEIGHT, PLATEAU).split(' ');
+		const rise = Number(even[1].split(',')[0]);
+		const decay = Number(even[2].split(',')[0]) - rise;
+		const tail = Number(even[4].split(',')[0]) - Number(even[3].split(',')[0]);
+		expect(rise).toBeCloseTo((WIDTH - PLATEAU) / 3, 6);
+		expect(decay).toBeCloseTo(rise, 6);
+		expect(tail).toBeCloseTo(rise, 6);
+	});
+
+	test('survives an envelope with no time in it at all', () => {
+		const points = envelopePoints(0, 0, 0, 0, WIDTH, HEIGHT, PLATEAU).split(' ');
+		expect(points).toHaveLength(5);
+		expect(points.every((point) => point.includes(','))).toBe(true);
+	});
+
+	test('clamps a sustain the engine should never send', () => {
+		const loud = envelopePoints(1, 1, 4, 1, WIDTH, HEIGHT, PLATEAU).split(' ');
+		expect(Number(loud[2].split(',')[1])).toBe(0);
+	});
+});
