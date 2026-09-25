@@ -49,7 +49,8 @@ export class SampleDrag {
 		const lane = laneUnder(event.clientX, event.clientY, this.context.zoom());
 		this.stop();
 		if (entry === null || lane === null || event.type === 'pointercancel') return;
-		this.context.drop(entry, lane.track, snapBeats(lane.beats));
+		const startBeats = lane.beats < 2.0 ? 0 : snapBeats(lane.beats);
+		this.context.drop(entry, lane.track, startBeats);
 	};
 
 	private stop(): void {

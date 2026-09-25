@@ -4,36 +4,36 @@
 //! already places it in the stereo field. Reading happens on the control thread;
 //! nothing here runs in the audio callback.
 
+use std::fs::File;
+use std::io::Cursor;
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
+use symphonia::core::audio::SampleBuffer;
+use symphonia::core::codecs::{CODEC_TYPE_NULL, DecoderOptions};
+use symphonia::core::errors::Error as SymphoniaError;
+use symphonia::core::formats::FormatOptions;
+use symphonia::core::io::{MediaSource, MediaSourceStream};
+use symphonia::core::meta::MetadataOptions;
+use symphonia::core::probe::Hint;
 
-/// Largest file the reader will look at, so a stray path cannot exhaust memory.
 const MAX_FILE_BYTES: u64 = 256 * 1024 * 1024;
 
 const FORMAT_PCM: u16 = 1;
 const FORMAT_FLOAT: u16 = 3;
 const FORMAT_EXTENSIBLE: u16 = 0xFFFE;
 
-/// Highest channel count the reader will downmix.
 const MAX_CHANNELS: u16 = 32;
 
-/// A decoded audio file: mono frames at the file's own rate.
 #[derive(Clone, Debug)]
 pub struct Sample {
-    /// Mono frames, normalised to `[-1, 1]`.
     pub frames: Vec<f32>,
-    /// The rate the frames are at, which need not match the engine's.
     pub sample_rate: u32,
-    /// Channels the file carried, before the downmix.
     pub channels: u16,
-    /// Frames the file held, before any truncation.
     pub source_frames: usize,
-    /// Whether the file held more frames than `max_frames`.
     pub truncated: bool,
 }
 
-/// Read and decode a WAV file, keeping at most `max_frames` frames.
 pub fn decode(path: &Path, max_frames: usize) -> Result<Sample> {
     let meta = std::fs::metadata(path).with_context(|| format!("reading {}", path.display()))?;
     if meta.len() > MAX_FILE_BYTES {
@@ -44,20 +44,119 @@ pub fn decode(path: &Path, max_frames: usize) -> Result<Sample> {
             MAX_FILE_BYTES
         );
     }
-    let bytes = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
-    decode_bytes(&bytes, max_frames).with_context(|| format!("decoding {}", path.display()))
+    let mut hint = Hint::new();
+    if let Some(ext) = path.extension().and_then(|ext| ext.to_str()) {
+        hint.with_extension(ext);
+    }
+    let file = File::open(path).with_context(|| format!("opening {}", path.display()))?;
+    decode_stream(Box::new(file), &hint, max_frames)
+        .or_else(|_| {
+            let bytes = std::fs::read(path)?;
+            decode_bytes(&bytes, max_frames)
+        })
+        .with_context(|| format!("decoding {}", path.display()))
 }
 
-/// Decode WAV bytes, keeping at most `max_frames` frames.
 pub fn decode_bytes(bytes: &[u8], max_frames: usize) -> Result<Sample> {
-    let header = parse(bytes)?;
-    let frames = header.decode(max_frames);
+    let mut hint = Hint::new();
+    hint.with_extension("wav");
+    decode_stream(Box::new(Cursor::new(bytes.to_vec())), &hint, max_frames).or_else(|_| {
+        let header = parse(bytes)?;
+        let frames = header.decode(max_frames);
+        Ok(Sample {
+            frames,
+            sample_rate: header.sample_rate,
+            channels: header.channels,
+            source_frames: header.frames,
+            truncated: header.frames > max_frames,
+        })
+    })
+}
+
+fn decode_stream(source: Box<dyn MediaSource>, hint: &Hint, max_frames: usize) -> Result<Sample> {
+    let mss = MediaSourceStream::new(source, Default::default());
+    let probed = symphonia::default::get_probe()
+        .format(
+            hint,
+            mss,
+            &FormatOptions::default(),
+            &MetadataOptions::default(),
+        )
+        .context("probing audio format")?;
+    let mut format = probed.format;
+    let track = format
+        .tracks()
+        .iter()
+        .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
+        .context("no audio track found")?;
+    let track_id = track.id;
+    let sample_rate = track
+        .codec_params
+        .sample_rate
+        .context("missing sample rate")?;
+    let channels = track
+        .codec_params
+        .channels
+        .map(|c| c.count() as u16)
+        .unwrap_or(1);
+    let mut decoder = symphonia::default::get_codecs()
+        .make(&track.codec_params, &DecoderOptions::default())
+        .context("creating audio decoder")?;
+
+    let mut sample_buf: Option<SampleBuffer<f32>> = None;
+    let mut frames = Vec::new();
+    let mut source_frames = 0;
+
+    while let Ok(packet) = format.next_packet() {
+        if packet.track_id() != track_id {
+            continue;
+        }
+        match decoder.decode(&packet) {
+            Ok(decoded) => {
+                if sample_buf.is_none() {
+                    let spec = *decoded.spec();
+                    let duration = decoded.capacity() as u64;
+                    sample_buf = Some(SampleBuffer::<f32>::new(duration, spec));
+                }
+                if let Some(buf) = &mut sample_buf {
+                    buf.copy_interleaved_ref(decoded);
+                    let samples = buf.samples();
+                    let ch = channels.max(1) as usize;
+                    let packet_frames = samples.len() / ch;
+                    source_frames += packet_frames;
+                    for frame_idx in 0..packet_frames {
+                        if frames.len() < max_frames {
+                            let mut sum = 0.0f32;
+                            for c in 0..ch {
+                                sum += samples[frame_idx * ch + c];
+                            }
+                            frames.push(sum / ch as f32);
+                        }
+                    }
+                }
+            }
+            Err(SymphoniaError::IoError(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+                break;
+            }
+            Err(SymphoniaError::DecodeError(_)) => {
+                continue;
+            }
+            Err(e) => {
+                bail!("decoding audio packet: {e}");
+            }
+        }
+    }
+
+    if source_frames == 0 {
+        bail!("audio stream contained no playable frames");
+    }
+
     Ok(Sample {
         frames,
-        sample_rate: header.sample_rate,
-        channels: header.channels,
-        source_frames: header.frames,
-        truncated: header.frames > max_frames,
+        sample_rate,
+        channels,
+        source_frames,
+        truncated: source_frames > max_frames,
     })
 }
 
@@ -352,5 +451,19 @@ mod tests {
         assert_eq!(sample.frames.len(), 96_000);
         assert!(sample.truncated, "the file is longer than the ceiling");
         assert!(sample.frames.iter().any(|value| value.abs() > 1e-4));
+    }
+
+    #[test]
+    fn mp3_flac_m4a_files_decode() {
+        for ext in ["mp3", "flac", "m4a"] {
+            let path = std::path::Path::new("/tmp").join(format!("test.{ext}"));
+            if !path.exists() {
+                continue;
+            }
+            let sample = decode(&path, 96_000).expect("should decode audio file");
+            assert!(sample.channels >= 1);
+            assert!(sample.sample_rate > 0);
+            assert!(!sample.frames.is_empty());
+        }
     }
 }

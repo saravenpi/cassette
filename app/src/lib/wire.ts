@@ -62,7 +62,7 @@ export interface UiState {
 	sampleRate: number;
 }
 
-export type SampleKind = 'dir' | 'wav' | 'other';
+export type SampleKind = 'dir' | 'wav' | 'audio' | 'other';
 
 /** One entry the file browser can show. */
 export interface SampleEntry {
@@ -81,6 +81,7 @@ export type EngineEvent =
 	| 'togglePlay'
 	| 'stop'
 	| 'toggleLoop'
+	| { seek: { beats: number } }
 	| 'addBlock'
 	| 'deleteBlock'
 	| 'cycleTrackKind'

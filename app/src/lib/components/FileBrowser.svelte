@@ -20,6 +20,12 @@
 	let failure = $state<string | null>(null);
 	let loading = $state(false);
 	let selected = $state<SampleEntry | null>(null);
+	let showAll = $state(false);
+
+	const visibleEntries = $derived(
+		showAll ? entries : entries.filter((entry) => entry.kind !== 'other')
+	);
+	const hiddenCount = $derived(entries.filter((entry) => entry.kind === 'other').length);
 
 	const drag = new SampleDrag({
 		zoom: () => session.zoom,
@@ -76,16 +82,18 @@
 		<p class="note warn">{failure}</p>
 	{:else if entries.length === 0}
 		<p class="note">this directory is empty</p>
+	{:else if visibleEntries.length === 0}
+		<p class="note">no audio files</p>
 	{:else}
 		<ul class="list">
-			{#each entries as entry (entry.path)}
+			{#each visibleEntries as entry (entry.path)}
 				<li>
 					{#if entry.kind === 'dir'}
 						<button class="row" onclick={() => open(entry.path)}>
 							<span class="name">{entry.name}</span>
 							<span class="meta">dir</span>
 						</button>
-					{:else if entry.kind === 'wav'}
+					{:else if entry.kind === 'wav' || entry.kind === 'audio'}
 						<button
 							class="row wav"
 							class:picked={selected?.path === entry.path}
@@ -106,6 +114,14 @@
 				</li>
 			{/each}
 		</ul>
+	{/if}
+
+	{#if hiddenCount > 0}
+		<div class="filter-footer">
+			<button class="toggle-hidden" onclick={() => (showAll = !showAll)}>
+				{showAll ? 'hide non-audio' : `${hiddenCount} non-audio hidden`}
+			</button>
+		</div>
 	{/if}
 
 	<SamplePreview entry={selected} />
@@ -200,5 +216,24 @@
 		background: var(--panel-2);
 		border: 1px solid var(--accent);
 		border-radius: 2px;
+	}
+
+	.filter-footer {
+		padding: 4px 8px;
+		border-top: 1px solid var(--line);
+		flex: none;
+	}
+
+	.toggle-hidden {
+		background: none;
+		border: none;
+		color: var(--dim);
+		font-size: 10px;
+		cursor: pointer;
+		padding: 2px 4px;
+	}
+
+	.toggle-hidden:hover {
+		color: var(--text);
 	}
 </style>

@@ -24,8 +24,6 @@ use zboub69::ui::view::UiState;
 
 /// One frame at 60 Hz, the fastest the webview can draw.
 const FRAME: Duration = Duration::from_micros(16_667);
-/// Frames the waveform command decodes before reducing them to peaks.
-const WAVEFORM_FRAMES: usize = 200_000;
 /// Entries one directory listing returns at most.
 const MAX_ENTRIES: usize = 2_000;
 
@@ -64,8 +62,10 @@ fn stream_port(raw: Option<&str>) -> Option<u16> {
 enum SampleKind {
     /// A directory the browser can open.
     Dir,
-    /// A file the engine can load.
+    /// A WAV file the engine can load.
     Wav,
+    /// Another audio file format the engine can load.
+    Audio,
     /// Anything else, listed but not loadable.
     Other,
 }
@@ -136,21 +136,14 @@ fn list_samples(dir: Option<String>) -> Result<Vec<SampleEntry>, String> {
     Ok(entries)
 }
 
-/// Peaks of a `.wav` inside the sample root, for drawing an audio block.
+/// Peaks of an audio file for drawing an audio block.
 #[tauri::command]
 fn read_waveform(path: String) -> Result<Vec<f32>, String> {
-    if !is_wav(Path::new(&path)) {
-        return Err(format!("zboub69: {path} is not a wav file"));
-    }
-    let root = resolve(&samples_root())?;
     let target = resolve(&path)?;
-    if !target.starts_with(&root) {
-        return Err(format!(
-            "zboub69: {path} is outside the sample root {}",
-            root.display()
-        ));
+    if !is_audio(&target) {
+        return Err(format!("zboub69: {path} is not a supported audio file"));
     }
-    let sample = zboub69::core::wav::decode(&target, WAVEFORM_FRAMES)
+    let sample = zboub69::core::wav::decode(&target, usize::MAX)
         .map_err(|error| format!("zboub69: cannot read {path}: {error}"))?;
     Ok(peaks(&sample.frames, WAVEFORM_BUCKETS))
 }
@@ -160,11 +153,27 @@ fn resolve(path: &str) -> Result<PathBuf, String> {
     std::fs::canonicalize(path).map_err(|error| format!("zboub69: cannot read {path}: {error}"))
 }
 
-/// Whether a path carries a `.wav` extension, whatever its case.
-fn is_wav(path: &Path) -> bool {
-    path.extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("wav"))
+/// Whether a path carries a supported audio file extension.
+fn is_audio(path: &Path) -> bool {
+    let Some(extension) = path.extension().and_then(|extension| extension.to_str()) else {
+        return false;
+    };
+    matches!(
+        extension.to_ascii_lowercase().as_str(),
+        "wav"
+            | "mp3"
+            | "flac"
+            | "m4a"
+            | "aac"
+            | "ogg"
+            | "oga"
+            | "opus"
+            | "aiff"
+            | "aif"
+            | "caf"
+            | "alac"
+            | "wma"
+    )
 }
 
 /// Describe one directory entry, with a zero timestamp when the filesystem does
@@ -175,8 +184,16 @@ fn describe(entry: &std::fs::DirEntry) -> SampleEntry {
     let directory = meta.as_ref().is_some_and(std::fs::Metadata::is_dir);
     let kind = if directory {
         SampleKind::Dir
-    } else if is_wav(&path) {
-        SampleKind::Wav
+    } else if is_audio(&path) {
+        if path
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e.eq_ignore_ascii_case("wav"))
+        {
+            SampleKind::Wav
+        } else {
+            SampleKind::Audio
+        }
     } else {
         SampleKind::Other
     };
@@ -293,11 +310,14 @@ mod tests {
     }
 
     #[test]
-    fn a_wav_extension_is_recognised_whatever_its_case() {
-        assert!(is_wav(Path::new("/samples/Kick.WAV")));
-        assert!(is_wav(Path::new("/samples/kick.wav")));
-        assert!(!is_wav(Path::new("/samples/kick.mp3")));
-        assert!(!is_wav(Path::new("/samples/kick")));
+    fn audio_extensions_are_recognised_whatever_their_case() {
+        assert!(is_audio(Path::new("/samples/Kick.WAV")));
+        assert!(is_audio(Path::new("/samples/kick.wav")));
+        assert!(is_audio(Path::new("/samples/kick.mp3")));
+        assert!(is_audio(Path::new("/samples/kick.flac")));
+        assert!(is_audio(Path::new("/samples/kick.m4a")));
+        assert!(!is_audio(Path::new("/samples/kick.txt")));
+        assert!(!is_audio(Path::new("/samples/kick")));
     }
 
     #[test]

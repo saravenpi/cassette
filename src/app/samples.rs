@@ -11,7 +11,7 @@ use rtrb::Producer;
 
 use super::App;
 use crate::core::MAX_BLOCKS;
-use crate::core::sample::{MAX_SAMPLE_FRAMES, MAX_SAMPLE_SLOTS, SampleMsg};
+use crate::core::sample::{MAX_SAMPLE_SLOTS, SampleMsg};
 use crate::core::wav::{self, Sample};
 use crate::models::{Block, TrackKind};
 use crate::ui::view::Cursor;
@@ -37,7 +37,7 @@ impl App {
             );
             return;
         }
-        let sample = match wav::decode(Path::new(&path), MAX_SAMPLE_FRAMES) {
+        let sample = match wav::decode(Path::new(&path), usize::MAX) {
             Ok(sample) => sample,
             Err(error) => {
                 self.status = format!("cannot read {path}: {error}");
@@ -62,12 +62,18 @@ impl App {
                 );
                 return;
             }
+            self.loaded_samples
+                .insert(slot, std::sync::Arc::from(sample.frames.as_slice()));
         }
         self.samples.insert(path.clone(), slot);
+        self.send(crate::core::render::RtCommand::SetSampleRate {
+            slot,
+            rate: sample.sample_rate as f32,
+        });
 
-        let length_beats = sample.frames.len() as f32
-            / self.engine.sample_rate() as f32
-            / (60.0 / self.song.bpm());
+        let length_beats = (sample.frames.len() as f64
+            / sample.sample_rate as f64
+            / (60.0 / self.song.bpm() as f64)) as f32;
         let name = Path::new(&path)
             .file_stem()
             .and_then(|stem| stem.to_str())
@@ -94,8 +100,6 @@ impl App {
         };
     }
 
-    /// The slot a source file occupies, or the lowest free one for a file that
-    /// is not loaded yet.
     fn slot_for(&self, path: &str) -> Option<u8> {
         if let Some(slot) = self.samples.get(path) {
             return Some(*slot);
@@ -104,26 +108,18 @@ impl App {
     }
 }
 
-/// Push one whole load down the ring. Returns `false` if the ring had no room,
-/// in which case the caller must give the slot back.
 fn push_load(producer: Option<&mut Producer<SampleMsg>>, slot: u8, sample: &Sample) -> bool {
     let Some(producer) = producer else {
         return false;
     };
-    let begin = SampleMsg::Begin {
-        slot,
-        frames: sample.frames.len() as u32,
-        rate: sample.sample_rate as f32,
-    };
-    if producer.push(begin).is_err() {
-        return false;
-    }
-    for frame in &sample.frames {
-        if producer.push(SampleMsg::Frame(*frame)).is_err() {
-            return false;
-        }
-    }
-    producer.push(SampleMsg::End { slot }).is_ok()
+    let frames: std::sync::Arc<[f32]> = std::sync::Arc::from(sample.frames.as_slice());
+    producer
+        .push(SampleMsg::Load {
+            slot,
+            frames,
+            rate: sample.sample_rate as f32,
+        })
+        .is_ok()
 }
 
 /// Reduce mono frames to `buckets` peak values in `0..=1`, for drawing an audio

@@ -1,10 +1,10 @@
 <script lang="ts">
 	/**
-	 * The bar and beat ruler. It is a readout, not a control: the transport cannot
-	 * be seeked, so nothing here answers a click.
+	 * The bar and beat ruler. Click or drag to seek the transport.
 	 */
 
-	import { RULER_HEIGHT, beatsToPx, labelStep } from '$lib/geometry';
+	import { RULER_HEIGHT, beatsToPx, labelStep, pxToBeats, snapBeats } from '$lib/geometry';
+	import { session } from '$lib/session.svelte';
 
 	interface Props {
 		pxPerBeat: number;
@@ -42,9 +42,35 @@
 		}
 		return out;
 	});
+
+	function seekFromPointer(event: PointerEvent): void {
+		const ruler = document.querySelector('.ruler');
+		if (!ruler) return;
+		const rect = ruler.getBoundingClientRect();
+		const px = Math.max(0, event.clientX - rect.left);
+		const beats = Math.max(0, pxToBeats(px, pxPerBeat));
+		session.dispatch({ seek: { beats: snapBeats(beats) } });
+	}
+
+	function onPointerDown(event: PointerEvent): void {
+		if (event.button !== 0) return;
+		seekFromPointer(event);
+		const onMove = (e: PointerEvent) => seekFromPointer(e);
+		const onUp = () => {
+			window.removeEventListener('pointermove', onMove);
+			window.removeEventListener('pointerup', onUp);
+		};
+		window.addEventListener('pointermove', onMove);
+		window.addEventListener('pointerup', onUp);
+	}
 </script>
 
-<div class="ruler" role="presentation" style="height: {RULER_HEIGHT}px">
+<div
+	class="ruler"
+	role="presentation"
+	style="height: {RULER_HEIGHT}px"
+	onpointerdown={onPointerDown}
+>
 	{#each marks as mark (mark.key)}
 		<span class="mark" class:bar={mark.bar} style="left: {mark.left}px">
 			{#if mark.label !== null}<span class="label">{mark.label}</span>{/if}
@@ -57,6 +83,8 @@
 		position: relative;
 		flex: 1;
 		background: var(--panel);
+		cursor: pointer;
+		user-select: none;
 	}
 
 	.mark {

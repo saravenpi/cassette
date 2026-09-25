@@ -21,7 +21,7 @@
 	let failure = $state<string | null>(null);
 
 	$effect(() => {
-		const path = entry?.kind === 'wav' ? entry.path : '';
+		const path = entry?.kind === 'wav' || entry?.kind === 'audio' ? entry.path : '';
 		if (path === '') {
 			peaks = null;
 			failure = null;
@@ -47,7 +47,7 @@
 	});
 </script>
 
-{#if entry !== null && entry.kind === 'wav'}
+{#if entry !== null && (entry.kind === 'wav' || entry.kind === 'audio')}
 	<div class="preview">
 		<span class="file">{entry.name}</span>
 		{#if peaks !== null}

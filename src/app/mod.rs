@@ -57,19 +57,17 @@ pub struct App {
     resync_pending: bool,
     /// Slot each loaded source file occupies, so one file dropped twice shares one.
     samples: HashMap<String, u8>,
-    /// The write side of the sample ring, absent only if the engine gave none.
+    loaded_samples: HashMap<u8, std::sync::Arc<[f32]>>,
     producer: Option<Producer<SampleMsg>>,
 }
 
 impl App {
-    /// Build an app with the live audio backend.
     pub fn new() -> Result<Self> {
         let song = Song::new();
         let engine = AudioEngine::start(&song).context("starting the audio engine")?;
         Ok(Self::with(song, engine))
     }
 
-    /// Build an app that streams audio over loopback TCP (audio over SSH).
     pub fn new_streaming(port: u16) -> Result<Self> {
         let song = Song::new();
         let engine =
@@ -77,7 +75,6 @@ impl App {
         Ok(Self::with(song, engine))
     }
 
-    /// Build an app whose engine makes no sound (no device, or CI).
     pub fn new_silent() -> Result<Self> {
         let song = Song::new();
         let engine = AudioEngine::start_silent(&song).context("starting the silent engine")?;
@@ -108,6 +105,7 @@ impl App {
             status,
             resync_pending: false,
             samples: HashMap::new(),
+            loaded_samples: HashMap::new(),
             producer,
         }
     }
@@ -145,6 +143,7 @@ impl App {
         match event {
             Event::TogglePlay => self.toggle_play(),
             Event::Stop => self.stop(),
+            Event::Seek { beats } => self.seek(beats),
             Event::ToggleLoop => self.toggle_loop(),
             Event::MoveTrack(delta) => self.move_track(delta),
             Event::MoveBlock(delta) => self.move_block(delta),

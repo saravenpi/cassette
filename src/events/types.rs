@@ -10,20 +10,25 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Event {
-    /// Start playing, or stop if already playing.
     TogglePlay,
-    /// Stop and rewind.
     Stop,
-    /// Enable or disable looping.
+    Seek {
+        beats: f32,
+    },
     ToggleLoop,
     /// Move the track cursor.
     MoveTrack(i32),
     /// Move the block cursor within the selected track.
     MoveBlock(i32),
     /// Put the cursor on a track, without moving the block cursor.
-    SelectTrack { track: usize },
+    SelectTrack {
+        track: usize,
+    },
     /// Put the cursor on one block of one track.
-    SelectBlock { track: usize, block: usize },
+    SelectBlock {
+        track: usize,
+        block: usize,
+    },
     /// Create an empty block of the track's kind on its lane.
     CreateBlock {
         track: usize,
@@ -45,7 +50,10 @@ pub enum Event {
         length_beats: f32,
     },
     /// Remove one block from one track.
-    DeleteBlockAt { track: usize, block: usize },
+    DeleteBlockAt {
+        track: usize,
+        block: usize,
+    },
     /// Append an empty block to the selected track.
     AddBlock,
     /// Remove the block under the cursor.
@@ -85,7 +93,10 @@ pub enum Event {
     /// Toggle solo on the selected track.
     ToggleSolo,
     /// Set a track's built-in voice preset by name, as the VST pane does.
-    SetPreset { track: usize, preset: String },
+    SetPreset {
+        track: usize,
+        preset: String,
+    },
     /// Edit a track's voice: waveform character and envelope.
     SetInstrument {
         track: usize,
@@ -99,9 +110,17 @@ pub enum Event {
     /// Transpose the play keyboard.
     OctaveDelta(i32),
     /// A note was played on the keyboard.
-    NoteOn { pitch: u8, velocity: u8 },
+    NoteOn {
+        pitch: u8,
+        velocity: u8,
+    },
     /// A played note was released.
-    NoteOff { pitch: u8 },
+    NoteOff {
+        pitch: u8,
+    },
     /// A control-surface value arrived over OSC.
-    OscControl { address: String, value: f32 },
+    OscControl {
+        address: String,
+        value: f32,
+    },
 }

@@ -503,7 +503,13 @@ impl SynthEngine {
         true
     }
 
-    /// How many sample slots currently hold a playable sample.
+    pub fn is_sample_playing(&self, track: usize) -> bool {
+        if track >= self.track_count {
+            return false;
+        }
+        self.tracks[track].sample.playing()
+    }
+
     pub fn sample_slots_ready(&self) -> usize {
         (0..MAX_SAMPLE_SLOTS as u8)
             .filter(|slot| self.pool.is_ready(*slot))

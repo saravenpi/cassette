@@ -30,6 +30,11 @@ impl App {
         }
     }
 
+    pub(crate) fn seek(&mut self, beats: f32) {
+        self.send(RtCommand::Seek { beats });
+        self.status = format!("seek {:.2} beats", beats.max(0.0));
+    }
+
     /// Stop and rewind.
     pub(crate) fn stop(&mut self) {
         self.send(RtCommand::Stop);

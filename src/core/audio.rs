@@ -191,8 +191,16 @@ fn player_args(sample_rate: u32) -> Vec<String> {
         "error",
         "-nodisp",
         "-autoexit",
+        "-probesize",
+        "32",
+        "-analyzeduration",
+        "0",
+        "-sync",
+        "audio",
         "-fflags",
         "nobuffer",
+        "-flags",
+        "low_delay",
         "-f",
         "f32le",
         "-ar",
@@ -555,7 +563,10 @@ mod cpal_backend {
                 .default_output_config()
                 .map_err(|e| anyhow!("no output config: {e}"))?;
             let format = supported.sample_format();
-            let config: StreamConfig = supported.config();
+            let mut config: StreamConfig = supported.config();
+            if let cpal::SupportedBufferSize::Range { min, max } = supported.buffer_size() {
+                config.buffer_size = cpal::BufferSize::Fixed(256.clamp(*min, *max));
+            }
             Ok(Self {
                 sample_rate: config.sample_rate.0,
                 channels: config.channels as usize,

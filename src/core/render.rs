@@ -92,10 +92,12 @@ pub enum RtCommand {
         muted: bool,
         solo: bool,
     },
-    /// Tell a sample slot how its frames relate to the engine's rate.
     SetSampleRate {
         slot: u8,
         rate: f32,
+    },
+    Seek {
+        beats: f32,
     },
     Play,
     Stop,
@@ -140,12 +142,15 @@ impl Transport {
         self.position_frames = (beats as f64 * self.frames_per_beat as f64).round() as u64;
     }
 
-    /// Frames in one beat at the current tempo.
     pub fn frames_per_beat(&self) -> u64 {
         self.frames_per_beat
     }
 
-    /// Start (or resume) playback from the current position.
+    pub fn seek_beats(&mut self, beats: f32) {
+        let safe = beats.max(0.0);
+        self.position_frames = (safe as f64 * self.frames_per_beat as f64).round() as u64;
+    }
+
     pub fn play(&mut self) {
         self.playing = true;
     }
@@ -269,6 +274,10 @@ impl RenderCore {
             RtCommand::SetSampleRate { slot, rate } => {
                 self.synth.set_sample_rate(slot, rate);
             }
+            RtCommand::Seek { beats } => {
+                self.transport.seek_beats(beats);
+                self.synth.all_notes_off();
+            }
             RtCommand::Play => self.transport.play(),
             RtCommand::Stop => {
                 self.transport.stop();
@@ -336,7 +345,9 @@ impl RenderCore {
                     self.synth.release_sample(track, index as u8);
                     continue;
                 }
-                if !block.starts_in(from_beats, to_beats) {
+                let should_start = block.starts_in(from_beats, to_beats)
+                    || (block.covers(from_beats) && !self.synth.is_sample_playing(track));
+                if !should_start {
                     continue;
                 }
                 let elapsed = (from_beats - block.start_beats).max(0.0) * frames_per_beat;
