@@ -1,7 +1,7 @@
 //! Phase 4.3 — MIDI and OSC input adapters.
 
-use zboub69::events::Event;
-use zboub69::input::{MidiInputAdapter, MidiMessage, OscInputAdapter, OscMessage};
+use cassette::events::Event;
+use cassette::input::{MidiInputAdapter, MidiMessage, OscInputAdapter, OscMessage};
 
 #[test]
 fn midi_note_on_translates_to_a_note_on_event() {

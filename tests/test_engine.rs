@@ -5,10 +5,10 @@ use std::net::TcpStream;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-use zboub69::core::engine::AudioEngine;
-use zboub69::core::render::{MirroredBlock, RtCommand};
-use zboub69::core::sample::SampleMsg;
-use zboub69::models::Song;
+use cassette::core::engine::AudioEngine;
+use cassette::core::render::{MirroredBlock, RtCommand};
+use cassette::core::sample::SampleMsg;
+use cassette::models::Song;
 
 #[test]
 fn silent_engine_starts_cleanly() {
@@ -225,10 +225,10 @@ fn a_block_later_in_the_song_stays_silent() {
 /// transport never reaches fails here and not only in the unit tests.
 #[test]
 fn a_dropped_sample_reaches_the_meter_end_to_end() {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/zboub69-mix.wav");
-    let mut app = zboub69::app::App::new_silent().expect("silent app should build");
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/cassette-mix.wav");
+    let mut app = cassette::app::App::new_silent().expect("silent app should build");
 
-    app.submit(zboub69::events::Event::ImportSample {
+    app.submit(cassette::events::Event::ImportSample {
         track: 0,
         path: path.to_string(),
         start_beats: 0.0,
@@ -243,11 +243,11 @@ fn a_dropped_sample_reaches_the_meter_end_to_end() {
     );
     assert_ne!(
         state.tracks[0].kind,
-        zboub69::models::TrackKind::Midi,
+        cassette::models::TrackKind::Midi,
         "dropping a sample makes the track an audio track"
     );
 
-    app.submit(zboub69::events::Event::TogglePlay);
+    app.submit(cassette::events::Event::TogglePlay);
     let deadline = Instant::now() + Duration::from_secs(3);
     let mut level = 0.0f32;
     while level <= 0.01 && Instant::now() < deadline {

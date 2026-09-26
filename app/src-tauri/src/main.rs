@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    zboub69_app_lib::run();
+    cassette_app_lib::run();
 }

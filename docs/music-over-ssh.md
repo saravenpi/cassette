@@ -1,15 +1,15 @@
 # Music over SSH
 
-How to hear zboub69 when the machine running the engine is not the machine you
+How to hear cassette when the machine running the engine is not the machine you
 are sitting at.
 
 **Current state.** The streaming backend exists in the engine, works, and is
-covered by a test. The desktop app starts it when you set `ZBOUB_STREAM_PORT` to
-a `u16` greater than zero. This is opt-in: the default app picks a device backend
-and does not stream. The terminal UI and its `zboub69 --stream-port` flag are
-gone. Section 2 gives the working route. The protocol facts in sections 3, 5 and
-6 and the local player recipe are still correct, which is why this file is worth
-keeping.
+covered by a test. The desktop app starts it when you set `CASSETTE_STREAM_PORT`
+(or `ZBOUB_STREAM_PORT`) to a `u16` greater than zero. This is opt-in: the default
+app picks a device backend and does not stream. The terminal UI and its
+`--stream-port` flag are gone. Section 2 gives the working route. The protocol
+facts in sections 3, 5 and 6 and the local player recipe are still correct,
+which is why this file is worth keeping.
 
 ---
 
@@ -73,11 +73,11 @@ and points back at this file, so the code and the documentation agree.
 
 ### How to start it
 
-Start the desktop app with `ZBOUB_STREAM_PORT` set to the port you want to
-forward. From `app/`:
+Start the desktop app with `CASSETTE_STREAM_PORT` (or `ZBOUB_STREAM_PORT`)
+set to the port you want to forward. From `app/`:
 
 ```bash
-ZBOUB_STREAM_PORT=9999 bun run tauri dev
+CASSETTE_STREAM_PORT=9999 bun run tauri dev
 ```
 
 Any `u16` greater than zero selects the streaming backend. Unset, empty,
@@ -90,7 +90,7 @@ port to forward.
 The same backend is reachable through the engine API:
 
 ```rust
-use zboub69::{AudioEngine, Song};
+use cassette::{AudioEngine, Song};
 
 let song = Song::new();
 let engine = AudioEngine::start_streaming(&song, 9999)?;
@@ -270,7 +270,7 @@ ssh -N -L 9999:127.0.0.1:9999 yann@your-server
 
 # terminal 2 — record the raw PCM the server renders
 ffmpeg -f f32le -ar 44100 -ch_layout stereo \
-  -i tcp://127.0.0.1:9999 zboub69-mix.wav
+  -i tcp://127.0.0.1:9999 cassette-mix.wav
 ```
 
 [SUPERSEDED by: removal of the terminal UI, 2026-09-24] This used to say to

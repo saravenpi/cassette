@@ -77,7 +77,7 @@ const ONCE_PER_PRESS = new Set<string>([
 
 const clash = Object.keys(COMMANDS).find((code) => code in PIANO);
 if (clash) {
-	throw new Error(`zboub69: ${clash} is bound to both a note and a command`);
+	throw new Error(`cassette: ${clash} is bound to both a note and a command`);
 }
 
 /** The MIDI pitch a key plays at the given keyboard octave, or null if it is not a note. */

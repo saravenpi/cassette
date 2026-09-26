@@ -325,6 +325,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "cassette"
+version = "0.6.0"
+dependencies = [
+ "anyhow",
+ "assert_no_alloc",
+ "cpal",
+ "crossbeam",
+ "rtrb",
+ "serde",
+ "serde_json",
+ "symphonia",
+]
+
+[[package]]
+name = "cassette-app"
+version = "0.6.0"
+dependencies = [
+ "cassette",
+ "crossbeam",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+]
+
+[[package]]
 name = "cc"
 version = "1.4.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4987,32 +5013,6 @@ dependencies = [
  "quote",
  "syn 3.0.6",
  "synstructure",
-]
-
-[[package]]
-name = "zboub69"
-version = "0.6.0"
-dependencies = [
- "anyhow",
- "assert_no_alloc",
- "cpal",
- "crossbeam",
- "rtrb",
- "serde",
- "serde_json",
- "symphonia",
-]
-
-[[package]]
-name = "zboub69-app"
-version = "0.6.0"
-dependencies = [
- "crossbeam",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "zboub69",
 ]
 
 [[package]]

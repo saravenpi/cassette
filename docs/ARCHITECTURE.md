@@ -13,7 +13,7 @@ whatever draws the screen.
 ## 1. Source directory map
 
 ```
-src/                         # the engine crate: zboub69
+src/                         # the engine crate: cassette
 ├── lib.rs                   # Crate root; module declarations + public API
 ├── app/                     # Intent handling + the UiState snapshot
 │   ├── mod.rs               # The App, its intent routing, and the snapshot
@@ -354,7 +354,7 @@ what is missing.
 
 ## 7. Dependency summary (Cargo)
 
-The engine (`zboub69`) is deliberately light: it builds and tests with no GUI
+The engine (`cassette`) is deliberately light: it builds and tests with no GUI
 toolkit and no audio headers.
 
 | Crate | Role |
@@ -366,5 +366,5 @@ toolkit and no audio headers.
 | `assert_no_alloc` | Red-zone allocation guard, debug builds only |
 | `cpal` | Optional: direct device output (`cpal` feature) |
 
-The Tauri shell (`zboub69-app`) adds `tauri`, `tauri-build` and `serde_json`, and
+The Tauri shell (`cassette-app`) adds `tauri`, `tauri-build` and `serde_json`, and
 enables the engine's `cpal` feature. None of these appear in `core` or `models`.

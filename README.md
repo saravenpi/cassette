@@ -1,4 +1,4 @@
-# zboub69
+# cassette
 
 A session DAW inspired by Ableton Live. Lay out MIDI and audio tracks on a beat
 timeline, place a block at a position with a length in beats, and play the
@@ -9,8 +9,8 @@ SvelteKit, served by a thin Tauri shell. The webview only draws: it sends intent
 and reads a snapshot the engine publishes once a frame.
 
 ```
-zboub69/
-├── src/              the engine and the app logic (crate: zboub69)
+cassette/
+├── src/              the engine and the app logic (crate: cassette)
 ├── tests/            engine integration tests
 ├── docs/             architecture notes
 └── app/              the desktop app
@@ -107,7 +107,7 @@ The engine picks the best sink it can and names it in the transport bar:
 
 A fourth backend, `stream`, sends raw PCM over a loopback TCP socket instead of
 opening a device. The engine never picks it automatically; you select it with
-`ZBOUB_STREAM_PORT`, below.
+`CASSETTE_STREAM_PORT` (or `ZBOUB_STREAM_PORT`), below.
 
 ### Getting sound
 
@@ -130,10 +130,10 @@ the keyboard all behave the same on the silent backend.
 The `stream` backend renders on the machine running the engine and writes raw PCM
 to a loopback socket, which you forward over SSH and play locally. This is opt-in:
 the default app picks a device backend and does not stream. Start the app with
-`ZBOUB_STREAM_PORT` set to the port you want:
+`CASSETTE_STREAM_PORT` set to the port you want:
 
 ```bash
-ZBOUB_STREAM_PORT=9999 bun run tauri dev      # from app/
+CASSETTE_STREAM_PORT=9999 bun run tauri dev      # from app/
 ```
 
 Any `u16` greater than zero selects the streaming backend. Unset, empty,
@@ -155,7 +155,7 @@ input ──► events ──► core ◄── ui
 
 ```
 src/
-├── lib.rs             public API (crate name: zboub69)
+├── lib.rs             public API (crate name: cassette)
 ├── app/               intent handling + the UiState snapshot
 │                      (timeline, tracks, samples, transport)
 ├── core/              audio engine — no frontend, no terminal

@@ -476,7 +476,7 @@ mod tests {
 
     #[test]
     fn the_repo_sample_decodes() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("zboub69-mix.wav");
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("cassette-mix.wav");
         if !path.exists() {
             return;
         }
@@ -505,7 +505,7 @@ mod tests {
     #[test]
     fn encoding_pcm16_survives_roundtrip() {
         let temp_dir = std::env::temp_dir();
-        let path = temp_dir.join("zboub69_test_roundtrip.wav");
+        let path = temp_dir.join("cassette_test_roundtrip.wav");
         let original_frames = vec![0.0f32, 0.5f32, -0.5f32, 0.25f32];
         encode_pcm16(&path, &original_frames, 1, 44_100).expect("encoding should succeed");
         let decoded = decode(&path, 100).expect("decoding should succeed");

@@ -1,5 +1,5 @@
 #![forbid(unsafe_code)]
-//! zboub69 — a session DAW with a Rust audio engine and a SvelteKit frontend.
+//! cassette — a session DAW with a Rust audio engine and a SvelteKit frontend.
 //!
 //! The crate is the engine and the app logic. It never depends on a frontend:
 //! the Tauri shell in `app/src-tauri/` drives it and the webview only draws.

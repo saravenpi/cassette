@@ -1,4 +1,4 @@
-//! The zboub69 desktop shell: a thin Tauri command surface over the engine.
+//! The cassette desktop shell: a thin Tauri command surface over the engine.
 //!
 //! The engine owns a cpal `Stream`, and cpal marks `Stream` `!Send` and `!Sync`
 //! on every platform, so the engine cannot live in Tauri's managed state. It gets
@@ -18,9 +18,9 @@ use std::time::{Duration, UNIX_EPOCH};
 use crossbeam::channel::{Receiver, RecvTimeoutError, Sender, unbounded};
 use tauri::State;
 
-use zboub69::app::{App, WAVEFORM_BUCKETS, peaks};
-use zboub69::events::Event;
-use zboub69::ui::view::UiState;
+use cassette::app::{App, WAVEFORM_BUCKETS, peaks};
+use cassette::events::Event;
+use cassette::ui::view::UiState;
 
 /// One frame at 60 Hz, the fastest the webview can draw.
 const FRAME: Duration = Duration::from_micros(16_667);
@@ -37,7 +37,7 @@ type Commands = Sender<Event>;
 fn state(snapshot: State<'_, Snapshot>) -> Result<Option<UiState>, String> {
     let snapshot = snapshot
         .lock()
-        .map_err(|error| format!("zboub69: {error}"))?;
+        .map_err(|error| format!("cassette: {error}"))?;
     Ok(snapshot.clone())
 }
 
@@ -46,7 +46,7 @@ fn state(snapshot: State<'_, Snapshot>) -> Result<Option<UiState>, String> {
 fn send(event: Event, commands: State<'_, Commands>) -> Result<(), String> {
     commands
         .send(event)
-        .map_err(|_| "zboub69: the engine thread has stopped".to_string())
+        .map_err(|_| "cassette: the engine thread has stopped".to_string())
 }
 
 /// Read the stream port out of `ZBOUB_STREAM_PORT`. Only a nonzero `u16` counts;
@@ -89,11 +89,12 @@ fn home_dir() -> String {
     std::env::var("HOME").unwrap_or_else(|_| ".".into())
 }
 
-/// The directory the sample browser opens on: `$ZBOUB_SAMPLES_DIR` when set,
+/// The directory the sample browser opens on: `$CASSETTE_SAMPLES_DIR` or `$ZBOUB_SAMPLES_DIR` when set,
 /// else `~/Music` when it exists, else the home directory.
 #[tauri::command]
 fn samples_root() -> String {
-    if let Ok(dir) = std::env::var("ZBOUB_SAMPLES_DIR")
+    if let Ok(dir) =
+        std::env::var("CASSETTE_SAMPLES_DIR").or_else(|_| std::env::var("ZBOUB_SAMPLES_DIR"))
         && !dir.is_empty()
     {
         return dir;
@@ -123,12 +124,12 @@ fn list_samples(dir: Option<String>) -> Result<Vec<SampleEntry>, String> {
     let target = resolve(&requested)?;
     if !target.starts_with(&root) {
         return Err(format!(
-            "zboub69: {requested} is outside the sample root {}",
+            "cassette: {requested} is outside the sample root {}",
             root.display()
         ));
     }
     let listing = std::fs::read_dir(&target)
-        .map_err(|error| format!("zboub69: cannot read {}: {error}", target.display()))?;
+        .map_err(|error| format!("cassette: cannot read {}: {error}", target.display()))?;
     let mut entries: Vec<SampleEntry> = listing
         .take(MAX_ENTRIES)
         .filter_map(|entry| entry.ok())
@@ -143,16 +144,16 @@ fn list_samples(dir: Option<String>) -> Result<Vec<SampleEntry>, String> {
 fn read_waveform(path: String) -> Result<Vec<f32>, String> {
     let target = resolve(&path)?;
     if !is_audio(&target) {
-        return Err(format!("zboub69: {path} is not a supported audio file"));
+        return Err(format!("cassette: {path} is not a supported audio file"));
     }
-    let sample = zboub69::core::wav::decode(&target, usize::MAX)
-        .map_err(|error| format!("zboub69: cannot read {path}: {error}"))?;
+    let sample = cassette::core::wav::decode(&target, usize::MAX)
+        .map_err(|error| format!("cassette: cannot read {path}: {error}"))?;
     Ok(peaks(&sample.frames, WAVEFORM_BUCKETS))
 }
 
 /// Canonicalise a path, reporting the failure as a message rather than panicking.
 fn resolve(path: &str) -> Result<PathBuf, String> {
-    std::fs::canonicalize(path).map_err(|error| format!("zboub69: cannot read {path}: {error}"))
+    std::fs::canonicalize(path).map_err(|error| format!("cassette: cannot read {path}: {error}"))
 }
 
 /// Whether a path carries a supported audio file extension.
@@ -219,10 +220,12 @@ fn describe(entry: &std::fs::DirEntry) -> SampleEntry {
     }
 }
 
-/// Start the engine, streaming when `ZBOUB_STREAM_PORT` asks for it, and falling
+/// Start the engine, streaming when `CASSETTE_STREAM_PORT` or `ZBOUB_STREAM_PORT` asks for it, and falling
 /// back to silence so the window always opens.
 fn start_app() -> App {
-    let requested = std::env::var("ZBOUB_STREAM_PORT").ok();
+    let requested = std::env::var("CASSETTE_STREAM_PORT")
+        .ok()
+        .or_else(|| std::env::var("ZBOUB_STREAM_PORT").ok());
 
     let Some(port) = stream_port(requested.as_deref()) else {
         return default_app();
@@ -230,12 +233,12 @@ fn start_app() -> App {
 
     match App::new_streaming(port) {
         Ok(app) => {
-            eprintln!("zboub69: streaming PCM on 127.0.0.1:{port}");
+            eprintln!("cassette: streaming PCM on 127.0.0.1:{port}");
             app
         }
         Err(error) => {
             eprintln!(
-                "zboub69: streaming on port {port} did not start ({error:#}); using the default backend"
+                "cassette: streaming on port {port} did not start ({error:#}); using the default backend"
             );
             default_app()
         }
@@ -245,7 +248,7 @@ fn start_app() -> App {
 /// Start the default engine, or the silent one when no device answers.
 fn default_app() -> App {
     App::new().unwrap_or_else(|error| {
-        eprintln!("zboub69: audio did not start ({error:#}); running silent");
+        eprintln!("cassette: audio did not start ({error:#}); running silent");
         App::new_silent().expect("the silent engine always starts")
     })
 }
@@ -296,7 +299,7 @@ pub fn run() {
             read_waveform
         ])
         .run(tauri::generate_context!())
-        .expect("zboub69: the tauri runtime failed");
+        .expect("cassette: the tauri runtime failed");
 }
 
 #[cfg(test)]
@@ -340,7 +343,7 @@ mod tests {
 
     #[test]
     fn a_missing_directory_is_an_error_not_a_panic() {
-        let listing = list_samples(Some("/nonexistent/zboub69".into()));
+        let listing = list_samples(Some("/nonexistent/cassette".into()));
         assert!(
             listing.is_err(),
             "a missing directory must report, not panic"

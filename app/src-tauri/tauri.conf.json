@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "zboub69",
+  "productName": "cassette",
   "version": "0.6.0",
-  "identifier": "dev.saravenpi.zboub69",
+  "identifier": "dev.saravenpi.cassette",
   "build": {
     "beforeDevCommand": "bun run dev",
     "devUrl": "http://localhost:5173",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "zboub69",
+        "title": "cassette",
         "width": 1280,
         "height": 800,
         "minWidth": 900,

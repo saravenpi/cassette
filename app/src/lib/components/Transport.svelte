@@ -35,7 +35,7 @@
 </script>
 
 <header data-tauri-drag-region class:mac={isMac}>
-	<span class="wordmark">zboub69</span>
+	<span class="wordmark">cassette</span>
 
 	<div class="group" role="group" aria-label="Transport">
 		<button

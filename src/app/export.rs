@@ -139,7 +139,10 @@ impl App {
 }
 
 fn default_directory() -> PathBuf {
-    if let Ok(dir) = std::env::var("ZBOUB_SAMPLES_DIR")
+    let env_dir = std::env::var("CASSETTE_SAMPLES_DIR")
+        .or_else(|_| std::env::var("ZBOUB_SAMPLES_DIR"))
+        .ok();
+    if let Some(dir) = env_dir
         && !dir.is_empty()
     {
         PathBuf::from(dir)
@@ -160,7 +163,7 @@ fn default_export_path(prefix: &str, ext: &str) -> PathBuf {
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());
-    base.join(format!("zboub69-{prefix}-{timestamp}.{ext}"))
+    base.join(format!("cassette-{prefix}-{timestamp}.{ext}"))
 }
 
 fn latest_project_path() -> Option<PathBuf> {
@@ -171,7 +174,9 @@ fn latest_project_path() -> Option<PathBuf> {
         .filter_map(|e| {
             let path = e.path();
             let name = path.file_name()?.to_str()?;
-            if name.starts_with("zboub69-project-") && name.ends_with(".json") {
+            if (name.starts_with("cassette-project-") || name.starts_with("zboub69-project-"))
+                && name.ends_with(".json")
+            {
                 let mtime = e.metadata().ok()?.modified().ok()?;
                 Some((mtime, path))
             } else {
@@ -195,7 +200,7 @@ mod tests {
     fn audio_export_writes_valid_wav() {
         let mut app = headless_app();
         let temp_dir = std::env::temp_dir();
-        let path = temp_dir.join("zboub69_test_export.wav");
+        let path = temp_dir.join("cassette_test_export.wav");
         app.export_audio(Some(path.to_string_lossy().into_owned()));
         assert!(path.exists());
         let meta = std::fs::metadata(&path).expect("metadata should exist");
@@ -208,7 +213,7 @@ mod tests {
     fn project_export_writes_valid_json() {
         let mut app = headless_app();
         let temp_dir = std::env::temp_dir();
-        let path = temp_dir.join("zboub69_test_export.json");
+        let path = temp_dir.join("cassette_test_export.json");
         app.export_project(Some(path.to_string_lossy().into_owned()));
         assert!(path.exists());
         let content = std::fs::read_to_string(&path).expect("read content");
@@ -223,7 +228,7 @@ mod tests {
         let mut app = headless_app();
         app.song.set_bpm(142.0);
         let temp_dir = std::env::temp_dir();
-        let path = temp_dir.join("zboub69_test_load.json");
+        let path = temp_dir.join("cassette_test_load.json");
         app.export_project(Some(path.to_string_lossy().into_owned()));
 
         let mut fresh = headless_app();

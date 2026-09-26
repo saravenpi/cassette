@@ -1,12 +1,12 @@
 [package]
-name = "zboub69"
+name = "cassette"
 version = "0.6.0"
 edition = "2024"
 description = "A session DAW with a Rust audio engine and a SvelteKit frontend"
 license = "MIT"
 
 [lib]
-name = "zboub69"
+name = "cassette"
 path = "src/lib.rs"
 
 [features]

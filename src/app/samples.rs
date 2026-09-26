@@ -202,7 +202,7 @@ mod tests {
 
     impl TempWav {
         fn new(name: &str, frames: usize) -> Self {
-            let path = std::env::temp_dir().join(format!("zboub69-{name}.wav"));
+            let path = std::env::temp_dir().join(format!("cassette-{name}.wav"));
             write_wav(&path, frames);
             Self(path)
         }
@@ -230,7 +230,7 @@ mod tests {
         let block = &app.song.tracks[2].blocks[0];
         assert_eq!(block.kind, TrackKind::Audio);
         assert_eq!(block.source, wav.path());
-        assert_eq!(block.name, "zboub69-drop");
+        assert_eq!(block.name, "cassette-drop");
         assert_eq!(block.start_beats, 4.0);
         assert!(
             (block.length_beats - 1.0).abs() < 1e-3,
@@ -278,7 +278,7 @@ mod tests {
         let mut app = headless_app();
         app.handle(Event::ImportSample {
             track: 2,
-            path: "/nonexistent/zboub69.wav".into(),
+            path: "/nonexistent/cassette.wav".into(),
             start_beats: 0.0,
         });
         assert!(app.song.tracks[2].blocks.is_empty());

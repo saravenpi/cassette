@@ -153,7 +153,7 @@ impl AudioBackend for NullBackend {
         let sample_rate = self.sample_rate;
         self.handle = Some(
             thread::Builder::new()
-                .name("zboub-audio-null".into())
+                .name("cassette-audio-null".into())
                 .spawn(move || {
                     let mut buffer = vec![0.0f32; CHUNK_FRAMES * 2];
                     let period = chunk_period(sample_rate);
@@ -263,7 +263,7 @@ fn probe_device(program: &str, sample_rate: u32) -> Result<()> {
     let (sender, receiver) = mpsc::channel();
     let program_owned = program.to_string();
     thread::Builder::new()
-        .name("zboub-audio-probe".into())
+        .name("cassette-audio-probe".into())
         .spawn(move || {
             let _ = sender.send(run_probe(&program_owned, sample_rate));
         })
@@ -345,7 +345,7 @@ impl AudioBackend for SubprocessBackend {
         let sample_rate = self.sample_rate;
         self.handle = Some(
             thread::Builder::new()
-                .name("zboub-audio-pipe".into())
+                .name("cassette-audio-pipe".into())
                 .spawn(move || {
                     let mut buffer = vec![0.0f32; CHUNK_FRAMES * 2];
                     let mut bytes = Vec::with_capacity(CHUNK_FRAMES * 2 * 4);
@@ -403,8 +403,8 @@ impl AudioBackend for SubprocessBackend {
 /// Nothing is rendered until a client connects, so the transport never runs
 /// ahead of something nobody can hear.
 ///
-/// The desktop app starts this backend when `ZBOUB_STREAM_PORT` is set to a
-/// nonzero port; it is never selected on its own. It is also reachable through
+/// The desktop app starts this backend when `CASSETTE_STREAM_PORT` or `ZBOUB_STREAM_PORT`
+/// is set to a nonzero port; it is never selected on its own. It is also reachable through
 /// [`AudioEngine::start_streaming`](crate::core::engine::AudioEngine::start_streaming),
 /// and `tests/test_engine.rs` covers it. See `docs/music-over-ssh.md`.
 pub struct TcpStreamBackend {
@@ -468,7 +468,7 @@ impl AudioBackend for TcpStreamBackend {
 
         self.handle = Some(
             thread::Builder::new()
-                .name("zboub-audio-stream".into())
+                .name("cassette-audio-stream".into())
                 .spawn(move || {
                     let mut buffer = vec![0.0f32; CHUNK_FRAMES * 2];
                     let mut bytes = Vec::with_capacity(CHUNK_FRAMES * 2 * 4);

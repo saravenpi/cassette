@@ -9,11 +9,11 @@
 
 #[cfg(debug_assertions)]
 mod red_zone {
-    use zboub69::core::DEFAULT_SAMPLE_RATE;
-    use zboub69::core::MAX_TRACKS;
-    use zboub69::core::render::{MirroredBlock, RenderCore, RtCommand};
-    use zboub69::core::sample::{NO_SLOT, SampleMsg};
-    use zboub69::models::Song;
+    use cassette::core::DEFAULT_SAMPLE_RATE;
+    use cassette::core::MAX_TRACKS;
+    use cassette::core::render::{MirroredBlock, RenderCore, RtCommand};
+    use cassette::core::sample::{NO_SLOT, SampleMsg};
+    use cassette::models::Song;
 
     #[global_allocator]
     static GLOBAL_ALLOC: assert_no_alloc::AllocDisabler = assert_no_alloc::AllocDisabler;

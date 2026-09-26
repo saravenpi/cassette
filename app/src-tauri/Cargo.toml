@@ -1,7 +1,7 @@
 [package]
-name = "zboub69-app"
+name = "cassette-app"
 version = "0.6.0"
-description = "zboub69: the desktop shell (Tauri) around the audio engine"
+description = "cassette: the desktop shell (Tauri) around the audio engine"
 license = "MIT"
 edition = "2024"
 
@@ -11,7 +11,7 @@ edition = "2024"
 
 [lib]
 # The `_lib` suffix keeps the lib name distinct from the binary name.
-name = "zboub69_app_lib"
+name = "cassette_app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -25,7 +25,7 @@ tauri = { version = "2", features = [] }
 # The engine, with real device output. Without the `cpal` feature it would only
 # run the silent backend. Needs the platform audio headers:
 #   sudo apt install libasound2-dev
-zboub69 = { path = "../..", features = ["cpal"] }
+cassette = { path = "../..", features = ["cpal"] }
 
 # No `panic = "abort"` here, unlike the engine: a webview-side panic should not
 # abort the process on the spot.

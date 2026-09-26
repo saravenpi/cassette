@@ -19,7 +19,7 @@ export function send(event: EngineEvent): Promise<void> {
 
 /** Fire an intent without waiting, for note-on and note-off. */
 export function sendNow(event: EngineEvent): void {
-	void send(event).catch((error) => console.error('zboub69: intent rejected', event, error));
+	void send(event).catch((error) => console.error('cassette: intent rejected', event, error));
 }
 
 /** The directory the file browser opens on. */

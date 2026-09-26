@@ -6,7 +6,7 @@
 //! field is rejected as "missing field". These tests pin the JSON the frontend
 //! actually sends.
 
-use zboub69::events::Event;
+use cassette::events::Event;
 
 /// Deserialize one payload, reporting the failure rather than panicking inside
 /// the assertion so the message names the offending event.
