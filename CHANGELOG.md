@@ -194,4 +194,22 @@ macOS frameless overlay, project loading, flat SVG grid lines, and browser renam
 - Sidebar tab renamed from "File browser" to "Browser".
 - Timeline lane grid background replaced with flat SVG vector lines, removing all CSS gradients.
 
+## [0.7.0] - 2026-09-26
+
+Renamed project to cassette, updated repository and directory, and created desktop squircle icons.
+
+### Added
+
+- Desktop squircle icon derived from `solar:cassette-2-bold-duotone` on `#0B0B0B` background for macOS (`.icns`), Windows (`.ico`), Linux, iOS, and Android.
+- `CASSETTE_SAMPLES_DIR` and `CASSETTE_STREAM_PORT` environment variables with fallback to legacy `ZBOUB_*` variables.
+- Support for loading both `cassette-project-*.json` and legacy `zboub69-project-*.json` project files.
+
+### Changed
+
+- Project and repository renamed from zboub69 to cassette (`saravenpi/cassette`).
+- Default branch renamed from master to main.
+- Rust audio engine crate renamed to `cassette`.
+- Tauri desktop shell renamed to `cassette-app`.
+- Sample audio file renamed to `cassette-mix.wav`.
+
 
