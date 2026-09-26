@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "cassette",
+  "productName": "Cassette",
   "version": "0.7.0",
   "identifier": "dev.saravenpi.cassette",
   "build": {
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "cassette",
+        "title": "Cassette",
         "width": 1280,
         "height": 800,
         "minWidth": 900,
