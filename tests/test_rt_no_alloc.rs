@@ -27,12 +27,16 @@ mod red_zone {
                 end_beats: 4.0,
                 slot: NO_SLOT,
                 gain: 0.0,
+                offset_seconds: 0.0,
+                rate: 1.0,
             },
             MirroredBlock {
                 start_beats: 8.0,
                 end_beats: 12.0,
                 slot: NO_SLOT,
                 gain: 0.0,
+                offset_seconds: 0.0,
+                rate: 1.0,
             },
         ])
     }
@@ -114,6 +118,8 @@ mod red_zone {
             end_beats: 20.0,
             slot: NO_SLOT,
             gain: 0.0,
+            offset_seconds: 0.0,
+            rate: 1.0,
         }]);
         let command = RtCommand::SetBlocks {
             track: 0,
@@ -190,6 +196,8 @@ mod red_zone {
                 end_beats: 4.0,
                 slot: 0,
                 gain: 0.5,
+                offset_seconds: 0.0,
+                rate: 1.0,
             }]),
         });
         core.apply(RtCommand::Play);

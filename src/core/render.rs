@@ -6,7 +6,7 @@
 //! render path never allocates or frees it. The note mirror works the same way.
 
 use crate::core::sample::{NO_SLOT, SampleMsg};
-use crate::core::synth::SynthEngine;
+use crate::core::synth::{SampleCue, SynthEngine};
 use crate::core::{MAX_BLOCKS, MAX_NOTES, MAX_TRACKS};
 use crate::models::{LoopRegion, Song};
 use crate::utils::time::Tempo;
@@ -29,6 +29,10 @@ pub struct MirroredBlock {
     /// Amplitude the voice starts at, which is the release tail for a block
     /// whose material runs past its end.
     pub gain: f32,
+    /// Seconds into the material where the block starts reading.
+    pub offset_seconds: f32,
+    /// Speed the material plays at, relative to its own.
+    pub rate: f32,
 }
 
 impl MirroredBlock {
@@ -59,6 +63,8 @@ const EMPTY_BLOCK: MirroredBlock = MirroredBlock {
     end_beats: 0.0,
     slot: NO_SLOT,
     gain: 0.0,
+    offset_seconds: 0.0,
+    rate: 1.0,
 };
 
 /// One note, flattened for the audio thread: absolute beats on the timeline,
@@ -580,14 +586,17 @@ impl RenderCore {
                 if !should_start {
                     continue;
                 }
-                let elapsed =
-                    (from_beats - f64::from(block.start_beats)).max(0.0) * frames_per_beat;
-                let offset = elapsed as u32;
+                let cue = SampleCue {
+                    offset_seconds: block.offset_seconds,
+                    elapsed_frames: (from_beats - f64::from(block.start_beats)).max(0.0)
+                        * frames_per_beat,
+                    rate: block.rate,
+                };
                 self.synth.play_sample(
                     track,
                     EVENT_PITCH,
                     block.slot,
-                    offset,
+                    cue,
                     block.gain,
                     index as u8,
                 );
@@ -659,6 +668,8 @@ mod tests {
                 end_beats: *end,
                 slot: 0,
                 gain: 1.0,
+                offset_seconds: 0.0,
+                rate: 1.0,
             })
             .collect()
     }
@@ -863,6 +874,8 @@ mod tests {
                 end_beats: 1.0,
                 slot: NO_SLOT,
                 gain: 0.0,
+                offset_seconds: 0.0,
+                rate: 1.0,
             }]),
         });
         core.apply(RtCommand::SetNotes {
@@ -940,6 +953,39 @@ mod tests {
             }
         }
         assert!(peak > 0.01, "expected the sample to sound, got {peak}");
+    }
+
+    #[test]
+    fn a_block_with_an_offset_starts_reading_mid_sample() {
+        let song = Song::new();
+        let started = |offset_seconds: f32| {
+            let mut core = RenderCore::new(&song, DEFAULT_SAMPLE_RATE);
+            let mut frames = vec![0.0f32; 4_096];
+            frames.extend_from_slice(&[0.5f32; 4_096]);
+            core.push_sample(SampleMsg::Load {
+                slot: 0,
+                frames: frames.into(),
+                rate: DEFAULT_SAMPLE_RATE as f32,
+            });
+            core.apply(RtCommand::SetBlocks {
+                track: 0,
+                blocks: Arc::from(vec![MirroredBlock {
+                    start_beats: 0.0,
+                    end_beats: 4.0,
+                    slot: 0,
+                    gain: 1.0,
+                    offset_seconds,
+                    rate: 1.0,
+                }]),
+            });
+            core.apply(RtCommand::Play);
+            loud(&render(&mut core, 256))
+        };
+        assert!(!started(0.0), "the top of the sample is silent");
+        assert!(
+            started(5_000.0 / DEFAULT_SAMPLE_RATE as f32),
+            "the offset skipped the silence"
+        );
     }
 
     #[test]
@@ -1189,6 +1235,8 @@ mod tests {
             end_beats: 1374.0,
             slot: 0,
             gain: 1.0,
+            offset_seconds: 0.0,
+            rate: 1.0,
         };
         let from = transport.position_beats_exact();
         let to = transport.beats_after(2);
@@ -1251,6 +1299,8 @@ mod tests {
             end_beats: 6.0,
             slot: 0,
             gain: 1.0,
+            offset_seconds: 0.0,
+            rate: 1.0,
         };
         assert!(block.covers(2.0));
         assert!(!block.covers(6.0));

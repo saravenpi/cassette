@@ -89,6 +89,10 @@ impl Block {
     pub const MIN_LENGTH_BEATS: f32 = 0.25;
     /// Length a freshly created block gets.
     pub const DEFAULT_LENGTH_BEATS: f32 = 4.0;
+    /// Slowest an audio block's material may be stretched to play.
+    pub const MIN_RATE: f32 = 0.25;
+    /// Fastest an audio block's material may be squeezed to play.
+    pub const MAX_RATE: f32 = 4.0;
 
     /// Create a block.
     pub fn new(
@@ -123,6 +127,116 @@ impl Block {
     /// Resize the block, respecting the minimum length.
     pub fn set_length(&mut self, beats: f32) {
         self.length_beats = clamp_length(beats);
+    }
+
+    /// Cut the block at `at_beats` on the timeline, keeping the left part and
+    /// returning the right one under `name`.
+    ///
+    /// Returns `None`, changing nothing, unless both parts would be at least
+    /// [`Self::MIN_LENGTH_BEATS`] long. The right part of an audio block reads
+    /// its material from where the cut fell, `seconds_per_beat` turning beats
+    /// into seconds; a MIDI block hands over the notes that start at or after
+    /// the cut and shortens the ones that cross it.
+    pub fn split_off(
+        &mut self,
+        at_beats: f32,
+        seconds_per_beat: f32,
+        name: String,
+    ) -> Option<Block> {
+        let into = at_beats - self.start_beats;
+        let rest = self.length_beats - into;
+        if !(into >= Self::MIN_LENGTH_BEATS && rest >= Self::MIN_LENGTH_BEATS) {
+            return None;
+        }
+        let (left, right): (Vec<Note>, Vec<Note>) = std::mem::take(&mut self.notes)
+            .into_iter()
+            .partition(|note| note.start_beats < into);
+        self.notes = left
+            .into_iter()
+            .map(|note| Note {
+                length_beats: note.length_beats.min(into - note.start_beats),
+                ..note
+            })
+            .collect();
+        let offset_seconds = match self.kind {
+            TrackKind::Audio => self.offset_seconds + into * seconds_per_beat * self.rate,
+            TrackKind::Midi => self.offset_seconds,
+        };
+        let split = Block {
+            name,
+            kind: self.kind,
+            start_beats: at_beats,
+            length_beats: rest,
+            source: self.source.clone(),
+            notes: right
+                .into_iter()
+                .map(|note| Note {
+                    start_beats: note.start_beats - into,
+                    ..note
+                })
+                .collect(),
+            offset_seconds,
+            rate: self.rate,
+        };
+        self.length_beats = into;
+        Some(split)
+    }
+
+    /// Move the block's left edge to `start_beats`, keeping its end and leaving
+    /// its material where it sits on the timeline.
+    ///
+    /// The block stays at least [`Self::MIN_LENGTH_BEATS`] long and starts on
+    /// or after the top of the song. An audio block cannot reach back past the
+    /// start of its material; a MIDI block drops the notes the new edge leaves
+    /// behind and shortens the ones it cuts.
+    pub fn trim_start(&mut self, start_beats: f32, seconds_per_beat: f32) {
+        let end = self.end_beats();
+        let mut start =
+            finite_or(start_beats, self.start_beats).clamp(0.0, end - Self::MIN_LENGTH_BEATS);
+        let material_per_beat = seconds_per_beat * self.rate;
+        if self.kind == TrackKind::Audio && material_per_beat > 0.0 {
+            start = start.max(self.start_beats - self.offset_seconds / material_per_beat);
+        }
+        let delta = start - self.start_beats;
+        match self.kind {
+            TrackKind::Audio => {
+                self.offset_seconds = (self.offset_seconds + delta * material_per_beat).max(0.0);
+            }
+            TrackKind::Midi => {
+                self.notes
+                    .retain(|note| note.start_beats + note.length_beats > delta);
+                for note in &mut self.notes {
+                    let shifted = note.start_beats - delta;
+                    note.length_beats += shifted.min(0.0);
+                    note.start_beats = shifted.max(0.0);
+                }
+            }
+        }
+        self.start_beats = start;
+        self.length_beats = end - start;
+    }
+
+    /// Fit an audio block's material to `length_beats` by changing how fast it
+    /// plays, within [`Self::MIN_RATE`] and [`Self::MAX_RATE`]. A MIDI block
+    /// has no material to stretch, so it is resized instead.
+    pub fn stretch_to(&mut self, length_beats: f32) {
+        let wanted = clamp_length(length_beats);
+        if self.kind == TrackKind::Midi {
+            self.length_beats = wanted;
+            return;
+        }
+        let material = self.length_beats * self.rate;
+        let rate = (material / wanted).clamp(Self::MIN_RATE, Self::MAX_RATE);
+        self.rate = rate;
+        self.length_beats = clamp_length(material / rate);
+    }
+}
+
+fn unit_rate_or(rate: f32) -> f32 {
+    if rate.is_finite() && rate > 0.0 {
+        rate.clamp(Block::MIN_RATE, Block::MAX_RATE)
+    } else {
+        1.0
     }
 }
 
@@ -185,9 +299,15 @@ impl Track {
     /// blocks on one lane share an automatic name: the interface tells blocks
     /// apart by name while a drag is in flight.
     pub fn add_block(&mut self, start_beats: f32, length_beats: f32) -> usize {
+        let name = self.next_name();
+        self.insert_block(Block::new(name, self.kind, start_beats, length_beats, ""))
+    }
+
+    /// The next automatic block name on this lane, never one handed out before.
+    pub fn next_name(&mut self) -> String {
         let name = format!("{}", self.next_block_number);
         self.next_block_number = self.next_block_number.saturating_add(1);
-        self.insert_block(Block::new(name, self.kind, start_beats, length_beats, ""))
+        name
     }
 
     /// Position a new block can take without landing on an existing one: the end
@@ -245,10 +365,23 @@ impl Track {
         }
         let mut clamped = 0;
         for block in &mut self.blocks {
-            let (start, length) = (block.start_beats, block.length_beats);
-            block.set_start(start);
-            block.set_length(length);
-            if (start, length) != (block.start_beats, block.length_beats) {
+            let before = (
+                block.start_beats,
+                block.length_beats,
+                block.offset_seconds,
+                block.rate,
+            );
+            block.set_start(before.0);
+            block.set_length(before.1);
+            block.offset_seconds = finite_or(before.2, 0.0).max(0.0);
+            block.rate = unit_rate_or(before.3);
+            let after = (
+                block.start_beats,
+                block.length_beats,
+                block.offset_seconds,
+                block.rate,
+            );
+            if before != after {
                 clamped += 1;
             }
         }
@@ -374,6 +507,25 @@ mod tests {
         let block = Block::new("a", TrackKind::Midi, f32::NAN, f32::INFINITY, "");
         assert_eq!(block.start_beats, 0.0);
         assert_eq!(block.length_beats, Block::DEFAULT_LENGTH_BEATS);
+    }
+
+    #[test]
+    fn sanitize_brings_offset_and_rate_back_in_range() {
+        let mut track = Track::new("a", TrackKind::Audio, Instrument::preset("Lead"));
+        for (offset_seconds, rate) in [(-1.0, 9.0), (f32::NAN, f32::NAN), (2.0, 0.0)] {
+            let mut block = Block::new("x", TrackKind::Audio, 0.0, 4.0, "/tmp/a.wav");
+            block.offset_seconds = offset_seconds;
+            block.rate = rate;
+            track.blocks.push(block);
+        }
+        let problems = track.sanitize(8).expect("finite positions");
+        let fixed: Vec<(f32, f32)> = track
+            .blocks
+            .iter()
+            .map(|block| (block.offset_seconds, block.rate))
+            .collect();
+        assert_eq!(fixed, vec![(0.0, Block::MAX_RATE), (0.0, 1.0), (2.0, 1.0)]);
+        assert_eq!(problems.len(), 1);
     }
 
     #[test]

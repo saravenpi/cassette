@@ -126,3 +126,35 @@ fn a_loop_region_and_a_note_read_camel_case_fields() {
         }
     );
 }
+
+#[test]
+fn the_clip_editing_events_read_camel_case_fields() {
+    assert_eq!(
+        parse(r#"{"splitBlock":{"track":1,"block":2,"atBeats":6.5}}"#),
+        Event::SplitBlock {
+            track: 1,
+            block: 2,
+            at_beats: 6.5,
+        }
+    );
+    assert_eq!(
+        parse(r#"{"duplicateBlock":{"track":0,"block":3}}"#),
+        Event::DuplicateBlock { track: 0, block: 3 }
+    );
+    assert_eq!(
+        parse(r#"{"trimBlockStart":{"track":2,"block":0,"startBeats":1.5}}"#),
+        Event::TrimBlockStart {
+            track: 2,
+            block: 0,
+            start_beats: 1.5,
+        }
+    );
+    assert_eq!(
+        parse(r#"{"stretchBlock":{"track":2,"block":1,"lengthBeats":8.0}}"#),
+        Event::StretchBlock {
+            track: 2,
+            block: 1,
+            length_beats: 8.0,
+        }
+    );
+}
