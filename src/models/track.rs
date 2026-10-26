@@ -44,6 +44,13 @@ impl TrackKind {
 /// Longest block the user can drag out, in beats.
 pub const MAX_LENGTH_BEATS: f32 = 512.0;
 
+/// Furthest a block may start, in beats from the top of the song.
+pub const MAX_START_BEATS: f32 = 4096.0;
+
+fn finite_or(value: f32, fallback: f32) -> f32 {
+    if value.is_finite() { value } else { fallback }
+}
+
 /// A block placed on a track's lane.
 ///
 /// A MIDI block carries note data (none yet); an audio block points at a file
@@ -79,8 +86,8 @@ impl Block {
         Self {
             name: name.into(),
             kind,
-            start_beats: start_beats.max(0.0),
-            length_beats: length_beats.max(Self::MIN_LENGTH_BEATS),
+            start_beats: clamp_start(start_beats),
+            length_beats: clamp_length(length_beats),
             source: source.into(),
         }
     }
@@ -97,13 +104,25 @@ impl Block {
 
     /// Move the block, keeping it on or after the top of the song.
     pub fn set_start(&mut self, beats: f32) {
-        self.start_beats = beats.max(0.0);
+        self.start_beats = clamp_start(beats);
     }
 
     /// Resize the block, respecting the minimum length.
     pub fn set_length(&mut self, beats: f32) {
-        self.length_beats = clamp(beats, Self::MIN_LENGTH_BEATS, MAX_LENGTH_BEATS);
+        self.length_beats = clamp_length(beats);
     }
+}
+
+fn clamp_start(beats: f32) -> f32 {
+    clamp(finite_or(beats, 0.0), 0.0, MAX_START_BEATS)
+}
+
+fn clamp_length(beats: f32) -> f32 {
+    clamp(
+        finite_or(beats, Block::DEFAULT_LENGTH_BEATS),
+        Block::MIN_LENGTH_BEATS,
+        MAX_LENGTH_BEATS,
+    )
 }
 
 /// A single track of the song.
@@ -173,6 +192,72 @@ impl Track {
         self.blocks
             .last()
             .map_or(0.0, |block| block.end_beats().ceil())
+    }
+
+    /// Bring a deserialized track back inside the limits the app enforces.
+    ///
+    /// Returns an error for numbers that are not finite, which no clamp can
+    /// make meaningful. Otherwise returns one message per kind of correction.
+    pub fn sanitize(&mut self, max_blocks: usize) -> Result<Vec<String>, String> {
+        let instrument = &mut self.instrument;
+        let numbers = [
+            self.volume,
+            self.pan,
+            instrument.attack,
+            instrument.decay,
+            instrument.sustain,
+            instrument.release,
+            instrument.gain,
+        ];
+        if numbers.iter().any(|n| !n.is_finite()) {
+            return Err(format!("track {:?} holds a non-finite number", self.name));
+        }
+        if self
+            .blocks
+            .iter()
+            .any(|b| !b.start_beats.is_finite() || !b.length_beats.is_finite())
+        {
+            return Err(format!("track {:?} holds a non-finite block", self.name));
+        }
+        let mut problems = Vec::new();
+        let before = (self.volume, self.pan, *instrument);
+        self.volume = clamp(self.volume, 0.0, 1.0);
+        self.pan = clamp(self.pan, -1.0, 1.0);
+        instrument.gain = clamp(instrument.gain, 0.0, 1.0);
+        instrument.sustain = clamp(instrument.sustain, 0.0, 1.0);
+        instrument.attack = clamp(instrument.attack, 0.0, 10.0);
+        instrument.decay = clamp(instrument.decay, 0.0, 10.0);
+        instrument.release = clamp(instrument.release, 0.0, 10.0);
+        instrument.octave = instrument.octave.clamp(-4, 4);
+        if before != (self.volume, self.pan, *instrument) {
+            problems.push(format!("track {:?}: mixer values clamped", self.name));
+        }
+        let mut clamped = 0;
+        for block in &mut self.blocks {
+            let (start, length) = (block.start_beats, block.length_beats);
+            block.set_start(start);
+            block.set_length(length);
+            if (start, length) != (block.start_beats, block.length_beats) {
+                clamped += 1;
+            }
+        }
+        if clamped > 0 {
+            problems.push(format!(
+                "track {:?}: {clamped} block(s) clamped to the allowed range",
+                self.name
+            ));
+        }
+        self.blocks
+            .sort_by(|a, b| a.start_beats.total_cmp(&b.start_beats));
+        if self.blocks.len() > max_blocks {
+            let dropped = self.blocks.len() - max_blocks;
+            self.blocks.truncate(max_blocks);
+            problems.push(format!(
+                "track {:?}: dropped {dropped} block(s) past the limit of {max_blocks}",
+                self.name
+            ));
+        }
+        Ok(problems)
     }
 
     /// Whether this track produces sound given the global solo state.
@@ -259,6 +344,46 @@ mod tests {
         unique.dedup();
         assert_eq!(names, unique, "a deleted block's name must not come back");
         assert_eq!(names, vec!["2", "3"]);
+    }
+
+    #[test]
+    fn block_new_caps_start_and_length() {
+        let block = Block::new("a", TrackKind::Midi, 1e9, 1e9, "");
+        assert_eq!(block.start_beats, MAX_START_BEATS);
+        assert_eq!(block.length_beats, MAX_LENGTH_BEATS);
+        let block = Block::new("a", TrackKind::Midi, f32::NAN, f32::INFINITY, "");
+        assert_eq!(block.start_beats, 0.0);
+        assert_eq!(block.length_beats, Block::DEFAULT_LENGTH_BEATS);
+    }
+
+    #[test]
+    fn sanitize_sorts_clamps_and_caps() {
+        let mut track = midi();
+        track.volume = 5.0;
+        track.pan = -9.0;
+        for start in [30.0, 10.0, 20.0] {
+            track.blocks.push(Block {
+                name: "x".into(),
+                kind: TrackKind::Midi,
+                start_beats: start,
+                length_beats: -3.0,
+                source: String::new(),
+            });
+        }
+        let problems = track.sanitize(2).expect("finite track");
+        assert_eq!(track.volume, 1.0);
+        assert_eq!(track.pan, -1.0);
+        assert_eq!(track.blocks.len(), 2);
+        assert_eq!(track.blocks[0].start_beats, 10.0);
+        assert_eq!(track.blocks[0].length_beats, Block::MIN_LENGTH_BEATS);
+        assert_eq!(problems.len(), 3);
+    }
+
+    #[test]
+    fn sanitize_rejects_non_finite_numbers() {
+        let mut track = midi();
+        track.volume = f32::NAN;
+        assert!(track.sanitize(8).is_err());
     }
 
     #[test]

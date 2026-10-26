@@ -42,20 +42,11 @@ impl MidiInputAdapter {
         {
             return None;
         }
-        let mut pitch = message.note;
-        let mut velocity = message.velocity;
-
+        let pitch = message.note & 0x7f;
+        let velocity = message.velocity & 0x7f;
         match message.status {
-            0x9 => {
-                // Note-on with zero velocity is a note-off by spec.
-                if velocity == 0 {
-                    Some(Event::NoteOff { pitch })
-                } else {
-                    pitch &= 0x7f;
-                    velocity &= 0x7f;
-                    Some(Event::NoteOn { pitch, velocity })
-                }
-            }
+            0x9 if velocity == 0 => Some(Event::NoteOff { pitch }),
+            0x9 => Some(Event::NoteOn { pitch, velocity }),
             0x8 => Some(Event::NoteOff { pitch }),
             _ => None,
         }

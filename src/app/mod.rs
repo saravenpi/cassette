@@ -130,9 +130,10 @@ impl App {
     pub fn tick(&mut self) {
         self.drain();
         if self.resync_pending {
-            self.engine.resync(&self.song);
-            self.resync_pending = false;
-            self.repush_lanes();
+            self.resync_pending = !self.engine.resync(&self.song);
+            if !self.resync_pending {
+                self.repush_lanes();
+            }
         }
         self.release_expired_notes();
         let peaks = self.engine.shared().peaks();
