@@ -330,3 +330,16 @@ Loop points, frame-accurate note starts, and a review pass over v0.9.0.
 - The stretch preview ran past the 0.25x to 4x rate limit and jumped on release.
 - A refused split used up a block name.
 - `AltGr` counted as `Ctrl`, so `AltGr+E` split a block; chords no longer type letters into the rename prompt.
+
+## [0.13.0] - 2026-10-26
+
+### Added
+
+- The snap grid follows the zoom: the finest step from 1/16 beat to 2 beats that stays at least 12 px wide, drawn as faint lines on the lanes and named in the header corner.
+- `Ctrl`/`Cmd` + scroll, or a trackpad pinch, zooms the timeline around the pointer.
+
+### Changed
+
+- The interface follows the Kono design language: the Undefined font (never bold), a black and `#111` palette with a sage green accent, square uppercase controls, dividers instead of boxes, and muted Kono track colours.
+- The top bar no longer shows the "cassette" wordmark.
+- The piano roll draws notes in green instead of the track colour.
