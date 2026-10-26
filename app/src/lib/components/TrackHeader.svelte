@@ -6,6 +6,8 @@
 	 */
 
 	import { HEADER_WIDTH, ROW_HEIGHT } from '$lib/geometry';
+	import { trackMenu } from '$lib/menu';
+	import { menu } from '$lib/menu.svelte';
 	import { trackColor } from '$lib/palette';
 	import { session } from '$lib/session.svelte';
 	import type { TrackView } from '$lib/wire';
@@ -37,6 +39,15 @@
 		session.queueMix(index, nextVolume, nextPan, muted, solo);
 	}
 
+	function onContextMenu(event: MouseEvent): void {
+		event.preventDefault();
+		menu.open(
+			event.clientX,
+			event.clientY,
+			trackMenu(session, index, track, (muted, solo) => mix(volume, pan, muted, solo))
+		);
+	}
+
 	function onFader(event: Event, which: 'volume' | 'pan'): void {
 		const input = event.currentTarget;
 		if (!(input instanceof HTMLInputElement)) return;
@@ -47,7 +58,13 @@
 	}
 </script>
 
-<div class="head" style="width: {HEADER_WIDTH}px; height: {height ?? ROW_HEIGHT}px; --fill: {color}">
+<div
+	class="head"
+	role="group"
+	aria-label="{track.name} strip"
+	style="width: {HEADER_WIDTH}px; height: {height ?? ROW_HEIGHT}px; --fill: {color}"
+	oncontextmenu={onContextMenu}
+>
 	<div class="top-row">
 		<button class="pick" aria-pressed={selected} onclick={() => session.dispatch({ selectTrack: { track: index } })}>
 			<span class="chip"></span>

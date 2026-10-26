@@ -6,6 +6,8 @@
 	 */
 
 	import { DEFAULT_LENGTH_BEATS, ROW_HEIGHT, pxToBeats, snapBeats } from '$lib/geometry';
+	import { laneMenu } from '$lib/menu';
+	import { menu } from '$lib/menu.svelte';
 	import { session } from '$lib/session.svelte';
 	import type { BlockView, TrackView } from '$lib/wire';
 	import Block from './Block.svelte';
@@ -79,6 +81,16 @@
 			createBlock: { track: index, startBeats: snapBeats(beats), lengthBeats: DEFAULT_LENGTH_BEATS }
 		});
 	}
+
+	function onContextMenu(event: MouseEvent): void {
+		if (event.target instanceof Element && event.target.closest('[data-block]') !== null) return;
+		const lane = event.currentTarget;
+		if (!(lane instanceof HTMLElement)) return;
+		event.preventDefault();
+		const beats = pxToBeats(event.clientX - lane.getBoundingClientRect().left, session.zoom);
+		const beatsPerBar = session.snapshot?.beatsPerBar ?? 4;
+		menu.open(event.clientX, event.clientY, laneMenu(session, index, track.kind, beats, beatsPerBar));
+	}
 </script>
 
 <div
@@ -88,6 +100,7 @@
 	data-lane-track={index}
 	style="width: {width}px; height: {height ?? ROW_HEIGHT}px"
 	ondblclick={onDoubleClick}
+	oncontextmenu={onContextMenu}
 >
 	<svg class="grid-lines" width={width} height="100%" aria-hidden="true">
 		<defs>
