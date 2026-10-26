@@ -190,18 +190,22 @@ impl SharedState {
         }
     }
 
-    /// Publish the audio thread's latest state.
+    /// Publish the audio thread's latest state, including the frames of
+    /// count-in still to run.
     pub fn publish(
         &self,
         position_frames: u64,
         playing: bool,
         looping: bool,
+        count_in_frames: u64,
         peaks: &[f32; MAX_TRACKS],
     ) {
         self.position_frames
             .store(position_frames, Ordering::Relaxed);
         self.playing.store(playing, Ordering::Relaxed);
         self.looping.store(looping, Ordering::Relaxed);
+        self.count_in_frames
+            .store(count_in_frames, Ordering::Relaxed);
         for (slot, peak) in self.peaks.iter().zip(peaks.iter()) {
             slot.store(peak.to_bits(), Ordering::Relaxed);
         }
@@ -852,8 +856,9 @@ mod tests {
         let shared = SharedState::new(48_000);
         let mut peaks = [0.0f32; MAX_TRACKS];
         peaks[2] = 0.75;
-        shared.publish(1_234, true, false, &peaks);
+        shared.publish(1_234, true, false, 512, &peaks);
         assert_eq!(shared.position_frames.load(Ordering::Relaxed), 1_234);
+        assert_eq!(shared.count_in_frames.load(Ordering::Relaxed), 512);
         assert!(shared.playing.load(Ordering::Relaxed));
         assert!((shared.peaks()[2] - 0.75).abs() < 1e-6);
     }

@@ -8,13 +8,87 @@
 use crate::core::sample::{NO_SLOT, SampleMsg};
 use crate::core::synth::{SampleCue, SynthEngine};
 use crate::core::{MAX_BLOCKS, MAX_NOTES, MAX_TRACKS};
-use crate::models::{LoopRegion, Song};
+use crate::models::{EffectChain, LoopRegion, Song};
 use crate::utils::time::Tempo;
 use std::sync::Arc;
 
 /// Pitch a scheduled sample is played at. Sample players ignore it; it only has
 /// to be a value the voice arrays never see from a keyboard.
 pub const EVENT_PITCH: u8 = 255;
+
+/// Beats in one bar; the metronome accents the first of each.
+const BEATS_PER_BAR: u64 = 4;
+/// Length of one metronome click, in seconds.
+const CLICK_SECONDS: f32 = 0.015;
+/// Time constant of the click's exponential decay, in seconds.
+const CLICK_DECAY_SECONDS: f32 = 0.003;
+/// Pitch and level of the bar's downbeat click.
+const ACCENT_CLICK: (f32, f32) = (1_760.0, 0.5);
+/// Pitch and level of every other beat's click.
+const BEAT_CLICK: (f32, f32) = (1_046.5, 0.3);
+
+/// The metronome's voice: one decaying sine burst, held in fixed state.
+#[derive(Clone, Copy, Debug)]
+struct Click {
+    phase: f32,
+    step: f32,
+    amplitude: f32,
+    decay: f32,
+    frames_left: u32,
+}
+
+impl Click {
+    const SILENT: Self = Self {
+        phase: 0.0,
+        step: 0.0,
+        amplitude: 0.0,
+        decay: 0.0,
+        frames_left: 0,
+    };
+
+    /// Start a click, higher and louder on a bar's downbeat.
+    fn trigger(&mut self, accent: bool, sample_rate: u32) {
+        let (frequency, amplitude) = if accent { ACCENT_CLICK } else { BEAT_CLICK };
+        let rate = sample_rate as f32;
+        *self = Self {
+            phase: 0.0,
+            step: std::f32::consts::TAU * frequency / rate,
+            amplitude,
+            decay: (-1.0 / (CLICK_DECAY_SECONDS * rate)).exp(),
+            frames_left: (CLICK_SECONDS * rate) as u32,
+        };
+    }
+
+    /// The click's next sample, zero once it has run out.
+    fn next_sample(&mut self) -> f32 {
+        if self.frames_left == 0 {
+            return 0.0;
+        }
+        self.frames_left -= 1;
+        self.phase = (self.phase + self.step) % std::f32::consts::TAU;
+        let sample = self.amplitude * self.phase.sin();
+        self.amplitude *= self.decay;
+        sample
+    }
+}
+
+/// Where `frame` sits on a grid of beats `frames_per_beat` apart, each beat on
+/// its rounded frame: the beat that starts on `frame`, if one does, and the
+/// frames until the next beat after it.
+fn beat_grid(frame: u64, frames_per_beat: f64) -> (Option<u64>, u64) {
+    let below = (frame as f64 / frames_per_beat).floor() as u64;
+    let mut on = None;
+    let mut until = u64::MAX;
+    for beat in [below, below + 1, below + 2] {
+        let start = (beat as f64 * frames_per_beat).round() as u64;
+        if start == frame {
+            on = Some(beat);
+        } else if start > frame {
+            until = until.min(start - frame);
+        }
+    }
+    (on, until)
+}
 
 /// One block, flattened for the audio thread. The control side computes the
 /// release-tail gain, so the render path needs no instrument lookup.
@@ -309,6 +383,12 @@ pub struct RenderCore {
     /// Loop region in beats; the whole song while the end is not past the start.
     loop_start_beats: f32,
     loop_end_beats: f32,
+    metronome: bool,
+    click: Click,
+    /// Frames of count-in pre-roll still to run before the transport starts.
+    count_in_left: u64,
+    /// Frames the current count-in pre-roll lasts in all.
+    count_in_total: u64,
 }
 
 impl RenderCore {
@@ -326,7 +406,10 @@ impl RenderCore {
                 track.solo,
             );
         }
-        Self {
+        for (i, track) in song.tracks.iter().enumerate() {
+            synth.set_effects(i, &EffectChain::from_effects(&track.effects));
+        }
+        let mut core = Self {
             synth,
             transport: Transport::new(song.bpm(), sample_rate),
             blocks: [[EMPTY_BLOCK; MAX_BLOCKS]; MAX_TRACKS],
@@ -336,7 +419,18 @@ impl RenderCore {
             song_end_beats: 0.0,
             loop_start_beats: song.loop_region().map_or(0.0, |r| r.start_beats),
             loop_end_beats: song.loop_region().map_or(0.0, |r| r.end_beats),
-        }
+            metronome: false,
+            click: Click::SILENT,
+            count_in_left: 0,
+            count_in_total: 0,
+        };
+        core.set_tempo(song.bpm());
+        core
+    }
+
+    /// Set the tempo on the transport and on the synth's tempo-synced effects.
+    fn set_tempo(&mut self, bpm: f32) {
+        self.transport.set_bpm(bpm);
     }
 
     /// Sample rate this core was built for.
@@ -423,7 +517,7 @@ impl RenderCore {
                 self.note_lens = [0; MAX_TRACKS];
                 self.song_end_beats = 0.0;
             }
-            RtCommand::SetBpm { bpm } => self.transport.set_bpm(bpm),
+            RtCommand::SetBpm { bpm } => self.set_tempo(bpm),
             RtCommand::SetLooping { looping } => self.transport.set_looping(looping),
             RtCommand::SetLoopRegion {
                 start_beats,
@@ -448,20 +542,77 @@ impl RenderCore {
                 self.synth.set_sample_rate(slot, rate);
             }
             RtCommand::Seek { beats } => {
+                self.cancel_count_in();
                 self.transport.seek_beats(beats);
                 self.synth.all_notes_off();
             }
-            RtCommand::Play => self.transport.play(),
+            RtCommand::Play => {
+                self.cancel_count_in();
+                self.transport.play();
+            }
             RtCommand::Stop => {
+                self.cancel_count_in();
                 self.transport.stop();
                 self.synth.all_notes_off();
             }
             RtCommand::SetEffects { track, chain } => {
                 self.synth.set_effects(track as usize, &chain)
             }
-            RtCommand::SetMetronome { .. } => {}
-            RtCommand::PlayAfterCountIn { .. } => self.transport.play(),
+            RtCommand::SetMetronome { on } => self.metronome = on,
+            RtCommand::PlayAfterCountIn { beats } => self.count_in(beats),
         }
+    }
+
+    /// Start a pre-roll of `beats` beats that holds the playhead, or play at
+    /// once for none or when the transport already runs.
+    fn count_in(&mut self, beats: u16) {
+        let frames = (f64::from(beats) * self.transport.frames_per_beat()).round() as u64;
+        if frames == 0 || self.transport.is_playing() {
+            self.cancel_count_in();
+            self.transport.play();
+            return;
+        }
+        self.count_in_left = frames;
+        self.count_in_total = frames;
+    }
+
+    fn cancel_count_in(&mut self) {
+        self.count_in_left = 0;
+        self.count_in_total = 0;
+    }
+
+    /// Click the pre-roll beat that starts now, if any, and return how many of
+    /// `wanted` frames run before the next beat or the end of the pre-roll.
+    fn begin_count_in(&mut self, wanted: usize) -> usize {
+        let elapsed = self.count_in_total - self.count_in_left;
+        let (on, until) = beat_grid(elapsed, self.transport.frames_per_beat());
+        if let Some(beat) = on {
+            self.click
+                .trigger(beat % BEATS_PER_BAR == 0, self.synth.sample_rate());
+        }
+        (wanted as u64).min(until).min(self.count_in_left) as usize
+    }
+
+    /// Run `frames` frames off the pre-roll, starting the transport the frame it
+    /// ends.
+    fn advance_count_in(&mut self, frames: usize) {
+        self.count_in_left = self.count_in_left.saturating_sub(frames as u64);
+        if self.count_in_left == 0 {
+            self.count_in_total = 0;
+            self.transport.play();
+        }
+    }
+
+    /// Click the metronome beat the playhead sits on, if any, and return how
+    /// many of `wanted` frames run before the next beat.
+    fn begin_metronome_span(&mut self, wanted: usize) -> usize {
+        let frame = self.transport.position_frames.round() as u64;
+        let (on, until) = beat_grid(frame, self.transport.frames_per_beat());
+        if let Some(beat) = on {
+            self.click
+                .trigger(beat % BEATS_PER_BAR == 0, self.synth.sample_rate());
+        }
+        (wanted as u64).min(until) as usize
     }
 
     /// Hand the render core the control thread's end of the sample ring.
@@ -482,23 +633,32 @@ impl RenderCore {
 
     /// Render interleaved stereo `out`. Returns the per-track peaks observed.
     ///
-    /// The buffer is rendered in stretches cut at every loop end, block edge and
-    /// note start, and each stretch starts its blocks and notes before rendering,
-    /// so they sound from the frame the timeline puts them on.
+    /// The buffer is rendered in stretches cut at every loop end, block edge,
+    /// note start and, while the metronome or a count-in clicks, every beat.
+    /// Each stretch starts its blocks, notes and click before rendering, so they
+    /// sound from the frame the timeline puts them on. The click is mixed into
+    /// the master after the synth, so no track meter sees it.
     pub fn process(&mut self, out: &mut [f32]) -> [f32; MAX_TRACKS] {
         let mut peaks = [0.0f32; MAX_TRACKS];
         let frames = out.len() / 2;
         let mut done = 0;
         while done < frames {
             let mut span = frames - done;
-            if self.transport.is_playing() {
+            let counting_in = self.count_in_left > 0;
+            if counting_in {
+                span = self.begin_count_in(span);
+            } else if self.transport.is_playing() {
                 span = self.begin_span(span);
             }
             for frame in done..done + span {
                 self.transport.tick_frame();
                 let (left, right) = self.synth.process_frame(&mut peaks);
-                out[frame * 2] = left;
-                out[frame * 2 + 1] = right;
+                let click = self.click.next_sample();
+                out[frame * 2] = (left + click).clamp(-1.0, 1.0);
+                out[frame * 2 + 1] = (right + click).clamp(-1.0, 1.0);
+            }
+            if counting_in {
+                self.advance_count_in(span);
             }
             done += span;
         }
@@ -544,6 +704,9 @@ impl RenderCore {
         if let Some(next) = self.next_event_after(from_beats, self.transport.beats_after(span)) {
             let frames = ((next - from_beats) * self.transport.frames_per_beat()).ceil();
             span = span.min((frames as usize).max(1));
+        }
+        if self.metronome {
+            span = self.begin_metronome_span(span);
         }
         let to_beats = self.transport.beats_after(span);
         self.start_blocks(from_beats, to_beats);
@@ -661,6 +824,11 @@ impl RenderCore {
     /// Whether looping is enabled.
     pub fn is_looping(&self) -> bool {
         self.transport.is_looping()
+    }
+
+    /// Frames of count-in pre-roll still to run, zero when none is running.
+    pub fn count_in_frames(&self) -> u64 {
+        self.count_in_left
     }
 
     /// How many blocks the audio side holds for `track`.
@@ -1434,6 +1602,159 @@ mod tests {
         let last = out[126].abs();
         assert!(first > 0.0, "the voice is still sounding on the next frame");
         assert!(last < first, "and it fades out");
+    }
+
+    fn first_loud_frame(out: &[f32]) -> Option<usize> {
+        out.iter().position(|s| s.abs() > 1e-6).map(|i| i / 2)
+    }
+
+    fn peak(out: &[f32]) -> f32 {
+        out.iter().fold(0.0f32, |peak, s| peak.max(s.abs()))
+    }
+
+    fn sign_changes(out: &[f32]) -> usize {
+        out.chunks(2)
+            .map(|frame| frame[0])
+            .collect::<Vec<_>>()
+            .windows(2)
+            .filter(|pair| (pair[0] > 0.0) != (pair[1] > 0.0))
+            .count()
+    }
+
+    fn metronome_core() -> RenderCore {
+        let mut core = RenderCore::new(&Song::new(), DEFAULT_SAMPLE_RATE);
+        core.apply(RtCommand::SetLooping { looping: false });
+        core.apply(RtCommand::SetMetronome { on: true });
+        core
+    }
+
+    #[test]
+    fn the_metronome_clicks_on_the_beat_frame_and_is_silent_between() {
+        let mut core = metronome_core();
+        core.apply(RtCommand::Seek { beats: 0.5 });
+        core.apply(RtCommand::Play);
+        let beat = core.transport.frames_per_beat().round() as usize;
+        let out = render(&mut core, beat - 11_025 + 2_000);
+        assert_eq!(
+            first_loud_frame(&out).map(|frame| frame + 11_025),
+            Some(beat),
+            "the click starts on beat one's frame"
+        );
+        let click = (CLICK_SECONDS * DEFAULT_SAMPLE_RATE as f32) as usize;
+        let after = (beat - 11_025 + click) * 2;
+        assert!(!loud(&out[after..]), "silence after the click");
+        assert!(peak(&out) <= 1.0);
+    }
+
+    #[test]
+    fn the_downbeat_click_is_higher_and_louder() {
+        let mut core = metronome_core();
+        core.apply(RtCommand::Play);
+        let beat = core.transport.frames_per_beat().round() as usize;
+        let click = (CLICK_SECONDS * DEFAULT_SAMPLE_RATE as f32) as usize;
+        let out = render(&mut core, beat * 2);
+        let downbeat = &out[..click * 2];
+        let other = &out[beat * 2..(beat + click) * 2];
+        assert!(peak(downbeat) > peak(other));
+        assert!(sign_changes(downbeat) > sign_changes(other));
+    }
+
+    #[test]
+    fn the_metronome_off_is_silent() {
+        let mut core = metronome_core();
+        core.apply(RtCommand::SetMetronome { on: false });
+        core.apply(RtCommand::Play);
+        assert!(!loud(&render(&mut core, 50_000)));
+    }
+
+    #[test]
+    fn a_new_core_never_clicks() {
+        let mut core = RenderCore::new(&Song::new(), DEFAULT_SAMPLE_RATE);
+        core.apply(RtCommand::Play);
+        assert!(!loud(&render(&mut core, 50_000)));
+    }
+
+    #[test]
+    fn a_count_in_holds_the_playhead_clicks_then_plays() {
+        let mut core = RenderCore::new(&Song::new(), DEFAULT_SAMPLE_RATE);
+        core.apply(RtCommand::SetLooping { looping: false });
+        core.apply(RtCommand::Seek { beats: 2.0 });
+        core.apply(RtCommand::PlayAfterCountIn { beats: 4 });
+        let beat = core.transport.frames_per_beat().round() as usize;
+        assert_eq!(core.count_in_frames(), beat as u64 * 4);
+        let mut clicks = 0;
+        let mut left = core.count_in_frames();
+        for _ in 0..4 {
+            let out = render(&mut core, beat);
+            clicks += usize::from(first_loud_frame(&out) == Some(0));
+            assert_eq!(core.position_beats(), 2.0, "the marker holds");
+            assert_eq!(core.is_playing(), core.count_in_frames() == 0);
+            assert_eq!(core.count_in_frames(), left - beat as u64);
+            left = core.count_in_frames();
+        }
+        assert_eq!(clicks, 4, "one click per pre-roll beat");
+        assert_eq!(core.count_in_frames(), 0);
+        assert!(core.is_playing());
+        render(&mut core, 100);
+        assert!(core.position_beats() > 2.0, "the transport runs after");
+    }
+
+    #[test]
+    fn a_count_in_ends_on_its_exact_frame_inside_a_buffer() {
+        let mut core = RenderCore::new(&Song::new(), DEFAULT_SAMPLE_RATE);
+        core.apply(RtCommand::PlayAfterCountIn { beats: 1 });
+        let beat = core.transport.frames_per_beat().round() as u64;
+        render(&mut core, beat as usize + 300);
+        assert_eq!(core.position_frames(), 300);
+    }
+
+    #[test]
+    fn stop_and_seek_cancel_a_count_in() {
+        let mut core = RenderCore::new(&Song::new(), DEFAULT_SAMPLE_RATE);
+        core.apply(RtCommand::PlayAfterCountIn { beats: 4 });
+        render(&mut core, 1_000);
+        core.apply(RtCommand::Stop);
+        assert_eq!(core.count_in_frames(), 0);
+        render(&mut core, 2_000);
+        assert!(!core.is_playing());
+        let out = render(&mut core, 100_000);
+        assert!(!loud(&out), "no more pre-roll clicks");
+        core.apply(RtCommand::PlayAfterCountIn { beats: 4 });
+        core.apply(RtCommand::Seek { beats: 1.0 });
+        assert_eq!(core.count_in_frames(), 0);
+        render(&mut core, 100_000);
+        assert!(!core.is_playing());
+    }
+
+    #[test]
+    fn a_count_in_of_zero_beats_plays_at_once() {
+        let mut core = RenderCore::new(&Song::new(), DEFAULT_SAMPLE_RATE);
+        core.apply(RtCommand::PlayAfterCountIn { beats: 0 });
+        assert!(core.is_playing());
+        assert_eq!(core.count_in_frames(), 0);
+    }
+
+    #[test]
+    fn a_beat_grid_finds_rounded_beat_frames() {
+        assert_eq!(beat_grid(0, 10.4), (Some(0), 10));
+        assert_eq!(beat_grid(10, 10.4), (Some(1), 11));
+        assert_eq!(beat_grid(15, 10.4), (None, 6));
+    }
+
+    #[test]
+    fn a_song_with_effects_builds_and_renders() {
+        let mut song = Song::new();
+        song.tracks[0].effects = crate::models::EffectKind::ALL
+            .iter()
+            .map(|kind| crate::models::Effect::new(*kind))
+            .collect();
+        let mut core = RenderCore::new(&song, DEFAULT_SAMPLE_RATE);
+        core.apply(RtCommand::NoteOn {
+            track: 0,
+            pitch: 60,
+            velocity: 100,
+        });
+        assert!(loud(&render(&mut core, 512)));
     }
 
     #[test]
