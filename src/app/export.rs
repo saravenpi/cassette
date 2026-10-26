@@ -81,6 +81,7 @@ impl App {
         }
         for track in 0..self.song.tracks.len() {
             core.set_blocks(track, self.mirror(track));
+            core.set_notes(track, self.mirror_notes(track));
         }
 
         core.apply(RtCommand::SetLooping { looping: false });
@@ -536,10 +537,7 @@ mod tests {
         assert!(app.song.tracks[0].blocks[0].notes.is_empty());
     }
 
-    /// Needs `core.set_notes(track, self.mirror_notes(track))` in `render_to`,
-    /// which waits on `RenderCore::set_notes` from the render core work package.
     #[test]
-    #[ignore = "needs RenderCore::set_notes"]
     fn an_exported_note_sounds_at_its_time_and_not_before() {
         let mut app = headless_app();
         app.submit(crate::events::Event::CreateBlock {
@@ -554,7 +552,7 @@ mod tests {
 
         let sample = wav::decode(&dir.file("out.wav"), usize::MAX).expect("decode export");
         let frames_per_beat = EXPORT_SAMPLE_RATE as f32 * 60.0 / app.song.bpm();
-        let at = |beats: f32| (beats * frames_per_beat) as usize * 2;
+        let at = |beats: f32| (beats * frames_per_beat) as usize;
         let loudest = |from: f32, to: f32| {
             sample.frames[at(from)..at(to)]
                 .iter()
