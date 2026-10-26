@@ -198,6 +198,7 @@ impl App {
     /// Replace one lane's note mirror on the audio side. Call it after a note
     /// edit, which leaves the blocks as they were.
     pub(crate) fn push_notes(&mut self, track: usize) {
+        self.touch_notes(track);
         let notes = self.mirror_notes(track);
         if !self.engine.set_notes(track, notes) {
             self.resync_pending = true;
@@ -209,12 +210,24 @@ impl App {
     /// the voice gains and the notes it cannot know have to come back from here.
     pub(crate) fn repush_lanes(&mut self) {
         for track in 0..self.song.tracks.len() {
+            self.touch_notes(track);
+        }
+        for track in 0..self.song.tracks.len() {
             let blocks = self.mirror(track);
             let notes = self.mirror_notes(track);
             if !self.engine.set_blocks(track, blocks) || !self.engine.set_notes(track, notes) {
                 self.resync_pending = true;
                 return;
             }
+        }
+    }
+
+    /// Give one track's notes a fresh revision, after anything that may have
+    /// changed them or the blocks that hold them.
+    fn touch_notes(&mut self, track: usize) {
+        if let Some(revision) = self.note_revisions.get_mut(track) {
+            self.note_revision += 1;
+            *revision = self.note_revision;
         }
     }
 

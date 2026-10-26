@@ -186,6 +186,7 @@ app/src/lib/           SvelteKit frontend
 ├── keyboard.ts        the window listener that drives the store
 ├── geometry.ts        beats to pixels, snapping, bar maths
 ├── pianoRoll.ts       piano roll geometry: pitch rows, hit tests, note clamps
+├── noteCache.ts       notes the webview holds, so idle frames carry none
 ├── palette.ts         the eight track colours
 ├── *.svelte.ts        the stores: session state, block drags, sample drags
 └── components/        Sidebar + panes, Timeline + its parts, Transport, StatusBar

@@ -8,9 +8,12 @@ import { open } from '@tauri-apps/plugin-dialog';
 
 import type { EngineEvent, SampleEntry, UiState } from './wire';
 
-/** The engine's snapshot, or null in the moment before it first publishes. */
-export function state(): Promise<UiState | null> {
-	return invoke<UiState | null>('state');
+/**
+ * The engine's snapshot, or null in the moment before it first publishes. Tracks
+ * whose notes revision appears in `known` at their index come back without notes.
+ */
+export function state(known: number[]): Promise<UiState | null> {
+	return invoke<UiState | null>('state', { known });
 }
 
 /** Apply one intent. Resolves once the engine thread has taken it. */

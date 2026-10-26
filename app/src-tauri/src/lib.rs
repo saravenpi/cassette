@@ -34,12 +34,17 @@ type Snapshot = Arc<Mutex<Option<UiState>>>;
 type Commands = Sender<Event>;
 
 /// The current snapshot, or `None` in the moment before the engine first publishes.
+///
+/// `known` holds the notes revision the webview has for each track; those
+/// tracks come back without notes, so an idle frame carries none.
 #[tauri::command]
-fn state(snapshot: State<'_, Snapshot>) -> Result<Option<UiState>, String> {
+fn state(known: Vec<u64>, snapshot: State<'_, Snapshot>) -> Result<Option<UiState>, String> {
     let snapshot = snapshot
         .lock()
         .map_err(|error| format!("cassette: {error}"))?;
-    Ok(snapshot.clone())
+    Ok(snapshot
+        .clone()
+        .map(|state| state.without_known_notes(&known)))
 }
 
 /// Apply one intent. Resolves as soon as the engine thread has taken it.

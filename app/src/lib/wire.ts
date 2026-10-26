@@ -48,6 +48,7 @@ export interface TrackView {
 	solo: boolean;
 	level: number;
 	colorIndex: number;
+	notesRevision: number;
 	blocks: BlockView[];
 }
 

@@ -32,7 +32,8 @@ pub struct BlockView {
     /// Whether the cursor sits on this block.
     pub selected: bool,
     /// Notes of a MIDI block, starts relative to the block, in the order they
-    /// were drawn so an index names a note. Empty off the selected track.
+    /// were drawn so an index names a note. Empty when the webview already holds
+    /// this track's `notes_revision`.
     pub notes: Vec<Note>,
 }
 
@@ -62,6 +63,8 @@ pub struct TrackView {
     pub blocks: Vec<BlockView>,
     /// Index into the frontend's track palette.
     pub color_index: u8,
+    /// Changes whenever the notes of any block on the track may have changed.
+    pub notes_revision: u64,
 }
 
 impl TrackView {
@@ -101,6 +104,22 @@ pub struct UiState {
     pub sample_rate: u32,
 }
 
+impl UiState {
+    /// Drop the notes of every track whose revision the webview already holds,
+    /// so a frame carries notes only when they changed. `known[i]` is the
+    /// revision the webview has for track `i`.
+    pub fn without_known_notes(mut self, known: &[u64]) -> Self {
+        for (track, revision) in self.tracks.iter_mut().zip(known) {
+            if track.notes_revision == *revision {
+                for block in &mut track.blocks {
+                    block.notes = Vec::new();
+                }
+            }
+        }
+        self
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -136,6 +155,7 @@ mod tests {
             level: 0.5,
             blocks,
             color_index: 0,
+            notes_revision: 0,
         }
     }
 

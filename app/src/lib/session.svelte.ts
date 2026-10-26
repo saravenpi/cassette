@@ -10,6 +10,7 @@ import { pickProject, send as sendEvent, sendNow as sendWithoutWaiting, state } 
 import { DragController } from './drag.svelte';
 import { ZOOM_DEFAULT, zoomBy } from './geometry';
 import { attachKeyboard } from './keyboard';
+import { NoteCache } from './noteCache';
 import { locateBlock } from './pianoRoll';
 import { KeyedQueue, nextBackoff } from './queue';
 import type { EngineEvent, UiState } from './wire';
@@ -28,8 +29,8 @@ export interface Voice {
  * The MIDI block the piano roll edits, with what identifies it across re-sorts.
  * `serial` changes only when a block is opened, so the pane can tell a fresh
  * open from the same block moving. `seated` turns true once a snapshot shows
- * the cursor on the block's track: the engine sends notes for that track only,
- * so the roll closes when the cursor leaves it afterwards.
+ * the cursor on the block's track: the keyboard and the audition keys play the
+ * cursor's track, so the roll closes when the cursor leaves it afterwards.
  */
 export interface OpenBlock {
 	serial: number;
@@ -61,6 +62,7 @@ class Session {
 	private noteDrag = new KeyedQueue<EngineEvent>();
 	private noteVelocity = new KeyedQueue<EngineEvent>();
 	private opened = 0;
+	private notes = new NoteCache();
 	private backoff = 0;
 	private resumeAt = 0;
 
@@ -224,7 +226,8 @@ class Session {
 	private async step(): Promise<void> {
 		try {
 			try {
-				this.snapshot = await state();
+				const next = await state(this.notes.known());
+				this.snapshot = next === null ? null : this.notes.merge(next);
 			} catch (error) {
 				this.fail(error, 'poll');
 				this.backoff = nextBackoff(this.backoff);

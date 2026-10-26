@@ -24,13 +24,14 @@ use anyhow::{Context, Result};
 use crossbeam::channel::Receiver;
 use rtrb::Producer;
 
+use crate::core::MAX_TRACKS;
 use crate::core::engine::AudioEngine;
 use crate::core::meter::MeterBank;
 use crate::core::render::RtCommand;
 use crate::core::sample::SampleMsg;
 use crate::events::Event;
 use crate::events::bus::EventBus;
-use crate::models::{Instrument, Song, TrackKind};
+use crate::models::{Instrument, Song};
 use crate::ui::view::{BlockView, Cursor, TrackView, UiState};
 
 use tracks::VoiceEdit;
@@ -57,6 +58,10 @@ pub struct App {
     rename: Option<String>,
     status: String,
     resync_pending: bool,
+    /// Revision of each track's notes, so the webview can skip notes it holds.
+    note_revisions: [u64; MAX_TRACKS],
+    /// Last revision handed out. It only rises, so no two states share one.
+    note_revision: u64,
     /// Slot each loaded source file occupies, so one file dropped twice shares one.
     samples: HashMap<String, u8>,
     loaded_samples: HashMap<u8, std::sync::Arc<[f32]>>,
@@ -106,6 +111,8 @@ impl App {
             rename: None,
             status,
             resync_pending: false,
+            note_revisions: [0; MAX_TRACKS],
+            note_revision: 0,
             samples: HashMap::new(),
             loaded_samples: HashMap::new(),
             producer,
@@ -286,10 +293,8 @@ impl App {
         self.cursor.block = self.cursor.block.min(self.block_slots() - 1);
     }
 
-    /// Build an immutable snapshot for the webview.
-    ///
-    /// Only the selected track's MIDI blocks carry their notes: a full session
-    /// of 64 blocks of 512 notes serializes to over 2 MB, too much for a frame.
+    /// Build an immutable snapshot for the webview. Every MIDI block carries its
+    /// notes; [`UiState::without_known_notes`] strips the ones the webview holds.
     pub fn ui_state(&self) -> UiState {
         let shared = self.engine.shared();
         let position_frames = shared.position_frames.load(Ordering::Relaxed);
@@ -330,14 +335,11 @@ impl App {
                         length_beats: entry.length_beats,
                         source: entry.source.clone(),
                         selected: index == self.cursor.track && block == self.cursor.block,
-                        notes: if index == self.cursor.track && entry.kind == TrackKind::Midi {
-                            entry.notes.clone()
-                        } else {
-                            Vec::new()
-                        },
+                        notes: entry.notes.clone(),
                     })
                     .collect(),
                 color_index: (index % COLOR_SLOTS) as u8,
+                notes_revision: self.note_revisions.get(index).copied().unwrap_or(0),
             })
             .collect();
 
@@ -455,14 +457,9 @@ mod tests {
     }
 
     #[test]
-    fn only_the_selected_track_carries_notes_in_the_snapshot() {
+    fn notes_reach_the_snapshot_until_the_webview_holds_their_revision() {
         let mut app = headless_app();
-        for track in [0, 1] {
-            app.submit(Event::CreateBlock {
-                track,
-                start_beats: 0.0,
-                length_beats: 4.0,
-            });
+        let add = |app: &mut App, track: usize| {
             app.submit(Event::AddNote {
                 track,
                 block: 0,
@@ -470,11 +467,32 @@ mod tests {
                 start_beats: 0.0,
                 length_beats: 1.0,
                 velocity: 100,
+            })
+        };
+        for track in [0, 1] {
+            app.submit(Event::CreateBlock {
+                track,
+                start_beats: 0.0,
+                length_beats: 4.0,
             });
+            add(&mut app, track);
         }
         let state = app.ui_state();
-        assert_eq!(state.cursor.track, 1);
-        assert!(state.tracks[0].blocks[0].notes.is_empty());
+        assert_eq!(state.tracks[0].blocks[0].notes.len(), 1);
         assert_eq!(state.tracks[1].blocks[0].notes.len(), 1);
+        let known: Vec<u64> = state.tracks.iter().map(|t| t.notes_revision).collect();
+        assert_ne!(known[0], known[1], "each track has its own revision");
+
+        let stripped = app.ui_state().without_known_notes(&known);
+        assert!(stripped.tracks[0].blocks[0].notes.is_empty());
+        assert!(stripped.tracks[1].blocks[0].notes.is_empty());
+
+        add(&mut app, 0);
+        let fresh = app.ui_state().without_known_notes(&known);
+        assert_eq!(fresh.tracks[0].blocks[0].notes.len(), 2, "track 0 changed");
+        assert!(
+            fresh.tracks[1].blocks[0].notes.is_empty(),
+            "track 1 did not"
+        );
     }
 }
