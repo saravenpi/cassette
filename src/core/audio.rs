@@ -14,7 +14,7 @@ use std::io::Write;
 use std::net::{Shutdown, TcpListener, TcpStream};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
-use std::sync::mpsc;
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -28,6 +28,9 @@ const CHUNK_FRAMES: usize = 512;
 /// Frames of silence used to probe whether a player can open a device.
 const PROBE_FRAMES: usize = 4096;
 
+/// Chunks the writer thread may hold in flight before new audio is dropped.
+const QUEUE_CHUNKS: usize = 8;
+
 /// Wall-clock duration of one render chunk.
 fn chunk_period(sample_rate: u32) -> Duration {
     Duration::from_secs_f64(CHUNK_FRAMES as f64 / sample_rate.max(1) as f64)
@@ -35,17 +38,109 @@ fn chunk_period(sample_rate: u32) -> Duration {
 
 /// Sleep until the next chunk is due.
 ///
-/// Blocking writes already stop us running *ahead* of a slow consumer; this
-/// stops us running ahead of a fast one (a socket reader that drains instantly,
-/// or a pipe into `cat`), which would otherwise race the transport.
+/// The writer queue is bounded and drops audio when full, so nothing else
+/// holds the render thread back; this stops it running ahead of the transport.
 fn pace(deadline: &mut Instant, period: Duration) {
     *deadline += period;
     let now = Instant::now();
     if *deadline > now {
         thread::sleep(*deadline - now);
     } else {
-        // A blocking write stalled us; resync rather than burst to catch up.
         *deadline = now;
+    }
+}
+
+fn encode(samples: &[f32], bytes: &mut Vec<u8>) {
+    bytes.clear();
+    for sample in samples {
+        bytes.extend_from_slice(&sample.to_le_bytes());
+    }
+}
+
+/// Hands PCM chunks to a writer thread so a stalled pipe or socket never
+/// blocks the render thread. Buffers are recycled, so pushing never allocates.
+/// When the queue is full the new chunk is dropped and counted.
+struct PcmSink {
+    data: Option<SyncSender<Vec<u8>>>,
+    free: Receiver<Vec<u8>>,
+    dropped: Arc<AtomicU64>,
+    broken: Arc<AtomicBool>,
+    handle: Option<JoinHandle<()>>,
+}
+
+impl PcmSink {
+    fn spawn<W: Write + Send + 'static>(
+        out: W,
+        stop: Arc<AtomicBool>,
+        dropped: Arc<AtomicU64>,
+    ) -> Result<Self> {
+        let (data_tx, data_rx) = mpsc::sync_channel(QUEUE_CHUNKS);
+        let (free_tx, free_rx) = mpsc::channel();
+        for _ in 0..QUEUE_CHUNKS {
+            let _ = free_tx.send(Vec::with_capacity(CHUNK_FRAMES * 2 * size_of::<f32>()));
+        }
+        let broken = Arc::new(AtomicBool::new(false));
+        let writer_broken = broken.clone();
+        let handle = thread::Builder::new()
+            .name("cassette-audio-writer".into())
+            .spawn(move || run_writer(out, data_rx, free_tx, stop, writer_broken))
+            .map_err(|e| anyhow!("failed to spawn writer thread: {e}"))?;
+        Ok(Self {
+            data: Some(data_tx),
+            free: free_rx,
+            dropped,
+            broken,
+            handle: Some(handle),
+        })
+    }
+
+    fn is_broken(&self) -> bool {
+        self.broken.load(Ordering::Relaxed)
+    }
+
+    fn push(&self, samples: &[f32]) -> bool {
+        let Some(data) = self.data.as_ref() else {
+            return false;
+        };
+        let Ok(mut bytes) = self.free.try_recv() else {
+            self.dropped.fetch_add(1, Ordering::Relaxed);
+            return false;
+        };
+        encode(samples, &mut bytes);
+        if data.try_send(bytes).is_err() {
+            self.dropped.fetch_add(1, Ordering::Relaxed);
+            return false;
+        }
+        true
+    }
+
+    fn finish(mut self) {
+        self.data.take();
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
+fn run_writer<W: Write>(
+    mut out: W,
+    data: Receiver<Vec<u8>>,
+    free: Sender<Vec<u8>>,
+    stop: Arc<AtomicBool>,
+    broken: Arc<AtomicBool>,
+) {
+    while !stop.load(Ordering::Relaxed) {
+        match data.recv_timeout(Duration::from_millis(50)) {
+            Ok(bytes) => {
+                if out.write_all(&bytes).is_err() {
+                    broken.store(true, Ordering::Relaxed);
+                    break;
+                }
+                let _ = free.send(bytes);
+            }
+            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) => break,
+        }
     }
 }
 
@@ -221,6 +316,7 @@ pub struct SubprocessBackend {
     program: &'static str,
     child: Option<Child>,
     stop: Arc<AtomicBool>,
+    dropped: Arc<AtomicU64>,
     handle: Option<JoinHandle<()>>,
 }
 
@@ -237,8 +333,14 @@ impl SubprocessBackend {
             program,
             child: None,
             stop: Arc::new(AtomicBool::new(false)),
+            dropped: Arc::new(AtomicU64::new(0)),
             handle: None,
         })
+    }
+
+    /// Chunks dropped because the player was not keeping up.
+    pub fn dropped_chunks(&self) -> u64 {
+        self.dropped.load(Ordering::Relaxed)
     }
 }
 
@@ -284,10 +386,10 @@ fn run_probe(program: &str, sample_rate: u32) -> Result<()> {
         .spawn()
         .map_err(|e| anyhow!("failed to start {program}: {e}"))?;
 
+    let mut write_error = None;
     if let Some(mut stdin) = child.stdin.take() {
-        // Under the 64 KiB pipe buffer, so a live player never blocks here.
         let silence = vec![0u8; PROBE_FRAMES * 2 * size_of::<f32>()];
-        let _ = stdin.write_all(&silence);
+        write_error = stdin.write_all(&silence).err();
     }
 
     let output = child
@@ -302,8 +404,16 @@ fn run_probe(program: &str, sample_rate: u32) -> Result<()> {
     {
         return Err(anyhow!("no usable audio device: {}", first_line(&stderr)));
     }
-    if !output.status.success() && !stderr.trim().is_empty() {
-        return Err(anyhow!("{program}: {}", first_line(&stderr)));
+    if !output.status.success() {
+        let detail = if stderr.trim().is_empty() {
+            format!("exited with {}", output.status)
+        } else {
+            first_line(&stderr)
+        };
+        return Err(anyhow!("{program}: {detail}"));
+    }
+    if let Some(e) = write_error {
+        return Err(anyhow!("{program} closed its input early: {e}"));
     }
     Ok(())
 }
@@ -335,45 +445,53 @@ impl AudioBackend for SubprocessBackend {
             .spawn()
             .map_err(|e| anyhow!("failed to start {}: {e}", self.program))?;
 
-        let mut stdin = child
-            .stdin
-            .take()
-            .ok_or_else(|| anyhow!("{} stdin unavailable", self.program))?;
-        self.child = Some(child);
+        let Some(stdin) = child.stdin.take() else {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(anyhow!("{} stdin unavailable", self.program));
+        };
 
+        self.stop.store(false, Ordering::Relaxed);
         let stop = self.stop.clone();
         let sample_rate = self.sample_rate;
-        self.handle = Some(
-            thread::Builder::new()
-                .name("cassette-audio-pipe".into())
-                .spawn(move || {
-                    let mut buffer = vec![0.0f32; CHUNK_FRAMES * 2];
-                    let mut bytes = Vec::with_capacity(CHUNK_FRAMES * 2 * 4);
-                    let period = chunk_period(sample_rate);
-                    let mut deadline = Instant::now();
-                    while !stop.load(Ordering::Relaxed) {
-                        render(&mut buffer);
-                        bytes.clear();
-                        for sample in &buffer {
-                            bytes.extend_from_slice(&sample.to_le_bytes());
-                        }
-                        // The write blocks if the player is behind us.
-                        if stdin.write_all(&bytes).is_err() {
-                            break;
-                        }
-                        pace(&mut deadline, period);
-                    }
-                })
-                .map_err(|e| anyhow!("failed to spawn audio thread: {e}"))?,
-        );
-        Ok(())
+        let sink = match PcmSink::spawn(stdin, stop.clone(), self.dropped.clone()) {
+            Ok(sink) => sink,
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(e);
+            }
+        };
+        let spawned = thread::Builder::new()
+            .name("cassette-audio-pipe".into())
+            .spawn(move || {
+                let mut buffer = vec![0.0f32; CHUNK_FRAMES * 2];
+                let period = chunk_period(sample_rate);
+                let mut deadline = Instant::now();
+                while !stop.load(Ordering::Relaxed) && !sink.is_broken() {
+                    render(&mut buffer);
+                    sink.push(&buffer);
+                    pace(&mut deadline, period);
+                }
+                sink.finish();
+            });
+        match spawned {
+            Ok(handle) => {
+                self.handle = Some(handle);
+                self.child = Some(child);
+                Ok(())
+            }
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                Err(anyhow!("failed to spawn audio thread: {e}"))
+            }
+        }
     }
 
     fn stop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
-        // Closing stdin unblocks a writer parked in `write_all`.
         if let Some(child) = self.child.as_mut() {
-            let _ = child.stdin.take();
             let _ = child.kill();
         }
         if let Some(handle) = self.handle.take() {
@@ -403,8 +521,8 @@ impl AudioBackend for SubprocessBackend {
 /// Nothing is rendered until a client connects, so the transport never runs
 /// ahead of something nobody can hear.
 ///
-/// The desktop app starts this backend when `CASSETTE_STREAM_PORT` or `ZBOUB_STREAM_PORT`
-/// is set to a nonzero port; it is never selected on its own. It is also reachable through
+/// The desktop app starts this backend when `CASSETTE_STREAM_PORT` (the legacy
+/// `ZBOUB_STREAM_PORT` is still accepted) is set to a nonzero port; it is never selected on its own. It is also reachable through
 /// [`AudioEngine::start_streaming`](crate::core::engine::AudioEngine::start_streaming),
 /// and `tests/test_engine.rs` covers it. See `docs/music-over-ssh.md`.
 pub struct TcpStreamBackend {
@@ -413,6 +531,7 @@ pub struct TcpStreamBackend {
     listener: Option<TcpListener>,
     stop: Arc<AtomicBool>,
     active: Arc<Mutex<Option<TcpStream>>>,
+    dropped: Arc<AtomicU64>,
     handle: Option<JoinHandle<()>>,
 }
 
@@ -434,6 +553,7 @@ impl TcpStreamBackend {
             listener: Some(listener),
             stop: Arc::new(AtomicBool::new(false)),
             active: Arc::new(Mutex::new(None)),
+            dropped: Arc::new(AtomicU64::new(0)),
             handle: None,
         })
     }
@@ -441,6 +561,11 @@ impl TcpStreamBackend {
     /// The port actually bound (useful when `0` was requested).
     pub fn port(&self) -> u16 {
         self.port
+    }
+
+    /// Chunks dropped because the client was not keeping up.
+    pub fn dropped_chunks(&self) -> u64 {
+        self.dropped.load(Ordering::Relaxed)
     }
 }
 
@@ -464,6 +589,7 @@ impl AudioBackend for TcpStreamBackend {
             .ok_or_else(|| anyhow!("stream listener already started"))?;
         let stop = self.stop.clone();
         let active = self.active.clone();
+        let dropped = self.dropped.clone();
         let sample_rate = self.sample_rate;
 
         self.handle = Some(
@@ -471,12 +597,11 @@ impl AudioBackend for TcpStreamBackend {
                 .name("cassette-audio-stream".into())
                 .spawn(move || {
                     let mut buffer = vec![0.0f32; CHUNK_FRAMES * 2];
-                    let mut bytes = Vec::with_capacity(CHUNK_FRAMES * 2 * 4);
                     let period = chunk_period(sample_rate);
 
                     while !stop.load(Ordering::Relaxed) {
                         match listener.accept() {
-                            Ok((mut stream, _)) => {
+                            Ok((stream, _)) => {
                                 let _ = stream.set_nonblocking(false);
                                 let _ = stream.set_nodelay(true);
                                 if let Ok(clone) = stream.try_clone()
@@ -485,26 +610,22 @@ impl AudioBackend for TcpStreamBackend {
                                     *slot = Some(clone);
                                 }
 
-                                let mut deadline = Instant::now();
-                                while !stop.load(Ordering::Relaxed) {
-                                    render(&mut buffer);
-                                    bytes.clear();
-                                    for sample in &buffer {
-                                        bytes.extend_from_slice(&sample.to_le_bytes());
+                                if let Ok(sink) =
+                                    PcmSink::spawn(stream, stop.clone(), dropped.clone())
+                                {
+                                    let mut deadline = Instant::now();
+                                    while !stop.load(Ordering::Relaxed) && !sink.is_broken() {
+                                        render(&mut buffer);
+                                        sink.push(&buffer);
+                                        pace(&mut deadline, period);
                                     }
-                                    // Blocks if the client is behind; paced in
-                                    // software if the client is faster than us.
-                                    if stream.write_all(&bytes).is_err() {
-                                        break;
-                                    }
-                                    pace(&mut deadline, period);
+                                    sink.finish();
                                 }
 
                                 if let Ok(mut slot) = active.lock() {
                                     *slot = None;
                                 }
                             }
-                            // No client yet: idle briefly and poll the stop flag.
                             Err(_) => thread::sleep(Duration::from_millis(5)),
                         }
                     }
@@ -796,5 +917,73 @@ mod tests {
         assert!(received > 0, "client should receive PCM bytes");
         // 0.5f32 little-endian is 00 00 00 3F.
         assert_eq!(&chunk[0..4], &0.5f32.to_le_bytes());
+    }
+
+    struct GatedWriter(Arc<AtomicBool>);
+
+    impl Write for GatedWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            while !self.0.load(Ordering::Relaxed) {
+                thread::sleep(Duration::from_millis(1));
+            }
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn sink_drops_instead_of_blocking_when_writer_stalls() {
+        let gate = Arc::new(AtomicBool::new(false));
+        let stop = Arc::new(AtomicBool::new(false));
+        let dropped = Arc::new(AtomicU64::new(0));
+        let sink =
+            PcmSink::spawn(GatedWriter(gate.clone()), stop, dropped.clone()).expect("spawn sink");
+        let samples = vec![0.0f32; CHUNK_FRAMES * 2];
+
+        let started = Instant::now();
+        let accepted = (0..100).filter(|_| sink.push(&samples)).count();
+
+        assert!(started.elapsed() < Duration::from_secs(1));
+        assert!(accepted <= QUEUE_CHUNKS + 1);
+        assert_eq!(dropped.load(Ordering::Relaxed), (100 - accepted) as u64);
+        gate.store(true, Ordering::Relaxed);
+        sink.finish();
+    }
+
+    #[test]
+    fn stream_backend_keeps_rendering_when_client_never_reads() {
+        let mut backend = TcpStreamBackend::new(100_000_000, 0).expect("bind stream port");
+        let port = backend.port();
+        let calls = Arc::new(AtomicU64::new(0));
+        let counter = calls.clone();
+        let render: RenderFn = Box::new(move |out: &mut [f32]| {
+            out.fill(0.25);
+            counter.fetch_add(1, Ordering::Relaxed);
+        });
+        backend.start(render).expect("start streaming");
+        let _client = TcpStream::connect(("127.0.0.1", port)).expect("connect");
+
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while backend.dropped_chunks() == 0 && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(
+            backend.dropped_chunks() > 0,
+            "stalled client should cause drops"
+        );
+
+        let before = calls.load(Ordering::Relaxed);
+        thread::sleep(Duration::from_millis(100));
+        assert!(
+            calls.load(Ordering::Relaxed) > before,
+            "render must not stall"
+        );
+
+        let stopped = Instant::now();
+        backend.stop();
+        assert!(stopped.elapsed() < Duration::from_secs(3));
     }
 }
