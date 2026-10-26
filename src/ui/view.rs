@@ -31,7 +31,8 @@ pub struct BlockView {
     pub source: String,
     /// Whether the cursor sits on this block.
     pub selected: bool,
-    /// Notes of a MIDI block, starts relative to the block.
+    /// Notes of a MIDI block, starts relative to the block, in the order they
+    /// were drawn so an index names a note. Empty off the selected track.
     pub notes: Vec<Note>,
 }
 

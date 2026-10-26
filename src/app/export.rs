@@ -479,6 +479,91 @@ mod tests {
         assert!(app.status.contains("gone.wav"));
     }
 
+    fn add_note(app: &mut App, start_beats: f32) {
+        app.submit(crate::events::Event::AddNote {
+            track: 0,
+            block: 0,
+            pitch: 64,
+            start_beats,
+            length_beats: 1.0,
+            velocity: 90,
+        });
+    }
+
+    fn app_with_notes() -> App {
+        let mut app = headless_app();
+        app.submit(crate::events::Event::CreateBlock {
+            track: 0,
+            start_beats: 4.0,
+            length_beats: 4.0,
+        });
+        add_note(&mut app, 2.0);
+        add_note(&mut app, 0.5);
+        app
+    }
+
+    #[test]
+    fn notes_survive_a_save_and_load_in_drawing_order() {
+        let app = app_with_notes();
+        let saved = app.song.tracks[0].blocks[0].notes.clone();
+        assert_eq!(saved.len(), 2);
+        let mut source = app;
+        let dir = TempDir::new();
+        source.export_project(dir.arg("p.json"));
+        let content = std::fs::read_to_string(dir.file("p.json")).expect("read content");
+        assert!(content.contains("\"version\": 1"), "{content}");
+
+        let mut fresh = headless_app();
+        fresh.load_project(dir.arg("p.json"));
+        assert!(fresh.status.contains("loaded"), "{}", fresh.status);
+        assert!(!fresh.status.contains("fixed"), "{}", fresh.status);
+        assert_eq!(fresh.song.tracks[0].blocks[0].notes, saved);
+        assert_eq!(fresh.mirror_notes(0)[0].start_beats, 4.5);
+    }
+
+    #[test]
+    fn a_v0_7_0_project_without_notes_loads() {
+        let mut value = serde_json::to_value(app_with_notes().song).expect("to value");
+        for track in value["tracks"].as_array_mut().expect("tracks") {
+            for block in track["blocks"].as_array_mut().expect("blocks") {
+                block.as_object_mut().expect("block").remove("notes");
+            }
+        }
+        assert!(!value.to_string().contains("notes"));
+        let app = load_json(&value.to_string());
+        assert!(app.status.contains("loaded"), "{}", app.status);
+        assert_eq!(app.song.tracks[0].blocks.len(), 1);
+        assert!(app.song.tracks[0].blocks[0].notes.is_empty());
+    }
+
+    /// Needs `core.set_notes(track, self.mirror_notes(track))` in `render_to`,
+    /// which waits on `RenderCore::set_notes` from the render core work package.
+    #[test]
+    #[ignore = "needs RenderCore::set_notes"]
+    fn an_exported_note_sounds_at_its_time_and_not_before() {
+        let mut app = headless_app();
+        app.submit(crate::events::Event::CreateBlock {
+            track: 0,
+            start_beats: 0.0,
+            length_beats: 8.0,
+        });
+        add_note(&mut app, 4.0);
+        let dir = TempDir::new();
+        app.export_audio(dir.arg("out.wav"));
+        assert!(app.status.contains("exported audio to"), "{}", app.status);
+
+        let sample = wav::decode(&dir.file("out.wav"), usize::MAX).expect("decode export");
+        let frames_per_beat = EXPORT_SAMPLE_RATE as f32 * 60.0 / app.song.bpm();
+        let at = |beats: f32| (beats * frames_per_beat) as usize * 2;
+        let loudest = |from: f32, to: f32| {
+            sample.frames[at(from)..at(to)]
+                .iter()
+                .fold(0.0f32, |peak, v| peak.max(v.abs()))
+        };
+        assert!(loudest(0.0, 3.9) < 0.001, "silent before the note");
+        assert!(loudest(4.0, 5.0) > 0.01, "audible during the note");
+    }
+
     fn audible_span(wav_path: &Path) -> (usize, usize, usize) {
         let sample = wav::decode(wav_path, usize::MAX).expect("decode export");
         let frames = &sample.frames;

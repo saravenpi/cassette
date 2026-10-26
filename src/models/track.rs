@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::models::{Instrument, Note};
+use crate::models::{Instrument, MAX_NOTES_PER_BLOCK, Note};
 
 /// What a track carries.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -209,6 +209,13 @@ impl Track {
         {
             return Err(format!("track {:?} holds a non-finite block", self.name));
         }
+        if self
+            .blocks
+            .iter()
+            .any(|b| b.notes.iter().any(|note| !note.is_finite()))
+        {
+            return Err(format!("track {:?} holds a non-finite note", self.name));
+        }
         let mut problems = Vec::new();
         let before = (self.volume, self.pan, *instrument);
         self.volume = self.volume.clamp(0.0, 1.0);
@@ -244,6 +251,39 @@ impl Track {
             self.blocks.truncate(max_blocks);
             problems.push(format!(
                 "track {:?}: dropped {dropped} block(s) past the limit of {max_blocks}",
+                self.name
+            ));
+        }
+        let (mut cleared, mut dropped, mut clamped) = (0, 0, 0);
+        for block in &mut self.blocks {
+            if block.kind == TrackKind::Audio {
+                cleared += usize::from(!block.notes.is_empty());
+                block.notes.clear();
+                continue;
+            }
+            dropped += block.notes.len().saturating_sub(MAX_NOTES_PER_BLOCK);
+            block.notes.truncate(MAX_NOTES_PER_BLOCK);
+            for note in &mut block.notes {
+                let before = *note;
+                note.clamp_to(MAX_LENGTH_BEATS);
+                clamped += usize::from(before != *note);
+            }
+        }
+        if cleared > 0 {
+            problems.push(format!(
+                "track {:?}: notes removed from {cleared} audio block(s)",
+                self.name
+            ));
+        }
+        if dropped > 0 {
+            problems.push(format!(
+                "track {:?}: dropped {dropped} note(s) past the limit of {MAX_NOTES_PER_BLOCK} per block",
+                self.name
+            ));
+        }
+        if clamped > 0 {
+            problems.push(format!(
+                "track {:?}: {clamped} note(s) clamped to the allowed range",
                 self.name
             ));
         }
@@ -350,6 +390,60 @@ mod tests {
     fn sanitize_rejects_non_finite_numbers() {
         let mut track = midi();
         track.volume = f32::NAN;
+        assert!(track.sanitize(8).is_err());
+    }
+
+    fn note(start_beats: f32, length_beats: f32) -> Note {
+        Note {
+            pitch: 60,
+            start_beats,
+            length_beats,
+            velocity: 100,
+        }
+    }
+
+    #[test]
+    fn sanitize_clamps_caps_and_clears_notes() {
+        let mut track = midi();
+        let mut keys = Block::new("keys", TrackKind::Midi, 0.0, 4.0, "");
+        keys.notes = vec![note(0.0, 1.0); MAX_NOTES_PER_BLOCK + 3];
+        keys.notes[0] = Note {
+            pitch: 255,
+            start_beats: -1.0,
+            length_beats: 0.0,
+            velocity: 0,
+        };
+        keys.notes[1] = note(8.0, 1.0);
+        let mut drums = Block::new("drums", TrackKind::Audio, 8.0, 4.0, "/tmp/d.wav");
+        drums.notes = vec![note(0.0, 1.0)];
+        track.blocks = vec![keys, drums];
+        let problems = track.sanitize(8).expect("finite track");
+        let keys = &track.blocks[0];
+        assert_eq!(keys.notes.len(), MAX_NOTES_PER_BLOCK);
+        assert_eq!(
+            keys.notes[0],
+            Note {
+                pitch: 127,
+                start_beats: 0.0,
+                length_beats: Note::MIN_LENGTH_BEATS,
+                velocity: 1,
+            }
+        );
+        assert_eq!(
+            keys.notes[1],
+            note(8.0, 1.0),
+            "a note past a shrunk block's end survives a load"
+        );
+        assert!(track.blocks[1].notes.is_empty());
+        assert_eq!(problems.len(), 3, "{problems:?}");
+    }
+
+    #[test]
+    fn sanitize_rejects_non_finite_notes() {
+        let mut track = midi();
+        let mut keys = Block::new("keys", TrackKind::Midi, 0.0, 4.0, "");
+        keys.notes = vec![note(f32::NAN, 1.0)];
+        track.blocks = vec![keys];
         assert!(track.sanitize(8).is_err());
     }
 }
