@@ -313,3 +313,20 @@ Loop points, frame-accurate note starts, and a review pass over v0.9.0.
 
 - Starting or seeking into a sample recorded at another sample rate began at the wrong position.
 - `Ctrl`/`Cmd` chords no longer play notes or fire plain-key commands.
+
+## [0.12.0] - 2026-10-26
+
+### Added
+
+- Undo and redo for every edit to the song: `Ctrl/Cmd+Z`, `Ctrl/Cmd+Shift+Z` or `Ctrl+Y`, plus Undo and Redo buttons in the transport. A drag or a fader move is one step; selection, the transport and the loop region are not undone.
+- A dashed hover line follows the pointer across the lanes and marks the beat a split or a click lands on, with a `bar.beat.hundredths` readout; `Alt` frees it from the grid.
+- `B` splits the block under the pointer at the hover line, falling back to the selected block at the playhead.
+
+### Fixed
+
+- A sample kept ringing past its block after a split, duplicate or move during playback; deleting the block under a playing sample now fades it out.
+- Dragging a MIDI block's left edge past a note and back deleted the note; the trim is now applied on release.
+- Audio blocks drew the whole file whatever their offset, rate and length; they now draw the part they play.
+- The stretch preview ran past the 0.25x to 4x rate limit and jumped on release.
+- A refused split used up a block name.
+- `AltGr` counted as `Ctrl`, so `AltGr+E` split a block; chords no longer type letters into the rename prompt.
