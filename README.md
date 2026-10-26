@@ -86,6 +86,7 @@ cargo clippy --all-targets
 | `Z` `X` | shift the play octave |
 | `A W S E D F T G Y H U J K` | play notes |
 | `shift` `+` / `shift` `-`, numpad `+` / `-` | zoom the timeline |
+| `ctrl` / `cmd` + scroll, or pinch | zoom the timeline around the pointer |
 | `home` | scroll back to the top of the song |
 | `shift` + drag on the ruler | draw the loop region; double-click it to loop the whole song |
 | `P` | open the piano roll on the selected MIDI block |
@@ -106,7 +107,9 @@ The zoom keys are handled in the webview, because no engine event describes them
 
 A dashed hover line follows the pointer across the lanes and marks the beat a
 split or a click lands on, with its `bar.beat.hundredths` position in the header
-corner; hold `alt` to free it from the grid. Undo covers every edit to the song
+corner; hold `alt` to free it from the grid. The grid follows the zoom: it
+snaps to the finest step from 1/16 beat to 2 beats that stays at least 12 px
+wide, and the header corner shows the current step. Undo covers every edit to the song
 (blocks, notes, the mixer, the voice and the tempo); a drag or a fader move is one
 step. Selection, the transport and the loop region are not undone.
 
