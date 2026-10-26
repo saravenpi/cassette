@@ -22,11 +22,11 @@ The engine crate builds with no webview and no audio headers, plays the
 polyphonic synth from the keyboard, and starts a sample when the playhead
 reaches its block. The project is called cassette; it was zboub69 until v0.7.0.
 
-Build state, measured on 2026-10-26 at v0.7.0: `cargo test` is green end to end
-(154 library unit tests, 11 engine integration, 10 MIDI/OSC adapter, 3
-red-zone, 7 wire), `cargo clippy --all-targets -- -D warnings` and
+Build state, measured on 2026-10-26 at v0.10.0: `cargo test` is green end to end
+(206 library unit tests, 12 engine integration, 10 MIDI/OSC adapter, 5
+red-zone, 8 wire), `cargo clippy --all-targets -- -D warnings` and
 `cargo fmt --check` are clean, and `cd app && bun run check` and
-`cd app && bun test` (83 tests) are clean.
+`cd app && bun test` (122 tests) are clean.
 
 The desktop app has been run on real audio hardware: samples play from the
 timeline and the synth plays from the keyboard (verified by ear, 2026-10-26).
@@ -371,13 +371,11 @@ What works, and where:
   past 256 MiB and past 32 channels, and the frames are cut at the ceiling the
   caller passes, with `source_frames` and `truncated` reporting what was cut.
   All of it runs on the control thread.
-- The ring and the pool, in `src/core/sample.rs`. `MAX_SAMPLE_SLOTS` is 8,
-  `MAX_SAMPLE_FRAMES` is 480_000 per slot (about ten seconds at 48 kHz) and
-  `SAMPLE_RING_CAPACITY` is 65 536 messages. `SamplePool::new` allocates every
-  slot up front, and both ways in write only into that memory: `push`, one message
-  at a time, which is the path the audio thread takes, and `drain`, a whole ring
-  at once. A slot stays unreadable until its `End` arrives, so half a sample can
-  never play.
+- The ring and the slots, in `src/core/sample.rs`. `MAX_SAMPLE_SLOTS` is 8. A
+  `SampleMsg::Load` hands a whole decoded sample over as an `Arc<[f32]>` the
+  sender keeps a clone of, and `Free` empties a slot. [SUPERSEDED by: v0.9.1,
+  2026-10-26] The frame-by-frame `Begin`/`Frame`/`End` messages and the 15 MB
+  preallocated pool they filled were used only by tests and are gone.
 - The handoff, in `src/core/engine.rs`. `AudioEngine` owns both rings. Commands
   go through `send`; the sample ring's producer is handed out once by
   `take_sample_producer`, which `App::with` calls at startup, and the audio thread
@@ -417,9 +415,9 @@ What works, and where:
   not exist; see 6.6.
 
 The red-zone rule holds where the sample path touches it. The file read, the
-decode and the pool allocation are all on the control thread, and the callback's
-share is to pop `SampleMsg` values off the ring, copy them into memory the pool
-already owns and read it: no lock, no I/O, no panic, no allocation. The only
+decode and the buffer allocation are all on the control thread, and the
+callback's share is to pop `SampleMsg` values off the ring and swap a handle the
+sender still holds: no lock, no I/O, no panic, no allocation, no free. The only
 route for audio frames into the audio thread is that ring. The contract is stated
 in `src/core/mod.rs` and enforced in debug builds by `tests/test_rt_no_alloc.rs`.
 
@@ -500,8 +498,8 @@ Model and engine:
   CLAP or LV2 loader is in the crate, and the VST pane says so.
 - Insert effects. The mixer is volume, pan, mute and solo. There is no effect
   slot on a track or on a block, and no signal path through one.
-- A loop range and punch. Seeking works, but `looping` has no loop points to act
-  on.
+- Punch in and out. [SUPERSEDED by: v0.10.0, 2026-10-26] The loop range part:
+  a shift-drag on the ruler now sets a loop region.
 - Time-stretching. Nothing warps a sample to the project tempo: a sample at
   another rate plays pitch-shifted, which is repitch and Ableton Live's default.
   See 6.4.
@@ -534,6 +532,14 @@ Shipped in v0.9.0 as planned below, with these departures:
 - A loop wrap releases every synth voice, keyboard notes included.
 - Nobody has heard notes play from the timeline or used the roll in a running
   window yet.
+
+The v0.10.0 review reversed two of those departures. [SUPERSEDED by: v0.10.0,
+2026-10-26] The snapshot trim: each track now carries a `notesRevision`, the
+webview sends back the revisions it holds, and the `state` command leaves those
+tracks' notes out. Every block shows its notes again, and an idle frame carries
+no notes. The render core also cuts each buffer at the next note start and
+sample block edge, so notes and samples start on their own frame instead of up
+to one buffer early.
 
 ### Plan (2026-10-26)
 
@@ -606,14 +612,17 @@ Not yet checked by ear or in a running window:
 - File browser commands run off the UI thread; keyboard import, stale-response
   guard, drag-drop cleanup, keyed mix queue and window drag permission landed.
 
-Still open:
+Closed since (checked against the code on 2026-10-26):
 
-- `frames_per_beat` is rounded to an integer and drifts at non-integer tempos.
-- The UI beat position in `src/app/mod.rs` still uses `f32`.
-- Multi-file drops are staggered by a fixed bar, not by real block length.
-- Loop points: the loop spans the whole song only.
-- The `Begin`/`Frame`/`End` sample messages are used only by tests.
-- The ffplay and TCP backends write on the render thread and can stall it.
+- `frames_per_beat` is fractional (`utils::time::Tempo`), and the UI beat
+  position is computed in `f64` before it is cast for the wire (v0.8.0).
+- Multi-file drops wait for each block's real end (`dropQueue.ts`, v0.8.0).
+- The ffplay and TCP backends write through a bounded queue on their own thread
+  (v0.8.0).
+- Loop points: a shift-drag on the ruler sets a loop region, saved with the
+  project (v0.10.0).
+- The `Begin`/`Frame`/`End` sample messages and their 15 MB pool are gone; a
+  sample only arrives whole, as an `Arc` (v0.10.0).
 
 ---
 

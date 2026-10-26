@@ -267,3 +267,22 @@ MIDI blocks hold notes, the render core plays them, and a piano roll edits them.
 ### Removed
 
 - `RenderCore::peaks`, which nothing called.
+
+## [0.10.0] - 2026-10-26
+
+Loop points, frame-accurate note starts, and a review pass over v0.9.0.
+
+### Added
+
+- Loop points: shift-drag on the ruler draws a loop region, double-click it to loop the whole song again. The region is saved in the project file.
+- `noteCache.ts` and a `notesRevision` per track: the webview sends back the revisions it holds and the engine leaves those notes out of the snapshot.
+
+### Changed
+
+- Every MIDI block carries its notes in the snapshot again, so note previews show on every track.
+- The render core cuts each buffer at the next note start and sample block edge, so they start on their own frame instead of up to one buffer early.
+- The sample ring holds 64 messages instead of 480 016.
+
+### Removed
+
+- The `Begin`, `Frame` and `End` sample messages and the 15 MB pool they filled. Only tests used them; a sample now arrives whole, as an `Arc`.

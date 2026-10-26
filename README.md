@@ -80,6 +80,7 @@ cargo clippy --all-targets
 | `A W S E D F T G Y H U J K` | play notes |
 | `shift` `+` / `shift` `-`, numpad `+` / `-` | zoom the timeline |
 | `home` | scroll back to the top of the song |
+| `shift` + drag on the ruler | draw the loop region; double-click it to loop the whole song |
 | `P` | open the piano roll on the selected MIDI block |
 | `esc` | close the piano roll |
 | `backspace` / `del` in the roll | delete the selected note |
@@ -215,8 +216,9 @@ fixed-size, commands cross threads through an `rtrb` SPSC ring buffer, and state
 comes back through atomics. The per-track block mirror is a plain `Vec` the
 control thread builds and hands over whole with `RtCommand::SetBlocks`, so the
 callback only ever reads one it already owns. Samples take the same route: the
-control thread decodes the WAV and pushes frames down a second `rtrb` ring, and
-the callback copies them into a pool allocated before the stream started.
+control thread decodes the file and sends the frames down a second `rtrb` ring
+as an `Arc` slice it keeps a clone of, so the callback only swaps a handle and
+never frees a buffer. The note mirror travels like the block mirror.
 `tests/test_rt_no_alloc.rs` runs the render loop and the command path under
 `assert_no_alloc`, so the claim fails the build rather than the audio thread if it
 ever stops being true.
