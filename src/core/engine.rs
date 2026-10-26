@@ -54,6 +54,7 @@ impl AudioThread {
 pub struct AudioEngine {
     backend: Box<dyn AudioBackend>,
     producer: Mutex<Producer<RtCommand>>,
+    retired: Mutex<Vec<Arc<[MirroredBlock]>>>,
     sample_producer: Option<Producer<SampleMsg>>,
     shared: Arc<SharedState>,
     sample_rate: u32,
@@ -116,6 +117,7 @@ impl AudioEngine {
             stream_port: backend.stream_port(),
             backend,
             producer: Mutex::new(producer),
+            retired: Mutex::new(Vec::new()),
             sample_producer: Some(sample_producer),
             shared,
             sample_rate,
@@ -169,7 +171,18 @@ impl AudioEngine {
 
     /// Replace one track's block mirror on the audio thread. Returns `false` if
     /// the command queue is full.
+    ///
+    /// The engine keeps a clone of each mirror until the audio thread has let go
+    /// of it, so the audio thread never frees one.
     pub fn set_blocks(&self, track: usize, blocks: Vec<MirroredBlock>) -> bool {
+        let blocks: Arc<[MirroredBlock]> = blocks.into();
+        match self.retired.lock() {
+            Ok(mut retired) => {
+                retired.retain(|held| Arc::strong_count(held) > 1);
+                retired.push(blocks.clone());
+            }
+            Err(_) => return false,
+        }
         self.send(RtCommand::SetBlocks {
             track: track as u8,
             blocks,

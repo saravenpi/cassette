@@ -603,6 +603,7 @@ mod cpal_backend {
                                 out[frame * channels + channel] = T::from_sample(value);
                             }
                         }
+                        out[frames * channels..].fill(T::EQUILIBRIUM);
                     },
                     |err| eprintln!("[audio] stream error: {err}"),
                     None,
