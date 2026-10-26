@@ -7,12 +7,14 @@ import {
 	ZOOM_MIN,
 	barsFor,
 	beatsToPx,
+	clampRowHeight,
 	clampZoom,
 	envelopePoints,
 	formatPosition,
 	freeStart,
 	labelStep,
 	position,
+	pruneHeights,
 	pxToBeats,
 	snapBeats,
 	waveformPoints,
@@ -273,5 +275,17 @@ describe('envelopePoints', () => {
 	test('clamps a sustain the engine should never send', () => {
 		const loud = envelopePoints(1, 1, 4, 1, WIDTH, HEIGHT, PLATEAU).split(' ');
 		expect(Number(loud[2].split(',')[1])).toBe(0);
+	});
+});
+
+describe('row heights', () => {
+	test('clamps to the allowed range', () => {
+		expect(clampRowHeight(1)).toBe(32);
+		expect(clampRowHeight(9999)).toBe(300);
+		expect(clampRowHeight(100)).toBe(100);
+	});
+
+	test('prunes heights of removed tracks', () => {
+		expect(pruneHeights({ 0: 80, 2: 90, 5: 40 }, 3)).toEqual({ 0: 80, 2: 90 });
 	});
 });

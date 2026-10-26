@@ -9,10 +9,13 @@
 
 	interface Props {
 		path: string | null;
+		root: string | null;
 		onOpen: (path: string) => void;
 	}
 
-	let { path, onOpen }: Props = $props();
+	let { path, root, onOpen }: Props = $props();
+
+	const atRoot = $derived(path === null || path === root);
 
 	const crumbs = $derived(crumbsOf(path));
 
@@ -36,9 +39,9 @@
 </script>
 
 <nav class="crumbs" aria-label="Sample path">
-	<button class="crumb up" aria-label="Go up one directory" disabled={path === null} onclick={up}>
-		&uarr;
-	</button>
+	{#if !atRoot}
+		<button class="crumb up" aria-label="Go up one directory" onclick={up}>&uarr;</button>
+	{/if}
 	{#each crumbs as crumb (crumb.path)}
 		<span class="sep">/</span>
 		<button class="crumb" onclick={() => onOpen(crumb.path)}>{crumb.label}</button>

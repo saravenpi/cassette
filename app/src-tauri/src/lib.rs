@@ -314,6 +314,7 @@ pub fn run() {
     let published = snapshot.clone();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(snapshot)
         .manage(commands)
         .setup(move |_app| {

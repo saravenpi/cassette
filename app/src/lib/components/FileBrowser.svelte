@@ -5,17 +5,21 @@
 	 * onto a lane and a double-click that lands it on the selected track.
 	 */
 
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 
 	import { listSamples, samplesRoot } from '$lib/api';
 	import { freeStart, snapBeats } from '$lib/geometry';
+	import { Latest } from '$lib/queue';
 	import { SampleDrag } from '$lib/sampleDrag.svelte';
 	import { session } from '$lib/session.svelte';
 	import type { SampleEntry } from '$lib/wire';
 	import Breadcrumbs from './Breadcrumbs.svelte';
 	import SamplePreview from './SamplePreview.svelte';
 
+	const latest = new Latest();
+
 	let dir = $state<string | null>(null);
+	let root = $state<string | null>(null);
 	let entries = $state<SampleEntry[]>([]);
 	let failure = $state<string | null>(null);
 	let loading = $state(false);
@@ -38,6 +42,8 @@
 		void open(null);
 	});
 
+	onDestroy(() => drag.destroy());
+
 	function reason(error: unknown): string {
 		return error instanceof Error ? error.message : String(error);
 	}
@@ -49,18 +55,29 @@
 	}
 
 	async function open(target: string | null): Promise<void> {
+		const ticket = latest.begin();
 		loading = true;
 		try {
 			const listing = await listSamples(target);
+			const resolved = target ?? (await samplesRoot().catch(() => null));
+			if (!latest.isCurrent(ticket)) return;
+			if (target === null) root = resolved;
+			dir = resolved;
 			entries = listing;
 			failure = null;
-			dir = target ?? (await samplesRoot().catch(() => null));
 		} catch (error) {
+			if (!latest.isCurrent(ticket)) return;
 			entries = [];
 			failure = `${target ?? 'the samples root'} could not be read: ${reason(error)}`;
 		} finally {
-			loading = false;
+			if (latest.isCurrent(ticket)) loading = false;
 		}
+	}
+
+	function activateOnEnter(event: KeyboardEvent, activate: () => void): void {
+		if (event.key !== 'Enter') return;
+		event.preventDefault();
+		activate();
 	}
 
 	function importToSelected(entry: SampleEntry): void {
@@ -74,7 +91,7 @@
 </script>
 
 <div class="browser">
-	<Breadcrumbs path={dir} onOpen={(path) => open(path)} />
+	<Breadcrumbs path={dir} {root} onOpen={(path) => open(path)} />
 
 	{#if loading}
 		<p class="note">reading…</p>
@@ -97,10 +114,11 @@
 						<button
 							class="row wav"
 							class:picked={selected?.path === entry.path}
-							title="Drag onto a track, or double-click to import into the selected track"
+							title="Drag onto a track, or press Enter or double-click to import into the selected track"
 							onpointerdown={(event) => drag.begin(event, entry)}
 							onclick={() => (selected = entry)}
 							ondblclick={() => importToSelected(entry)}
+							onkeydown={(event) => activateOnEnter(event, () => importToSelected(entry))}
 						>
 							<span class="name">{entry.name}</span>
 							<span class="meta">{sizeLabel(entry.size)}</span>
@@ -109,9 +127,13 @@
 						<button
 							class="row project"
 							class:picked={selected?.path === entry.path}
-							title="Double-click to load this project"
+							title="Press Enter or double-click to load this project"
 							onclick={() => (selected = entry)}
 							ondblclick={() => session.dispatch({ loadProject: { path: entry.path } })}
+							onkeydown={(event) =>
+								activateOnEnter(event, () =>
+									session.dispatch({ loadProject: { path: entry.path } })
+								)}
 						>
 							<span class="name">{entry.name}</span>
 							<span class="meta">project</span>

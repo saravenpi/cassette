@@ -4,6 +4,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
+import { open } from '@tauri-apps/plugin-dialog';
 
 import type { EngineEvent, SampleEntry, UiState } from './wire';
 
@@ -52,4 +53,13 @@ export function loadWaveform(path: string): Promise<number[]> {
 	request.catch(() => waveforms.delete(path));
 	waveforms.set(path, request);
 	return request;
+}
+
+/** Ask the user for a project file, or null when they cancel. */
+export function pickProject(): Promise<string | null> {
+	return open({
+		multiple: false,
+		directory: false,
+		filters: [{ name: 'Project', extensions: ['json'] }]
+	});
 }

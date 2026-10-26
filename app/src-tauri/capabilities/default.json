@@ -1,7 +1,12 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "the webview reads the snapshot, sends intent and drops files onto the window; the app's own commands need no permission of their own",
+  "description": "the webview reads the snapshot, sends intent, drops files onto the window, picks a project file and drags the overlay title bar; the app's own commands need no permission of their own",
   "windows": ["main"],
-  "permissions": ["core:default", "core:webview:default"]
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-toggle-maximize",
+    "dialog:allow-open"
+  ]
 }

@@ -5,10 +5,11 @@
  * block drags to the drag controller.
  */
 
-import { send as sendEvent, sendNow as sendWithoutWaiting, state } from './api';
+import { pickProject, send as sendEvent, sendNow as sendWithoutWaiting, state } from './api';
 import { DragController } from './drag.svelte';
 import { ZOOM_DEFAULT, zoomBy } from './geometry';
 import { attachKeyboard } from './keyboard';
+import { KeyedQueue, nextBackoff } from './queue';
 import type { EngineEvent, UiState } from './wire';
 
 /** A track's voice, as the effects pane edits it. */
@@ -36,8 +37,10 @@ class Session {
 	private frame = 0;
 	private running = false;
 	private polling = false;
-	private mix: EngineEvent | null = null;
-	private voice: EngineEvent | null = null;
+	private mix = new KeyedQueue<EngineEvent>();
+	private voice = new KeyedQueue<EngineEvent>();
+	private backoff = 0;
+	private resumeAt = 0;
 
 	constructor() {
 		this.drag = new DragController({
@@ -61,7 +64,7 @@ class Session {
 		this.running = true;
 		const tick = () => {
 			this.frame = requestAnimationFrame(tick);
-			if (this.polling) return;
+			if (this.polling || performance.now() < this.resumeAt) return;
 			this.polling = true;
 			void this.step().finally(() => {
 				this.polling = false;
@@ -94,12 +97,22 @@ class Session {
 
 	/** Send a mixer strip change, collapsed to one message per frame. */
 	queueMix(index: number, volume: number, pan: number, muted: boolean, solo: boolean): void {
-		this.mix = { setTrackMix: { track: index, volume, pan, muted, solo } };
+		this.mix.set(index, { setTrackMix: { track: index, volume, pan, muted, solo } });
 	}
 
 	/** Send a voice change, collapsed to one message per frame. */
 	queueVoice(index: number, voice: Voice): void {
-		this.voice = { setInstrument: { track: index, ...voice } };
+		this.voice.set(index, { setInstrument: { track: index, ...voice } });
+	}
+
+	/** Ask for a project file and load it. */
+	async loadProjectFromDialog(): Promise<void> {
+		try {
+			const path = await pickProject();
+			if (path !== null) await this.send({ loadProject: { path } });
+		} catch (error) {
+			this.fail(error, 'send');
+		}
 	}
 
 	/** Move one zoom press in the given direction. */
@@ -125,28 +138,26 @@ class Session {
 
 	private async step(): Promise<void> {
 		try {
-			this.snapshot = await state();
+			try {
+				this.snapshot = await state();
+			} catch (error) {
+				this.fail(error, 'poll');
+				this.backoff = nextBackoff(this.backoff);
+				this.resumeAt = performance.now() + this.backoff;
+				return;
+			}
 			this.clear('poll');
-		} catch (error) {
-			this.fail(error, 'poll');
-			return;
+			this.backoff = 0;
+			this.resumeAt = 0;
+			await this.drag.flush();
+			await this.flushQueued();
+		} finally {
+			this.drag.settle();
 		}
-		await this.drag.flush();
-		await this.flushQueued();
-		this.drag.settle();
 	}
 
 	private async flushQueued(): Promise<void> {
-		const queued: EngineEvent[] = [];
-		if (this.mix !== null) {
-			queued.push(this.mix);
-			this.mix = null;
-		}
-		if (this.voice !== null) {
-			queued.push(this.voice);
-			this.voice = null;
-		}
-		for (const event of queued) await this.send(event);
+		for (const event of [...this.mix.drain(), ...this.voice.drain()]) await this.send(event);
 	}
 
 	private fail(error: unknown, from: 'poll' | 'send'): void {

@@ -53,6 +53,11 @@ export class SampleDrag {
 		this.context.drop(entry, lane.track, startBeats);
 	};
 
+	/** Drop the window listeners when the owner goes away mid-drag. */
+	destroy(): void {
+		this.stop();
+	}
+
 	private stop(): void {
 		this.entry = null;
 		this.ghost = null;
