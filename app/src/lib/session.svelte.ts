@@ -90,6 +90,16 @@ class Session {
 		void this.send(event);
 	}
 
+	/** Apply one intent and resolve to whether the engine accepted it. */
+	request(event: EngineEvent): Promise<boolean> {
+		return this.send(event);
+	}
+
+	/** Show a failure in the status bar until the next successful send. */
+	report(text: string): void {
+		this.fail(text, 'send');
+	}
+
 	/** Apply one intent without waiting, for note-on and note-off. */
 	sendNow(event: EngineEvent): void {
 		sendWithoutWaiting(event);
