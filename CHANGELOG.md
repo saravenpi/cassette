@@ -343,3 +343,9 @@ Loop points, frame-accurate note starts, and a review pass over v0.9.0.
 - The interface follows the Kono design language: the Undefined font (never bold), a black and `#111` palette with a sage green accent, square uppercase controls, dividers instead of boxes, and muted Kono track colours.
 - The top bar no longer shows the "cassette" wordmark.
 - The piano roll draws notes in green instead of the track colour.
+
+## [0.13.1] - 2026-10-26
+
+### Fixed
+
+- Sliders drew the webview's rounded native thumb and track; they are now square, with a 2 px track that fills green up to the value and a square green thumb.
