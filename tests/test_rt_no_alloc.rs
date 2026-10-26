@@ -11,7 +11,7 @@
 mod red_zone {
     use cassette::core::DEFAULT_SAMPLE_RATE;
     use cassette::core::MAX_TRACKS;
-    use cassette::core::render::{MirroredBlock, RenderCore, RtCommand};
+    use cassette::core::render::{MirroredBlock, MirroredNote, RenderCore, RtCommand};
     use cassette::core::sample::{NO_SLOT, SampleMsg};
     use cassette::models::Song;
     use std::sync::Arc;
@@ -131,6 +131,39 @@ mod red_zone {
 
         assert_eq!(core.block_count(0), 2);
         assert_eq!(replacement.len(), 1);
+    }
+
+    #[test]
+    fn mirroring_and_playing_notes_allocates_nothing() {
+        let song = Song::new();
+        let mut core = RenderCore::new(&song, DEFAULT_SAMPLE_RATE);
+        core.apply(RtCommand::SetBlocks {
+            track: 0,
+            blocks: lane(),
+        });
+        let notes: Arc<[MirroredNote]> = (0..32)
+            .map(|i| MirroredNote {
+                start_beats: i as f32 * 0.125,
+                end_beats: i as f32 * 0.125 + 0.5,
+                pitch: 48 + i as u8,
+                velocity: 100,
+            })
+            .collect();
+        let keep = notes.clone();
+        let mut out = vec![0.0f32; 1024 * 2];
+        let mut loudest = 0.0f32;
+
+        assert_no_alloc::assert_no_alloc(|| {
+            core.apply(RtCommand::SetNotes { track: 0, notes });
+            core.apply(RtCommand::Play);
+            for _ in 0..64 {
+                loudest = loudest.max(core.process(&mut out)[0]);
+            }
+            core.apply(RtCommand::Stop);
+        });
+
+        assert_eq!(core.note_count(0), keep.len());
+        assert!(loudest > 0.0, "the mirrored notes played");
     }
 
     /// Fill one slot with `frames` frames of a constant value.

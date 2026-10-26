@@ -3,11 +3,11 @@
 //! [`RenderCore`] is deliberately free of threads and I/O so it can be driven
 //! from a real-time callback without allocating. The block mirror it keeps is
 //! a fixed array filled by copying from a slice the control thread sends; the
-//! render path never allocates or frees it.
+//! render path never allocates or frees it. The note mirror works the same way.
 
 use crate::core::sample::{NO_SLOT, SampleMsg};
 use crate::core::synth::SynthEngine;
-use crate::core::{MAX_BLOCKS, MAX_TRACKS};
+use crate::core::{MAX_BLOCKS, MAX_NOTES, MAX_TRACKS};
 use crate::models::Song;
 use crate::utils::time::Tempo;
 use std::sync::Arc;
@@ -72,6 +72,29 @@ pub struct MirroredNote {
     pub pitch: u8,
     pub velocity: u8,
 }
+
+impl MirroredNote {
+    /// Whether the note's start falls in the half-open window `[from, to)`,
+    /// with the same edges as [`MirroredBlock::starts_in`].
+    pub fn starts_in(&self, from: f64, to: f64) -> bool {
+        let start = f64::from(self.start_beats);
+        start >= from && start < to
+    }
+
+    /// Frames the note is held for at `frames_per_beat`, at least one and never
+    /// the synth's held marker.
+    pub fn gate_frames(&self, frames_per_beat: f64) -> u32 {
+        let length = f64::from(self.end_beats - self.start_beats) * frames_per_beat;
+        length.round().clamp(1.0, f64::from(u32::MAX - 1)) as u32
+    }
+}
+
+const EMPTY_NOTE: MirroredNote = MirroredNote {
+    start_beats: 0.0,
+    end_beats: 0.0,
+    pitch: 0,
+    velocity: 0,
+};
 
 /// Every message the control side can send into the audio thread.
 ///
@@ -243,10 +266,11 @@ pub struct RenderCore {
     transport: Transport,
     blocks: [[MirroredBlock; MAX_BLOCKS]; MAX_TRACKS],
     block_lens: [usize; MAX_TRACKS],
+    /// One note mirror per track, boxed because it is too large for a stack.
+    notes: Box<[[MirroredNote; MAX_NOTES]]>,
+    note_lens: [usize; MAX_TRACKS],
     /// End of the last mirrored block, in beats; the loop wraps here.
     song_end_beats: f32,
-    /// Peaks from the most recent [`RenderCore::process`] call.
-    peaks: [f32; MAX_TRACKS],
 }
 
 impl RenderCore {
@@ -269,8 +293,9 @@ impl RenderCore {
             transport: Transport::new(song.bpm(), sample_rate),
             blocks: [[EMPTY_BLOCK; MAX_BLOCKS]; MAX_TRACKS],
             block_lens: [0; MAX_TRACKS],
+            notes: vec![[EMPTY_NOTE; MAX_NOTES]; MAX_TRACKS].into_boxed_slice(),
+            note_lens: [0; MAX_TRACKS],
             song_end_beats: 0.0,
-            peaks: [0.0; MAX_TRACKS],
         }
     }
 
@@ -293,6 +318,19 @@ impl RenderCore {
         self.refresh_song_end();
     }
 
+    /// Replace one track's note mirror, keeping at most [`MAX_NOTES`] notes.
+    /// Copies into fixed storage, so it neither allocates nor frees.
+    pub fn set_notes(&mut self, track: usize, notes: impl AsRef<[MirroredNote]>) {
+        let notes = notes.as_ref();
+        let (Some(slot), Some(len)) = (self.notes.get_mut(track), self.note_lens.get_mut(track))
+        else {
+            return;
+        };
+        let kept = notes.len().min(MAX_NOTES);
+        slot[..kept].copy_from_slice(&notes[..kept]);
+        *len = kept;
+    }
+
     fn refresh_song_end(&mut self) {
         let mut end = 0.0f32;
         for track in 0..MAX_TRACKS {
@@ -303,7 +341,8 @@ impl RenderCore {
         self.song_end_beats = end;
     }
 
-    /// Apply a command. Allocation-free: a `SetBlocks` payload is copied, not kept.
+    /// Apply a command. Allocation-free: a `SetBlocks` or `SetNotes` payload is
+    /// copied, not kept.
     pub fn apply(&mut self, command: RtCommand) {
         match command {
             RtCommand::NoteOn {
@@ -316,10 +355,11 @@ impl RenderCore {
             RtCommand::NoteOff { track, pitch } => self.synth.note_off(track as usize, pitch),
             RtCommand::AllNotesOff => self.synth.all_notes_off(),
             RtCommand::SetBlocks { track, blocks } => self.set_blocks(track as usize, &blocks),
-            RtCommand::SetNotes { .. } => {}
+            RtCommand::SetNotes { track, notes } => self.set_notes(track as usize, &notes),
             RtCommand::SetTrackCount { count } => {
                 self.synth.set_track_count(count as usize);
                 self.block_lens = [0; MAX_TRACKS];
+                self.note_lens = [0; MAX_TRACKS];
                 self.song_end_beats = 0.0;
             }
             RtCommand::SetBpm { bpm } => self.transport.set_bpm(bpm),
@@ -390,7 +430,6 @@ impl RenderCore {
             }
             done += span;
         }
-        self.peaks = peaks;
         peaks
     }
 
@@ -403,22 +442,42 @@ impl RenderCore {
         (frames >= 1.0).then_some(frames as u64)
     }
 
-    /// Wrap the playhead if it sits on the loop end, start the blocks inside the
-    /// next stretch, and return how many of `wanted` frames that stretch spans.
-    /// A stretch never crosses the loop end, so the wrap lands on an exact frame.
+    /// Wrap the playhead if it sits on the loop end, start the blocks and notes
+    /// inside the next stretch, and return how many of `wanted` frames that
+    /// stretch spans. A stretch never crosses the loop end, so the wrap lands on
+    /// an exact frame, and a wrap releases every voice so no note rings across it.
     fn begin_span(&mut self, wanted: usize) -> usize {
         let mut span = wanted;
         if let Some(end) = self.loop_end_frames() {
             if self.transport.position_frames() >= end {
                 self.transport.seek_beats(0.0);
-                self.synth.release_all_samples();
+                self.synth.all_notes_off();
             }
             span = span.min(end.saturating_sub(self.transport.position_frames()).max(1) as usize);
         }
         let from_beats = self.transport.position_beats_exact();
         let to_beats = self.transport.beats_after(span);
         self.start_blocks(from_beats, to_beats);
+        self.start_notes(from_beats, to_beats);
         span
+    }
+
+    /// Start every note whose start falls in the window this buffer covers,
+    /// gated to its length. A note already under the playhead is not entered.
+    fn start_notes(&mut self, from_beats: f64, to_beats: f64) {
+        let frames_per_beat = self.transport.frames_per_beat();
+        for track in 0..MAX_TRACKS {
+            for note in &self.notes[track][..self.note_lens[track]] {
+                if note.starts_in(from_beats, to_beats) {
+                    self.synth.note_on(
+                        track,
+                        note.pitch,
+                        note.velocity,
+                        note.gate_frames(frames_per_beat),
+                    );
+                }
+            }
+        }
     }
 
     /// Start every block whose start falls in the window this buffer covers,
@@ -461,11 +520,6 @@ impl RenderCore {
         }
     }
 
-    /// Peaks recorded by the last [`RenderCore::process`] call.
-    pub fn peaks(&self) -> [f32; MAX_TRACKS] {
-        self.peaks
-    }
-
     /// Transport position in frames.
     pub fn position_frames(&self) -> u64 {
         self.transport.position_frames()
@@ -489,6 +543,11 @@ impl RenderCore {
     /// How many blocks the audio side holds for `track`.
     pub fn block_count(&self, track: usize) -> usize {
         self.block_lens.get(track).copied().unwrap_or(0)
+    }
+
+    /// How many notes the audio side holds for `track`.
+    pub fn note_count(&self, track: usize) -> usize {
+        self.note_lens.get(track).copied().unwrap_or(0)
     }
 
     /// The mirrored block at `index`, if it exists.
@@ -527,6 +586,22 @@ mod tests {
                 gain: 1.0,
             })
             .collect()
+    }
+
+    fn notes(spans: &[(f32, f32)]) -> Arc<[MirroredNote]> {
+        spans
+            .iter()
+            .map(|(start, end)| MirroredNote {
+                start_beats: *start,
+                end_beats: *end,
+                pitch: 60,
+                velocity: 100,
+            })
+            .collect()
+    }
+
+    fn loud(out: &[f32]) -> bool {
+        out.iter().any(|s| s.abs() > 1e-6)
     }
 
     /// Fill slot 0 with `frames` frames of a constant value.
@@ -605,10 +680,121 @@ mod tests {
             track: 0,
             blocks: blocks(&[(0.0, 4.0)]),
         });
+        core.apply(RtCommand::SetNotes {
+            track: 0,
+            notes: notes(&[(0.0, 1.0)]),
+        });
         core.apply(RtCommand::SetTrackCount {
             count: song.tracks.len() as u8,
         });
         assert_eq!(core.block_count(0), 0);
+        assert_eq!(core.note_count(0), 0);
+    }
+
+    #[test]
+    fn a_note_fires_in_the_buffer_holding_its_start_and_not_before() {
+        let song = Song::new();
+        let mut core = RenderCore::new(&song, DEFAULT_SAMPLE_RATE);
+        core.apply(RtCommand::SetLooping { looping: false });
+        core.apply(RtCommand::SetNotes {
+            track: 0,
+            notes: notes(&[(1.0, 2.0)]),
+        });
+        core.apply(RtCommand::Play);
+        let first_loud = (0..64).find(|_| loud(&render(&mut core, 512)));
+        assert_eq!(first_loud, Some(22_050 / 512), "beat one is frame 22050");
+    }
+
+    #[test]
+    fn a_note_is_released_after_its_gate() {
+        let song = Song::new();
+        let mut core = RenderCore::new(&song, DEFAULT_SAMPLE_RATE);
+        core.apply(RtCommand::SetLooping { looping: false });
+        core.apply(RtCommand::SetNotes {
+            track: 0,
+            notes: notes(&[(0.0, 0.5)]),
+        });
+        core.apply(RtCommand::Play);
+        let held = render(&mut core, 11_000);
+        assert!(
+            loud(&held[held.len() - 64..]),
+            "the note holds for its gate"
+        );
+        render(&mut core, 25 + 8_000);
+        assert!(
+            !loud(&render(&mut core, 512)),
+            "the gate ran out and the release finished"
+        );
+    }
+
+    #[test]
+    fn a_loop_wrap_cuts_a_note_that_crosses_the_loop_end() {
+        let song = Song::new();
+        let mut core = RenderCore::new(&song, DEFAULT_SAMPLE_RATE);
+        core.apply(RtCommand::SetBlocks {
+            track: 0,
+            blocks: Arc::from(vec![MirroredBlock {
+                start_beats: 0.0,
+                end_beats: 1.0,
+                slot: NO_SLOT,
+                gain: 0.0,
+            }]),
+        });
+        core.apply(RtCommand::SetNotes {
+            track: 0,
+            notes: notes(&[(0.9, 16.0)]),
+        });
+        core.apply(RtCommand::Play);
+        let before_wrap = render(&mut core, 22_000);
+        assert!(loud(&before_wrap[before_wrap.len() - 64..]));
+        render(&mut core, 50 + 8_000);
+        assert!(
+            !loud(&render(&mut core, 512)),
+            "the wrap released the note before it could ring into the next pass"
+        );
+    }
+
+    #[test]
+    fn a_seek_into_a_note_does_not_enter_it() {
+        let song = Song::new();
+        let mut core = RenderCore::new(&song, DEFAULT_SAMPLE_RATE);
+        core.apply(RtCommand::SetLooping { looping: false });
+        core.apply(RtCommand::SetNotes {
+            track: 0,
+            notes: notes(&[(0.0, 8.0)]),
+        });
+        core.apply(RtCommand::Seek { beats: 1.0 });
+        core.apply(RtCommand::Play);
+        assert!(!loud(&render(&mut core, 8_192)));
+    }
+
+    #[test]
+    fn set_notes_keeps_at_most_max_notes() {
+        let song = Song::new();
+        let mut core = RenderCore::new(&song, DEFAULT_SAMPLE_RATE);
+        let spans: Vec<(f32, f32)> = (0..MAX_NOTES + 10)
+            .map(|i| (i as f32, i as f32 + 0.5))
+            .collect();
+        core.set_notes(0, notes(&spans));
+        assert_eq!(core.note_count(0), MAX_NOTES);
+        core.set_notes(200, notes(&spans));
+        assert_eq!(core.note_count(200), 0, "an out-of-range track is ignored");
+    }
+
+    #[test]
+    fn a_note_gate_is_its_length_in_frames_and_never_zero() {
+        let note = MirroredNote {
+            start_beats: 1.0,
+            end_beats: 1.5,
+            pitch: 60,
+            velocity: 100,
+        };
+        assert_eq!(note.gate_frames(22_050.0), 11_025);
+        let blip = MirroredNote {
+            end_beats: 1.0,
+            ..note
+        };
+        assert_eq!(blip.gate_frames(22_050.0), 1);
     }
 
     #[test]
