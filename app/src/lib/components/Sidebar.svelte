@@ -69,40 +69,41 @@
 <style>
 	aside {
 		flex: none;
-		width: 240px;
+		width: 248px;
 		display: flex;
 		flex-direction: column;
 		min-height: 0;
-		background: var(--panel);
-		border-right: 1px solid var(--line);
+		background: var(--bg);
+		border-right: 1px solid var(--border-subtle);
 	}
 
 	.tabs {
 		display: flex;
 		flex: none;
-		border-bottom: 1px solid var(--line);
+		gap: 4px;
+		height: 40px;
+		padding: 0 12px;
+		border-bottom: 1px solid var(--border-subtle);
 	}
 
 	.tab {
-		flex: 1;
-		padding: 5px 4px;
-		font-size: 9px;
-		letter-spacing: 0.06em;
-		text-transform: uppercase;
-		color: var(--dim);
+		height: 100%;
+		padding: 0 8px;
+		font-size: 11px;
+		letter-spacing: 0.14em;
+		color: var(--text-subtle);
 		background: transparent;
-		border: 0;
-		border-bottom: 2px solid transparent;
-		border-radius: 0;
+		box-shadow: inset 0 -2px 0 transparent;
 	}
 
-	.tab:hover {
+	.tab:hover:not(:disabled) {
 		color: var(--text);
+		filter: none;
 	}
 
 	.tab[aria-selected='true'] {
 		color: var(--text);
-		border-bottom-color: var(--accent);
+		box-shadow: inset 0 -2px 0 var(--green);
 	}
 
 	.panes {

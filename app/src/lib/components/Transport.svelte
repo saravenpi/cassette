@@ -17,12 +17,9 @@
 </script>
 
 <header data-tauri-drag-region class:mac={isMac}>
-	<span class="wordmark">cassette</span>
-
 	<div class="group" role="group" aria-label="Transport">
 		<button
 			class="wide"
-			class:on={snapshot?.playing}
 			aria-pressed={snapshot?.playing ?? false}
 			onclick={() => session.dispatch('togglePlay')}
 		>
@@ -30,7 +27,6 @@
 		</button>
 		<button onclick={() => session.dispatch('stop')}>Stop</button>
 		<button
-			class:on={snapshot?.looping}
 			aria-pressed={snapshot?.looping ?? false}
 			onclick={() => session.dispatch('toggleLoop')}
 		>
@@ -41,7 +37,8 @@
 			aria-label="Record project to file"
 			onclick={() => session.dispatch({ recordAudio: { path: null } })}
 		>
-			&bull; Rec
+			<span class="dot" aria-hidden="true"></span>
+			Rec
 		</button>
 	</div>
 
@@ -88,13 +85,13 @@
 		>
 			&minus;
 		</button>
-		<span class="readout octave">oct {snapshot?.octave ?? 0}</span>
+		<span class="readout"><small class="lead">oct</small>{snapshot?.octave ?? 0}</span>
 		<button class="step" aria-label="Octave up" onclick={() => session.dispatch({ octaveDelta: 1 })}>
 			+
 		</button>
 	</div>
 
-	<span class="position">{position}</span>
+	<span class="position" aria-label="Position">{position}</span>
 
 	<div class="engine">
 		<span class="backend">{snapshot?.backend ?? 'connecting'}</span>
@@ -106,84 +103,104 @@
 	header {
 		display: flex;
 		align-items: center;
-		gap: 18px;
-		padding: 6px 12px;
-		background: var(--panel);
-		border-bottom: 1px solid var(--line);
+		flex: none;
+		height: 48px;
+		padding: 0 16px;
+		background: var(--bg);
+		border-bottom: 1px solid var(--border-subtle);
 		user-select: none;
 	}
 
 	header.mac {
-		padding-left: 78px;
-	}
-
-	.wordmark {
-		font-weight: 700;
-		letter-spacing: -0.02em;
+		padding-left: 84px;
 	}
 
 	.group {
 		display: flex;
 		align-items: center;
 		gap: 4px;
+		padding: 0 14px;
+		border-left: 1px solid var(--border-subtle);
+	}
+
+	.group:first-child {
+		padding-left: 0;
+		border-left: 0;
 	}
 
 	.wide {
-		min-width: 56px;
+		min-width: 64px;
 	}
 
 	.step {
-		padding: 2px 8px;
+		width: 26px;
+		padding: 0;
+		background: transparent;
+		color: var(--text-subtle);
 	}
 
-	.on {
-		border-color: var(--head);
-		color: var(--head);
+	.step:hover:not(:disabled) {
+		color: var(--text);
+		background: var(--surface-hover);
 	}
 
 	.rec {
-		color: var(--accent);
-		font-weight: 600;
+		background: transparent;
+		color: var(--text-subtle);
 	}
 
-	.rec:hover {
-		border-color: var(--accent);
+	.rec:hover:not(:disabled) {
+		color: var(--alert);
+		background: var(--alert-soft);
+	}
+
+	.dot {
+		width: 6px;
+		height: 6px;
+		background: var(--alert);
 	}
 
 	.readout {
+		min-width: 44px;
+		text-align: center;
+		font-size: 14px;
 		font-variant-numeric: tabular-nums;
-		font-size: 16px;
-		padding: 0 2px;
 	}
 
 	.readout small {
-		font-size: 9px;
-		color: var(--dim);
-		margin-left: 3px;
+		margin-left: 4px;
+		font-size: 10px;
+		letter-spacing: 0.14em;
+		text-transform: uppercase;
+		color: var(--text-subtle);
 	}
 
-	.octave {
-		font-size: 12px;
-		color: var(--dim);
+	.readout small.lead {
+		margin: 0 4px 0 0;
 	}
 
 	.position {
+		padding: 0 14px;
+		border-left: 1px solid var(--border-subtle);
+		font-size: 18px;
 		font-variant-numeric: tabular-nums;
-		color: var(--accent);
-		min-width: 42px;
+		color: var(--green);
+		min-width: 64px;
 	}
 
 	.engine {
 		margin-left: auto;
 		display: flex;
 		align-items: baseline;
-		gap: 8px;
+		gap: 10px;
 		min-width: 0;
 		font-size: 11px;
-		color: var(--dim);
+		color: var(--text-subtle);
 	}
 
 	.backend {
+		letter-spacing: 0.14em;
+		text-transform: uppercase;
 		color: var(--text);
 	}
 

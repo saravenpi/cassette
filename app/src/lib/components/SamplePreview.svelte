@@ -70,14 +70,16 @@
 <style>
 	.preview {
 		flex: none;
-		border-top: 1px solid var(--line);
-		padding: 5px 8px;
+		padding: 10px 12px 12px;
+		border-top: 1px solid var(--border-subtle);
 	}
 
 	.file {
 		display: block;
-		font-size: 10px;
-		color: var(--dim);
+		font-size: 11px;
+		letter-spacing: 0.14em;
+		text-transform: uppercase;
+		color: var(--text-subtle);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
@@ -87,20 +89,20 @@
 		display: block;
 		width: 100%;
 		height: 44px;
-		margin-top: 3px;
+		margin-top: 8px;
 	}
 
 	.thumb polyline {
 		fill: none;
-		stroke: var(--accent);
+		stroke: var(--green);
 		stroke-width: 1;
 		vector-effect: non-scaling-stroke;
 	}
 
 	.failure {
 		display: block;
-		margin-top: 3px;
-		font-size: 10px;
-		color: var(--warn);
+		margin-top: 8px;
+		font-size: 11px;
+		color: var(--alert);
 	}
 </style>

@@ -43,7 +43,7 @@
 		<button class="crumb up" aria-label="Go up one directory" onclick={up}>&uarr;</button>
 	{/if}
 	{#each crumbs as crumb (crumb.path)}
-		<span class="sep">/</span>
+		<span class="sep" aria-hidden="true">&rsaquo;</span>
 		<button class="crumb" onclick={() => onOpen(crumb.path)}>{crumb.label}</button>
 	{/each}
 </nav>
@@ -53,30 +53,34 @@
 		display: flex;
 		align-items: center;
 		flex-wrap: wrap;
-		padding: 4px 6px;
-		border-bottom: 1px solid var(--line);
+		gap: 2px;
+		padding: 8px 12px;
+		border-bottom: 1px solid var(--border-subtle);
 	}
 
 	.crumb {
-		padding: 1px 4px;
-		font-size: 10px;
-		color: var(--dim);
+		height: 20px;
+		padding: 0 4px;
+		font-size: 11px;
+		letter-spacing: 0.02em;
+		text-transform: none;
+		color: var(--text-subtle);
 		background: transparent;
-		border: 0;
-		border-radius: 0;
 	}
 
-	.crumb:hover {
+	.crumb:hover:not(:disabled) {
 		color: var(--text);
-		background: var(--panel-2);
+		background: var(--surface-hover);
+		filter: none;
 	}
 
 	.up {
-		font-size: 12px;
+		width: 20px;
+		padding: 0;
 	}
 
 	.sep {
-		font-size: 10px;
-		color: var(--line);
+		font-size: 11px;
+		color: var(--dim);
 	}
 </style>

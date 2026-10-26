@@ -179,35 +179,42 @@
 		min-height: 0;
 		overflow-y: auto;
 		margin: 0;
-		padding: 2px 0;
+		padding: 4px 0;
 		list-style: none;
 	}
 
 	.row {
-		display: flex;
-		align-items: center;
+		justify-content: flex-start;
 		gap: 8px;
 		width: 100%;
-		padding: 2px 8px;
-		font-size: 11px;
+		height: 26px;
+		padding: 0 12px;
+		font-size: 12px;
+		letter-spacing: 0.02em;
+		text-transform: none;
 		text-align: left;
 		color: var(--text);
 		background: transparent;
-		border: 0;
-		border-radius: 0;
 	}
 
-	.row:hover {
-		background: var(--panel-2);
+	div.row {
+		display: flex;
+		align-items: center;
+	}
+
+	.row:hover:not(:disabled) {
+		background: var(--surface-hover);
+		filter: none;
 	}
 
 	.row.wav {
 		cursor: grab;
 	}
 
-	.row.picked {
-		background: var(--panel-2);
-		box-shadow: inset 2px 0 0 var(--accent);
+	.row.picked,
+	.row.picked:hover:not(:disabled) {
+		background: var(--green-soft);
+		color: var(--green);
 	}
 
 	.row.other {
@@ -224,49 +231,51 @@
 		margin-left: auto;
 		flex: none;
 		font-size: 10px;
-		color: var(--dim);
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+		color: var(--text-subtle);
 		font-variant-numeric: tabular-nums;
 	}
 
 	.note {
 		margin: 0;
-		padding: 8px 10px;
+		padding: 12px;
 		font-size: 11px;
-		color: var(--dim);
+		color: var(--text-subtle);
 	}
 
 	.note.warn {
-		color: var(--warn);
+		color: var(--alert);
 	}
 
 	.ghost {
 		position: fixed;
 		z-index: 20;
 		pointer-events: none;
-		padding: 2px 7px;
-		font-size: 10px;
-		color: var(--text);
-		background: var(--panel-2);
-		border: 1px solid var(--accent);
-		border-radius: 0;
+		padding: 4px 8px;
+		font-size: 11px;
+		color: var(--on-green);
+		background: var(--green);
+		box-shadow: var(--shadow);
 	}
 
 	.filter-footer {
-		padding: 4px 8px;
-		border-top: 1px solid var(--line);
 		flex: none;
+		padding: 6px 12px;
+		border-top: 1px solid var(--border-subtle);
 	}
 
 	.toggle-hidden {
-		background: none;
-		border: none;
-		color: var(--dim);
+		height: 20px;
+		padding: 0;
 		font-size: 10px;
-		cursor: pointer;
-		padding: 2px 4px;
+		letter-spacing: 0.14em;
+		color: var(--text-subtle);
+		background: transparent;
 	}
 
-	.toggle-hidden:hover {
+	.toggle-hidden:hover:not(:disabled) {
 		color: var(--text);
+		filter: none;
 	}
 </style>

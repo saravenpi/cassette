@@ -40,25 +40,28 @@
 	footer {
 		display: flex;
 		align-items: center;
-		gap: 14px;
-		padding: 4px 12px;
-		background: var(--panel);
-		border-top: 1px solid var(--line);
+		flex: none;
+		gap: 16px;
+		height: 28px;
+		padding: 0 16px;
+		background: var(--bg);
+		border-top: 1px solid var(--border-subtle);
 		font-size: 11px;
-		min-height: 24px;
+		color: var(--text-subtle);
 	}
 
 	.status {
-		color: var(--dim);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.status.renaming {
-		color: var(--head);
+		color: var(--olive);
 	}
 
 	.error {
-		color: var(--warn);
-		font-family: ui-monospace, monospace;
+		color: var(--alert);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
@@ -68,14 +71,13 @@
 		margin-left: auto;
 		display: flex;
 		align-items: center;
-		gap: 4px;
-		color: var(--dim);
+		gap: 6px;
 		overflow: hidden;
 		white-space: nowrap;
 	}
 
 	.rate {
-		color: var(--dim);
+		flex: none;
 		font-variant-numeric: tabular-nums;
 	}
 </style>

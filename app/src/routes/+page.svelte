@@ -103,6 +103,7 @@
 		display: flex;
 		flex-direction: column;
 		height: 100vh;
+		background: var(--bg);
 	}
 
 	.body {
