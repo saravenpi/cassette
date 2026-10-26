@@ -80,6 +80,9 @@ cargo clippy --all-targets
 | `A W S E D F T G Y H U J K` | play notes |
 | `shift` `+` / `shift` `-`, numpad `+` / `-` | zoom the timeline |
 | `home` | scroll back to the top of the song |
+| `P` | open the piano roll on the selected MIDI block |
+| `esc` | close the piano roll |
+| `backspace` / `del` in the roll | delete the selected note |
 
 Commands sit on keys the piano row does not use, so playing and editing never
 collide: notes are checked first, and a key bound to both would make the command
@@ -89,7 +92,11 @@ The zoom keys are handled in the webview, because no engine event describes them
 
 Everything is also clickable: the transport, the sidebar tabs, the track faders
 and their M/S buttons, and the blocks, which drag along and between lanes, resize
-from their right edge, and are created by double-clicking a MIDI lane. A `.wav` in
+from their right edge, and are created by double-clicking a MIDI lane.
+Double-clicking a MIDI block opens its piano roll under the timeline: click the
+grid to add a note, drag it to move it, drag its right edge to resize it, scroll
+over it to change its velocity (`shift` for single steps), and click a key on the
+left to hear it. `alt` turns off snapping to the 1/4-beat grid. A `.wav` in
 the file browser drags onto a lane, or imports into the selected track on a
 double-click.
 
@@ -178,6 +185,7 @@ app/src/lib/           SvelteKit frontend
 ├── keys.ts            keymap: piano row, commands, zoom keys
 ├── keyboard.ts        the window listener that drives the store
 ├── geometry.ts        beats to pixels, snapping, bar maths
+├── pianoRoll.ts       piano roll geometry: pitch rows, hit tests, note clamps
 ├── palette.ts         the eight track colours
 ├── *.svelte.ts        the stores: session state, block drags, sample drags
 └── components/        Sidebar + panes, Timeline + its parts, Transport, StatusBar

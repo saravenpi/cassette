@@ -247,3 +247,23 @@ A review pass over the whole codebase. Audio-thread hazards, export and project 
 ### Removed
 
 - Dead helpers used only by tests (`block_at`, `contains`, `is_audible`, `utils::math`).
+
+## [0.9.0] - 2026-10-26
+
+MIDI blocks hold notes, the render core plays them, and a piano roll edits them.
+
+### Added
+
+- Notes in MIDI blocks: pitch, start, length and velocity, up to 512 per block, saved in the project file. v0.8.0 projects still load.
+- The render core starts each note as the playhead reaches it and releases it after its length; the audio export renders notes too.
+- A piano roll under the timeline, opened by double-clicking a MIDI block or pressing `P`: click adds a note, drag moves or resizes it, the wheel sets velocity, `del` removes it, and the keys on the left audition pitches.
+- A note preview inside MIDI blocks on the selected track.
+
+### Changed
+
+- A loop wrap releases every synth voice, so a note crossing the loop end stops there.
+- The UI snapshot carries notes only for blocks on the selected track.
+
+### Removed
+
+- `RenderCore::peaks`, which nothing called.

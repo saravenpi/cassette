@@ -16,7 +16,7 @@ Tauri shell; keys and clicks both drive it.
 | Phase 4 | Polish and features | Done |
 | Phase 5 | Session view and blocks | Superseded by Phase 6 (2026-09-24) |
 | Phase 6 | Timeline and the sample path | Done (v0.7.0, 2026-09-26) |
-| Phase 7 | Note data in MIDI blocks | Next |
+| Phase 7 | Note data in MIDI blocks | Done (v0.9.0, 2026-10-26) |
 
 The engine crate builds with no webview and no audio headers, plays the
 polyphonic synth from the keyboard, and starts a sample when the playhead
@@ -127,6 +127,8 @@ The keymap lives in `app/src/lib/keys.ts`, in the webview. It maps a
 | `,` `.` | tempo |
 | `Z` `X` | shift the play octave |
 | `A W S E D F T G Y H U J K` | play notes, 13 semitones from C |
+| `P` | open the piano roll on the selected MIDI block |
+| `esc` | close the piano roll |
 
 Commands sit on keys the piano row does not use. Notes are checked first, so a
 key bound to both would make the command silently unreachable, which is why
@@ -508,17 +510,30 @@ Model and engine:
 
 Interface:
 
-- A piano roll or any other editor for MIDI block content (Phase 7).
+- [SUPERSEDED by: Phase 7, v0.9.0, 2026-10-26] A piano roll or any other editor
+  for MIDI block content.
 - Pointer interactions (drag, resize, drop, import) were exercised by hand on
   2026-10-26; none has an automated test beyond `geometry.test.ts`.
 
 ---
 
-## Phase 7: Note data in MIDI blocks (next)
+## Phase 7: Note data in MIDI blocks (done, v0.9.0)
 
 A MIDI block holds notes (pitch, start, length, velocity) that the render core
 starts as the playhead crosses them, then a piano roll to edit them. The
-review below comes first: the fixes land before new features.
+review below came first: its fixes landed in v0.8.0.
+
+Shipped in v0.9.0 as planned below, with these departures:
+
+- The piano roll opens with `P`, not Enter: Enter already adds a block.
+- The 60 Hz snapshot carries notes only for blocks on the selected track. A full
+  session serialized to 2.1 MB per frame otherwise. One full track still costs
+  that much; trimming to the selected block would cap it at about 33 KB. So the
+  roll closes when the cursor leaves its track, and the note preview inside a
+  block shows only on the selected track.
+- A loop wrap releases every synth voice, keyboard notes included.
+- Nobody has heard notes play from the timeline or used the roll in a running
+  window yet.
 
 ### Plan (2026-10-26)
 
