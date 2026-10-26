@@ -17,6 +17,7 @@ Tauri shell; keys and clicks both drive it.
 | Phase 5 | Session view and blocks | Superseded by Phase 6 (2026-09-24) |
 | Phase 6 | Timeline and the sample path | Done (v0.7.0, 2026-09-26) |
 | Phase 7 | Note data in MIDI blocks | Done (v0.9.0, 2026-10-26) |
+| Phase 8 | Devices, metronome, quantize | In progress (2026-10-26) |
 
 The engine crate builds with no webview and no audio headers, plays the
 polyphonic synth from the keyboard, and starts a sample when the playhead
@@ -589,6 +590,103 @@ Risks: the 60 Hz snapshot now carries notes (512 per block, 64 blocks), so
 Step B measures the serialized size and trims to the selected block if it hurts.
 The piano roll cannot be exercised by an automated test beyond the geometry
 helpers, so it needs a hand pass in the running window.
+
+## Phase 8: Devices, metronome, quantize (in progress)
+
+### Goal
+
+Ableton's detail view under the timeline, with two views: the Clip view (the
+piano roll) and the Device view (the selected track's instrument and insert
+effects, left to right). The view follows the selection. Selecting a track shows
+its devices. Opening a MIDI block shows its clip. Six built-in insert effects run
+in the engine. A metronome with count-in and quantize, both post-record and
+record-time, complete the recording loop from v0.14.0.
+
+### UX, modelled on Ableton Live 12
+
+Source: https://www.ableton.com/en/live-manual/12/working-with-instruments-and-effects/
+
+- The detail pane sits under the timeline. A header strip holds a `Clip` and a
+  `Devices` selector, the track or block name, and a hide button. `Shift+Tab`
+  switches between the two views. The pane's top edge drags to resize it. The
+  height persists per viewer in `localStorage`.
+- Clicking a track header, or a block on it, selects the track. If the pane is
+  open on Devices, it shows that track's chain at once. Opening a MIDI block
+  (`P` or a double-click) switches to Clip.
+- The chain reads left to right, in signal order. On a MIDI track the first
+  device is the instrument (today's voice editor). On an audio track it is the
+  sample source, with a short note. Next come the insert effects in order, then
+  a drop zone: "Drop an effect here or pick one".
+- Each device is a card. Its title bar holds the activator (on/off; an off
+  device passes audio through untouched), the name, fold (double-click the title
+  bar) and a delete button. Dragging the title bar reorders the chain. A context
+  menu offers Move left, Move right, Fold and Delete. `Backspace`/`Delete`
+  removes the device whose title bar has focus.
+- Parameters are dials. Drag up or down to change one (`Shift` for fine steps),
+  scroll over it, or use the arrow keys while it has focus. Double-click resets
+  it to the default. A dial carries `role="slider"` and `aria-valuetext` with the
+  unit. Choice parameters, like the filter type, are segmented buttons.
+- The sidebar's Effects tab becomes the effect browser: one row per built-in
+  effect. A double-click adds it to the selected track, and a drag drops it at a
+  slot in the chain.
+- The transport gets a metronome toggle and a menu button next to it. The menu
+  sets the count-in (none, 1, 2 or 4 bars) and record quantize (off, 1/4, 1/8,
+  1/16). While counting in, the position readout shows the bars left (`-2`,
+  `-1`).
+- Quantize: `Ctrl+U` (`Cmd+U` on macOS) quantizes the open clip, or the selected
+  MIDI block, to the current grid. The piano roll bar has a Quantize button.
+
+### Built-in effects
+
+Each kind appears at most once per track. The engine preallocates one instance
+of every kind per track, so the callback never allocates, and a chain is an
+ordered list of kinds with their parameters. Adding a second instance of a kind
+is refused with a status line. Lifting that limit would need state buffers
+handed over a ring and retired off the audio thread. That is a later step.
+
+| Kind | Parameters |
+|------|------------|
+| EQ Three | Low, Mid, High (dB), Low freq, High freq |
+| Filter | Type (low-pass, high-pass, band-pass), Cutoff, Resonance |
+| Saturator | Drive, Output, Mix |
+| Compressor | Threshold, Ratio, Attack, Release, Makeup |
+| Delay | Time (beats, tempo-synced), Feedback, Mix |
+| Reverb | Size, Damping, Mix (Freeverb: 8 combs, 4 allpasses, stereo spread 23) |
+
+Reverb reference: https://ccrma.stanford.edu/~jos/pasp/Freeverb.html
+
+Signal path per track: voices plus the sample voice give a mono signal. It is
+duplicated to stereo and runs through the chain. Then come the track volume, the
+instrument gain and the balance pan, as today. The meter reads after the chain.
+`process_frame` keeps rendering while any chain still rings, so tails survive
+the last voice.
+
+### Contract (step 0)
+
+- `src/models/effect.rs`: `EffectKind`, `Effect { kind, enabled, params: [f32; MAX_PARAMS] }`,
+  `EffectChain` (fixed array, `Copy`), `ParamSpec`, `EffectKind::spec()`.
+- `Track.effects: Vec<Effect>`, `#[serde(default)]`, so older projects load.
+- Events: `AddEffect`, `RemoveEffect`, `MoveEffect`, `SetEffectEnabled`,
+  `SetEffectParam`, `QuantizeBlock`, `ToggleMetronome`, `SetCountIn`,
+  `SetRecordQuantize`.
+- `RtCommand`: `SetEffects { track, chain }`, `SetMetronome { on }`,
+  `PlayAfterCountIn { beats }`.
+- `SharedState.count_in_frames`. In `UiState`: `metronome`, `count_in_bars`,
+  `count_in_beats_left`, `record_quantize_beats`, `effect_catalog`, and
+  `TrackView.effects`.
+- `wire.ts` gets the twins of all of the above.
+
+### Work packages (parallel worktrees, disjoint files)
+
+| Step | Owner files | Deliverable |
+|------|-------------|-------------|
+| A DSP | `src/core/effects.rs` (new), `src/core/synth.rs`, `tests/test_rt_no_alloc.rs` | The six effects and the per-track chain, tempo-synced delay, tails, meter after the chain. Tests per effect, plus no allocation with every effect on. |
+| B transport | `src/core/render.rs`, `src/core/audio.rs`, `src/core/engine.rs`, `tests/test_engine.rs` | A metronome click (accent on the downbeat) mixed after the master, never in export. Count-in pre-roll, then play. `RenderCore::new` and `resync` push effect chains and tempo. Tests: a click lands on the beat frame, count-in delays the transport. |
+| C app | `src/app/effects.rs` (new), `src/app/notes.rs`, `src/app/transport.rs`, `src/app/history.rs`, `src/app/mod.rs`, `src/app/export.rs`, `src/models/effect.rs`, `src/models/track.rs` | Effect edit handlers with limits, one undo step per edit, coalesced param drags. Quantize a block. Record quantize. Arming from stop counts in, and notes before the downbeat are not recorded. Metronome state. Export renders chains. Project round trip. |
+| D frontend | `app/src/**` | The detail pane, the device chain, dials, the effect browser, transport metronome and menu, quantize button and `Ctrl+U`, `Shift+Tab`, pure helpers with `bun test` coverage. |
+
+Gate after merging A, B, C, D in that order: `mise run check`, `mise run test`.
+Then update the README, the changelog and this file, and ship v0.14.0.
 
 ## Review findings (2026-10-26, v0.7.0)
 

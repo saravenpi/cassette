@@ -32,6 +32,43 @@ export interface BlockView {
 	rate: number;
 }
 
+export type EffectKind = 'eq' | 'filter' | 'saturator' | 'compressor' | 'delay' | 'reverb';
+
+export type ParamUnit =
+	| 'decibels'
+	| 'hertz'
+	| 'milliseconds'
+	| 'beats'
+	| 'ratio'
+	| 'percent'
+	| 'choice';
+
+/** One effect in a track's chain; `params` follows its kind's spec. */
+export interface EffectView {
+	kind: EffectKind;
+	name: string;
+	enabled: boolean;
+	params: number[];
+}
+
+/** One parameter of an effect kind. A choice indexes `choices`. */
+export interface ParamSpecView {
+	name: string;
+	min: number;
+	max: number;
+	default: number;
+	unit: ParamUnit;
+	log: boolean;
+	choices: string[];
+}
+
+/** One effect kind the engine builds in. */
+export interface EffectSpecView {
+	kind: EffectKind;
+	name: string;
+	params: ParamSpecView[];
+}
+
 /** A track: its voice, its mixer strip, and its blocks. */
 export interface TrackView {
 	name: string;
@@ -52,6 +89,7 @@ export interface TrackView {
 	colorIndex: number;
 	notesRevision: number;
 	blocks: BlockView[];
+	effects: EffectView[];
 }
 
 /** The stretch of the timeline the transport loops over, in beats. */
@@ -65,6 +103,10 @@ export interface UiState {
 	bpm: number;
 	playing: boolean;
 	recording: boolean;
+	metronome: boolean;
+	countInBars: number;
+	countInBeatsLeft: number;
+	recordQuantizeBeats: number;
 	looping: boolean;
 	loopRegion: LoopRegion | null;
 	transportPositionBeats: number;
@@ -74,6 +116,7 @@ export interface UiState {
 	cursor: Cursor;
 	octave: number;
 	presets: string[];
+	effectCatalog: EffectSpecView[];
 	tracks: TrackView[];
 	status: string;
 	renaming: boolean;
@@ -167,6 +210,15 @@ export type EngineEvent =
 	| { noteOn: { pitch: number; velocity: number } }
 	| { noteOff: { pitch: number } }
 	| 'toggleRecord'
+	| 'toggleMetronome'
+	| { setCountIn: { bars: number } }
+	| { setRecordQuantize: { gridBeats: number } }
+	| { quantizeBlock: { track: number; block: number; gridBeats: number } }
+	| { addEffect: { track: number; kind: EffectKind; index: number | null } }
+	| { removeEffect: { track: number; index: number } }
+	| { moveEffect: { track: number; from: number; to: number } }
+	| { setEffectEnabled: { track: number; index: number; enabled: boolean } }
+	| { setEffectParam: { track: number; index: number; param: number; value: number } }
 	| { exportAudio: { path: string | null } }
 	| { exportProject: { path: string | null } }
 	| { loadProject: { path: string | null } }

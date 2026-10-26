@@ -93,6 +93,8 @@ impl App {
         self.finish_note_edit(track, block, format!("note {} deleted", removed.pitch));
     }
 
+    pub(crate) fn quantize_block(&mut self, _track: usize, _block: usize, _grid_beats: f32) {}
+
     /// The MIDI block a note edit names, or `None` with the reason in the status.
     fn midi_block(&mut self, track: usize, block: usize) -> Option<&mut Block> {
         let kind = self

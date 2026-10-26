@@ -6,6 +6,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::models::EffectKind;
+
 /// A single piece of user intent.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
@@ -198,6 +200,52 @@ pub enum Event {
     },
     /// Arm or disarm recording the played notes into the timeline.
     ToggleRecord,
+    /// Turn the metronome click on or off.
+    ToggleMetronome,
+    /// Bars the metronome counts in before a recording that starts from stop.
+    SetCountIn {
+        bars: u8,
+    },
+    /// Grid recorded note starts snap to, in beats; `0` records unquantized.
+    SetRecordQuantize {
+        grid_beats: f32,
+    },
+    /// Snap every note start in a MIDI block to a grid, keeping lengths.
+    QuantizeBlock {
+        track: usize,
+        block: usize,
+        grid_beats: f32,
+    },
+    /// Insert an effect into a track's chain at `index`, or at the end.
+    AddEffect {
+        track: usize,
+        kind: EffectKind,
+        index: Option<usize>,
+    },
+    /// Take an effect out of a track's chain.
+    RemoveEffect {
+        track: usize,
+        index: usize,
+    },
+    /// Move an effect to another place in its chain.
+    MoveEffect {
+        track: usize,
+        from: usize,
+        to: usize,
+    },
+    /// Switch an effect on, or bypass it.
+    SetEffectEnabled {
+        track: usize,
+        index: usize,
+        enabled: bool,
+    },
+    /// Set one parameter of an effect, in the units of its spec.
+    SetEffectParam {
+        track: usize,
+        index: usize,
+        param: usize,
+        value: f32,
+    },
     /// Export the project structure to a JSON file.
     ExportProject {
         path: Option<String>,

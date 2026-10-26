@@ -577,6 +577,9 @@ impl SynthEngine {
             .sum();
     }
 
+    /// Replace one track's insert chain.
+    pub fn set_effects(&mut self, _track: usize, _chain: &crate::models::EffectChain) {}
+
     /// Trigger a note. `gate` is the number of frames before release, or
     /// `HELD` to sustain until [`SynthEngine::note_off`].
     pub fn note_on(&mut self, track: usize, pitch: u8, velocity: u8, gate: u32) {

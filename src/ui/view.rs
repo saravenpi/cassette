@@ -6,7 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::models::{LoopRegion, Note, TrackKind};
+use crate::models::{EffectKind, LoopRegion, Note, ParamUnit, TrackKind};
 
 /// Session cursor: which block of which track is selected. A block index equal
 /// to the track's block count means "no block", the state a fresh track is in.
@@ -41,6 +41,65 @@ pub struct BlockView {
     pub rate: f32,
 }
 
+/// One effect in a track's chain.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EffectView {
+    pub kind: EffectKind,
+    pub name: String,
+    pub enabled: bool,
+    /// One value per entry of the kind's spec, in its units.
+    pub params: Vec<f32>,
+}
+
+/// One parameter of an effect kind, for drawing its dial.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ParamSpecView {
+    pub name: String,
+    pub min: f32,
+    pub max: f32,
+    pub default: f32,
+    pub unit: ParamUnit,
+    pub log: bool,
+    pub choices: Vec<String>,
+}
+
+/// One effect kind the engine builds in, for the effect browser.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EffectSpecView {
+    pub kind: EffectKind,
+    pub name: String,
+    pub params: Vec<ParamSpecView>,
+}
+
+impl EffectSpecView {
+    /// Every built-in kind, in browser order.
+    pub fn catalog() -> Vec<EffectSpecView> {
+        EffectKind::ALL
+            .iter()
+            .map(|kind| EffectSpecView {
+                kind: *kind,
+                name: kind.name().to_string(),
+                params: kind
+                    .spec()
+                    .iter()
+                    .map(|spec| ParamSpecView {
+                        name: spec.name.to_string(),
+                        min: spec.min,
+                        max: spec.max,
+                        default: spec.default,
+                        unit: spec.unit,
+                        log: spec.log,
+                        choices: spec.choices.iter().map(|c| c.to_string()).collect(),
+                    })
+                    .collect(),
+            })
+            .collect()
+    }
+}
+
 /// A track, reduced to what the UI needs.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -69,6 +128,8 @@ pub struct TrackView {
     pub color_index: u8,
     /// Changes whenever the notes of any block on the track may have changed.
     pub notes_revision: u64,
+    /// Insert effects, in signal order.
+    pub effects: Vec<EffectView>,
 }
 
 impl TrackView {
@@ -88,6 +149,14 @@ pub struct UiState {
     pub playing: bool,
     /// Whether played notes are being written into the timeline.
     pub recording: bool,
+    /// Whether the metronome clicks while the transport plays.
+    pub metronome: bool,
+    /// Bars counted in before a recording that starts from stop.
+    pub count_in_bars: u8,
+    /// Beats of count-in still to go, or `0` when none is running.
+    pub count_in_beats_left: f32,
+    /// Grid recorded notes snap to, in beats; `0` when off.
+    pub record_quantize_beats: f32,
     pub looping: bool,
     /// Where the transport loops, or `None` for the whole song.
     pub loop_region: Option<LoopRegion>,
@@ -102,6 +171,8 @@ pub struct UiState {
     pub octave: i32,
     /// Names of the built-in voices, in menu order, for the VST pane.
     pub presets: Vec<String>,
+    /// The built-in effects and their parameters.
+    pub effect_catalog: Vec<EffectSpecView>,
     pub tracks: Vec<TrackView>,
     pub status: String,
     /// Whether the block-name prompt is open, so the webview routes typing to it.
@@ -170,6 +241,7 @@ mod tests {
             blocks,
             color_index: 0,
             notes_revision: 0,
+            effects: Vec::new(),
         }
     }
 
@@ -178,6 +250,10 @@ mod tests {
             bpm: 120.0,
             playing: true,
             recording: false,
+            metronome: false,
+            count_in_bars: 0,
+            count_in_beats_left: 0.0,
+            record_quantize_beats: 0.0,
             looping: true,
             loop_region: None,
             transport_position_beats: 5.0,
@@ -188,6 +264,7 @@ mod tests {
             octave: 0,
             can_undo: false,
             can_redo: false,
+            effect_catalog: Vec::new(),
             presets: crate::models::Instrument::PRESETS
                 .iter()
                 .map(|name| (*name).to_string())

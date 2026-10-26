@@ -171,6 +171,8 @@ pub struct SharedState {
     pub position_frames: AtomicU64,
     pub playing: AtomicBool,
     pub looping: AtomicBool,
+    /// Frames of count-in still to click before the transport starts.
+    pub count_in_frames: AtomicU64,
     /// Per-track peak level, stored as raw `f32` bits.
     pub peaks: [AtomicU32; MAX_TRACKS],
 }
@@ -183,6 +185,7 @@ impl SharedState {
             position_frames: AtomicU64::new(0),
             playing: AtomicBool::new(false),
             looping: AtomicBool::new(true),
+            count_in_frames: AtomicU64::new(0),
             peaks: std::array::from_fn(|_| AtomicU32::new(0)),
         }
     }

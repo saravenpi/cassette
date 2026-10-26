@@ -8,6 +8,7 @@
 //! ([`timeline`]), notes inside MIDI blocks ([`notes`]), track state
 //! ([`tracks`]), audio samples ([`samples`]) and the transport ([`transport`]).
 
+mod effects;
 mod export;
 mod history;
 mod notes;
@@ -33,7 +34,7 @@ use crate::core::sample::SampleMsg;
 use crate::events::Event;
 use crate::events::bus::EventBus;
 use crate::models::{Instrument, Song};
-use crate::ui::view::{BlockView, Cursor, TrackView, UiState};
+use crate::ui::view::{BlockView, Cursor, EffectSpecView, EffectView, TrackView, UiState};
 
 use history::History;
 use tracks::VoiceEdit;
@@ -290,6 +291,28 @@ impl App {
             }
             Event::ExportAudio { path } => self.export_audio(path),
             Event::ToggleRecord => self.toggle_record(),
+            Event::ToggleMetronome => self.toggle_metronome(),
+            Event::SetCountIn { bars } => self.set_count_in(bars),
+            Event::SetRecordQuantize { grid_beats } => self.set_record_quantize(grid_beats),
+            Event::QuantizeBlock {
+                track,
+                block,
+                grid_beats,
+            } => self.quantize_block(track, block, grid_beats),
+            Event::AddEffect { track, kind, index } => self.add_effect(track, kind, index),
+            Event::RemoveEffect { track, index } => self.remove_effect(track, index),
+            Event::MoveEffect { track, from, to } => self.move_effect(track, from, to),
+            Event::SetEffectEnabled {
+                track,
+                index,
+                enabled,
+            } => self.set_effect_enabled(track, index, enabled),
+            Event::SetEffectParam {
+                track,
+                index,
+                param,
+                value,
+            } => self.set_effect_param(track, index, param, value),
             Event::ExportProject { path } => self.export_project(path),
             Event::LoadProject { path } => self.load_project(path),
         }
@@ -375,6 +398,16 @@ impl App {
                     .collect(),
                 color_index: (index % COLOR_SLOTS) as u8,
                 notes_revision: self.note_revisions.get(index).copied().unwrap_or(0),
+                effects: track
+                    .effects
+                    .iter()
+                    .map(|effect| EffectView {
+                        kind: effect.kind,
+                        name: effect.kind.name().to_string(),
+                        enabled: effect.enabled,
+                        params: effect.params[..effect.kind.spec().len()].to_vec(),
+                    })
+                    .collect(),
             })
             .collect();
 
@@ -384,6 +417,10 @@ impl App {
             bpm: self.song.bpm(),
             playing: self.engine.is_playing(),
             recording: self.recording,
+            metronome: false,
+            count_in_bars: 0,
+            count_in_beats_left: 0.0,
+            record_quantize_beats: 0.0,
             looping: shared.looping.load(Ordering::Relaxed),
             loop_region: self.song.loop_region(),
             transport_position_beats: (position_frames as f64 / self.frames_per_beat()) as f32,
@@ -392,6 +429,7 @@ impl App {
             beats_per_bar: BEATS_PER_BAR as u32,
             cursor: self.cursor,
             octave: self.octave,
+            effect_catalog: EffectSpecView::catalog(),
             presets: Instrument::PRESETS
                 .iter()
                 .map(|name| name.to_string())

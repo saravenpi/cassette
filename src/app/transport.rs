@@ -80,6 +80,12 @@ impl App {
         self.status = format!("recording into track {}", self.cursor.track + 1);
     }
 
+    pub(crate) fn toggle_metronome(&mut self) {}
+
+    pub(crate) fn set_count_in(&mut self, _bars: u8) {}
+
+    pub(crate) fn set_record_quantize(&mut self, _grid_beats: f32) {}
+
     /// Close the take: notes still held are written up to the playhead.
     fn end_take(&mut self) {
         if !self.recording {

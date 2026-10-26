@@ -2,6 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::Effect;
+
 use crate::models::{Instrument, MAX_NOTES_PER_BLOCK, Note};
 
 /// What a track carries.
@@ -258,6 +260,9 @@ pub struct Track {
     pub solo: bool,
     /// The track's blocks, kept in start order.
     pub blocks: Vec<Block>,
+    /// Insert effects, in signal order.
+    #[serde(default)]
+    pub effects: Vec<Effect>,
     /// Numbers handed to new blocks. It only ever rises, so a lane's automatic
     /// names stay unique even after a block is deleted.
     next_block_number: u32,
@@ -275,6 +280,7 @@ impl Track {
             muted: false,
             solo: false,
             blocks: Vec::new(),
+            effects: Vec::new(),
             next_block_number: 1,
         }
     }

@@ -163,6 +163,19 @@ pub enum RtCommand {
     },
     Play,
     Stop,
+    /// Replace one track's insert chain.
+    SetEffects {
+        track: u8,
+        chain: crate::models::EffectChain,
+    },
+    /// Turn the metronome click on or off.
+    SetMetronome {
+        on: bool,
+    },
+    /// Click `beats` beats of count-in, then start the transport.
+    PlayAfterCountIn {
+        beats: u16,
+    },
 }
 
 impl RtCommand {
@@ -443,6 +456,11 @@ impl RenderCore {
                 self.transport.stop();
                 self.synth.all_notes_off();
             }
+            RtCommand::SetEffects { track, chain } => {
+                self.synth.set_effects(track as usize, &chain)
+            }
+            RtCommand::SetMetronome { .. } => {}
+            RtCommand::PlayAfterCountIn { .. } => self.transport.play(),
         }
     }
 
