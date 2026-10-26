@@ -94,6 +94,19 @@ export function labelStep(barPx: number): number {
 	return step;
 }
 
+/** A row height held inside the allowed range. */
+export function clampRowHeight(height: number): number {
+	return Math.max(MIN_ROW_HEIGHT, Math.min(MAX_ROW_HEIGHT, height));
+}
+
+/** The custom row heights that still belong to a track, for `count` tracks. */
+export function pruneHeights(
+	heights: Record<number, number>,
+	count: number
+): Record<number, number> {
+	return Object.fromEntries(Object.entries(heights).filter(([index]) => Number(index) < count));
+}
+
 /** Where a lane's material ends, which is where the next block may start. */
 export function freeStart(blocks: readonly { startBeats: number; lengthBeats: number }[]): number {
 	return blocks.reduce((end, block) => Math.max(end, block.startBeats + block.lengthBeats), 0);

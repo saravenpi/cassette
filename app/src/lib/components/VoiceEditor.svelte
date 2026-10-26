@@ -78,6 +78,7 @@
 
 	function onSlider(id: keyof Voice, raw: string): void {
 		const value = Number(raw);
+		editing = true;
 		if (id === 'gain') gain = value;
 		else if (id === 'octave') voice = { ...voice, octave: value };
 		else if (id === 'attack') voice = { ...voice, attack: value };
@@ -110,7 +111,7 @@
 				value={valueOf(slider.id)}
 				oninput={(event) => onSlider(slider.id, event.currentTarget.value)}
 				onpointerdown={() => (editing = true)}
-				onchange={() => (editing = false)}
+				onfocus={() => (editing = true)}
 				onblur={() => (editing = false)}
 			/>
 			<span class="value">

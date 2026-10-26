@@ -11,11 +11,13 @@
 </script>
 
 <footer>
-	<span class="status" class:renaming={snapshot?.renaming}>{snapshot?.status ?? 'connecting…'}</span>
+	<span class="status" role="status" class:renaming={snapshot?.renaming}>
+		{snapshot?.status ?? 'connecting…'}
+	</span>
 
-	{#if error !== null}
-		<span class="error">{error}</span>
-	{/if}
+	<span class="error" role="alert">
+		{#if error !== null}{error}{/if}
+	</span>
 
 	<span class="keys">
 		<kbd>space</kbd> play

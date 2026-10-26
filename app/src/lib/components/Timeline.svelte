@@ -5,6 +5,8 @@
 	 * header column sits on the right, sticky so it stays visible while scrolling.
 	 */
 
+	import { onDestroy } from 'svelte';
+
 	import {
 		HEADER_WIDTH,
 		MAX_ROW_HEIGHT,
@@ -12,7 +14,9 @@
 		ROW_HEIGHT,
 		RULER_HEIGHT,
 		barsFor,
-		beatsToPx
+		beatsToPx,
+		clampRowHeight,
+		pruneHeights
 	} from '$lib/geometry';
 	import { session } from '$lib/session.svelte';
 	import Playhead from './Playhead.svelte';
@@ -20,8 +24,11 @@
 	import TrackHeader from './TrackHeader.svelte';
 	import TrackLane from './TrackLane.svelte';
 
+	const ROW_KEY_STEP = 8;
+
 	let scroller = $state<HTMLDivElement | null>(null);
 	let trackHeights = $state<Record<number, number>>({});
+	let cancelResize: (() => void) | null = null;
 
 	const snapshot = $derived(session.snapshot);
 	const tracks = $derived(snapshot?.tracks ?? []);
@@ -39,23 +46,42 @@
 		event.preventDefault();
 		const startY = event.clientY;
 
+		cancelResize?.();
+
 		const onMove = (e: PointerEvent) => {
-			const delta = e.clientY - startY;
-			trackHeights[index] = Math.max(MIN_ROW_HEIGHT, Math.min(MAX_ROW_HEIGHT, initialHeight + delta));
+			trackHeights[index] = clampRowHeight(initialHeight + e.clientY - startY);
 		};
 
-		const onUp = () => {
+		const onEnd = () => {
 			window.removeEventListener('pointermove', onMove);
-			window.removeEventListener('pointerup', onUp);
+			window.removeEventListener('pointerup', onEnd);
+			window.removeEventListener('pointercancel', onEnd);
+			cancelResize = null;
 		};
 
 		window.addEventListener('pointermove', onMove);
-		window.addEventListener('pointerup', onUp);
+		window.addEventListener('pointerup', onEnd);
+		window.addEventListener('pointercancel', onEnd);
+		cancelResize = onEnd;
+	}
+
+	function onResizeKey(event: KeyboardEvent, index: number, height: number): void {
+		const step = event.key === 'ArrowDown' ? ROW_KEY_STEP : event.key === 'ArrowUp' ? -ROW_KEY_STEP : 0;
+		if (step === 0) return;
+		event.preventDefault();
+		trackHeights[index] = clampRowHeight(height + step);
 	}
 
 	function resetRowHeight(index: number): void {
 		trackHeights[index] = ROW_HEIGHT;
 	}
+
+	onDestroy(() => cancelResize?.());
+
+	$effect(() => {
+		const pruned = pruneHeights(trackHeights, tracks.length);
+		if (Object.keys(pruned).length !== Object.keys(trackHeights).length) trackHeights = pruned;
+	});
 
 	$effect(() => {
 		if (session.scrollRequest === 0) return;
@@ -87,9 +113,14 @@
 					</div>
 					<div
 						class="row-resize-handle"
-						role="separator"
-						aria-orientation="horizontal"
+						role="slider"
+						aria-orientation="vertical"
 						aria-label="Resize height of {track.name}"
+						aria-valuenow={trackHeight}
+						aria-valuemin={MIN_ROW_HEIGHT}
+						aria-valuemax={MAX_ROW_HEIGHT}
+						tabindex="0"
+						onkeydown={(e) => onResizeKey(e, index, trackHeight)}
 						onpointerdown={(e) => startRowResize(e, index, trackHeight)}
 						ondblclick={() => resetRowHeight(index)}
 					></div>
@@ -196,7 +227,8 @@
 		z-index: 8;
 	}
 
-	.row-resize-handle:hover {
+	.row-resize-handle:hover,
+	.row-resize-handle:focus-visible {
 		background: var(--accent);
 		opacity: 0.5;
 	}
