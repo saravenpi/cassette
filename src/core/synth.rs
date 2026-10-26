@@ -534,6 +534,23 @@ impl SynthEngine {
         true
     }
 
+    /// Re-tag `track`'s sample voice, after the lane re-sorted under it.
+    pub fn retag_sample(&mut self, track: usize, tag: u8) {
+        if track < self.track_count {
+            self.tracks[track].sample.tag = tag;
+        }
+    }
+
+    /// Begin the release fade on `track`'s sample voice, whichever block
+    /// started it.
+    pub fn release_playing_sample(&mut self, track: usize) {
+        if track >= self.track_count {
+            return;
+        }
+        let tag = self.tracks[track].sample.tag;
+        self.release_sample(track, tag);
+    }
+
     pub fn is_sample_playing(&self, track: usize) -> bool {
         if track >= self.track_count {
             return false;

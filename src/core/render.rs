@@ -343,6 +343,27 @@ impl RenderCore {
         slot[..kept].copy_from_slice(&blocks[..kept]);
         *len = kept;
         self.refresh_song_end();
+        self.follow_sample(track);
+    }
+
+    /// Point a playing sample voice at the block that now covers the playhead.
+    ///
+    /// A voice is tagged with its block's index, and a split, a duplicate or a
+    /// move re-sorts the lane under it; without this the block's end would no
+    /// longer match the tag and the sample would ring on. A voice with no
+    /// block left under the playhead fades out.
+    fn follow_sample(&mut self, track: usize) {
+        if !self.synth.is_sample_playing(track) {
+            return;
+        }
+        let beats = self.transport.position_beats_exact();
+        let covering = self.blocks[track][..self.block_lens[track]]
+            .iter()
+            .position(|block| block.slot != NO_SLOT && block.covers(beats));
+        match covering {
+            Some(index) => self.synth.retag_sample(track, index as u8),
+            None => self.synth.release_playing_sample(track),
+        }
     }
 
     /// Replace one track's note mirror, keeping at most [`MAX_NOTES`] notes.
@@ -986,6 +1007,111 @@ mod tests {
             started(5_000.0 / DEFAULT_SAMPLE_RATE as f32),
             "the offset skipped the silence"
         );
+    }
+
+    /// A slot of silence followed by a constant, at `rate`, so where a voice
+    /// reads shows as whether the first buffer sounds.
+    fn load_step(core: &mut RenderCore, silent: usize, rate: f32) {
+        let mut frames = vec![0.0f32; silent];
+        frames.extend_from_slice(&[0.5f32; 44_100]);
+        core.push_sample(SampleMsg::Load {
+            slot: 0,
+            frames: frames.into(),
+            rate,
+        });
+        core.apply(RtCommand::SetSampleRate { slot: 0, rate });
+    }
+
+    fn one_block(offset_seconds: f32, rate: f32) -> RtCommand {
+        RtCommand::SetBlocks {
+            track: 0,
+            blocks: Arc::from(vec![MirroredBlock {
+                start_beats: 0.0,
+                end_beats: 16.0,
+                slot: 0,
+                gain: 1.0,
+                offset_seconds,
+                rate,
+            }]),
+        }
+    }
+
+    #[test]
+    fn an_offset_counts_in_the_file_frames_not_the_engine_frames() {
+        let song = Song::new();
+        let starts_loud = |offset_frames: f32| {
+            let mut core = RenderCore::new(&song, DEFAULT_SAMPLE_RATE);
+            load_step(&mut core, 4_096, 22_050.0);
+            core.apply(one_block(offset_frames / 22_050.0, 1.0));
+            core.apply(RtCommand::Play);
+            loud(&render(&mut core, 64))
+        };
+        assert!(!starts_loud(3_000.0), "3000 file frames is still silence");
+        assert!(starts_loud(5_000.0), "5000 file frames is past the silence");
+    }
+
+    #[test]
+    fn a_stretched_block_entered_mid_way_reads_at_its_rate() {
+        let song = Song::new();
+        let starts_loud = |rate: f32| {
+            let mut core = RenderCore::new(&song, DEFAULT_SAMPLE_RATE);
+            load_step(&mut core, 8_192, DEFAULT_SAMPLE_RATE as f32);
+            core.apply(one_block(0.0, rate));
+            let frames_per_beat = core.transport.frames_per_beat();
+            core.apply(RtCommand::Seek {
+                beats: (6_000.0 / frames_per_beat) as f32,
+            });
+            core.apply(RtCommand::Play);
+            loud(&render(&mut core, 64))
+        };
+        assert!(!starts_loud(1.0), "6000 frames in is still silence");
+        assert!(starts_loud(2.0), "at double rate 6000 frames reads 12000");
+    }
+
+    #[test]
+    fn a_split_under_a_playing_sample_still_ends_it_at_the_block_end() {
+        let song = Song::new();
+        let mut core = RenderCore::new(&song, DEFAULT_SAMPLE_RATE);
+        core.apply(RtCommand::SetLooping { looping: false });
+        load_slot(&mut core, 44_100 * 8, 0.5);
+        core.apply(RtCommand::SetBlocks {
+            track: 0,
+            blocks: blocks(&[(0.0, 2.0)]),
+        });
+        core.apply(RtCommand::Play);
+        while core.position_beats() < 1.0 {
+            render(&mut core, 512);
+        }
+        core.apply(RtCommand::SetBlocks {
+            track: 0,
+            blocks: blocks(&[(0.0, 0.5), (0.5, 2.0)]),
+        });
+        while core.position_beats() < 2.2 {
+            render(&mut core, 512);
+        }
+        assert!(
+            !loud(&render(&mut core, 512)),
+            "the sample must stop at the end of the split-off block"
+        );
+    }
+
+    #[test]
+    fn removing_the_block_under_a_playing_sample_fades_it_out() {
+        let song = Song::new();
+        let mut core = RenderCore::new(&song, DEFAULT_SAMPLE_RATE);
+        load_slot(&mut core, 44_100 * 8, 0.5);
+        core.apply(RtCommand::SetBlocks {
+            track: 0,
+            blocks: blocks(&[(0.0, 8.0)]),
+        });
+        core.apply(RtCommand::Play);
+        render(&mut core, 2_048);
+        core.apply(RtCommand::SetBlocks {
+            track: 0,
+            blocks: blocks(&[]),
+        });
+        render(&mut core, 4_096);
+        assert!(!loud(&render(&mut core, 512)));
     }
 
     #[test]
