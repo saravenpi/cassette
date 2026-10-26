@@ -26,7 +26,7 @@
 	.playhead {
 		position: absolute;
 		width: 1px;
-		background: var(--head);
+		background: var(--olive);
 		pointer-events: none;
 		z-index: 2;
 	}
@@ -34,10 +34,9 @@
 	.head {
 		position: absolute;
 		top: 0;
-		left: -4px;
-		width: 9px;
+		left: -3px;
+		width: 7px;
 		height: 7px;
-		background: var(--head);
-		clip-path: polygon(0 0, 100% 0, 50% 100%);
+		background: var(--olive);
 	}
 </style>

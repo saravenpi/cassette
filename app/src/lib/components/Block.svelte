@@ -201,12 +201,12 @@
 		bottom: 2px;
 		height: calc(100% - 4px);
 		display: flex;
-		align-items: center;
+		align-items: flex-start;
 		overflow: hidden;
-		border: 1px solid var(--line);
-		border-left: 3px solid var(--fill);
-		border-radius: 0;
-		background: color-mix(in srgb, var(--fill) 26%, var(--panel));
+		border-left: 2px solid var(--fill);
+		outline: 1px solid transparent;
+		outline-offset: -1px;
+		background: color-mix(in srgb, var(--fill) 16%, var(--surface));
 		font-size: 10px;
 		cursor: grab;
 		user-select: none;
@@ -214,64 +214,63 @@
 	}
 
 	.block.selected {
-		border-color: var(--text);
-		box-shadow: inset 0 0 0 1px var(--text);
+		outline-color: var(--text);
 		z-index: 2;
 	}
 
 	.block.dragging {
-		opacity: 0.85;
+		opacity: 0.7;
 		cursor: grabbing;
 	}
 
 	.wave {
 		position: absolute;
-		inset: 0;
+		inset: 14px 0 2px;
 		width: 100%;
-		height: 100%;
+		height: calc(100% - 16px);
 	}
 
 	.wave polygon {
-		fill: color-mix(in srgb, var(--fill) 80%, transparent);
+		fill: color-mix(in srgb, var(--fill) 75%, transparent);
 	}
 
 	.wave .bar {
-		fill: color-mix(in srgb, var(--fill) 85%, var(--text));
+		fill: var(--fill);
 	}
 
 	.name {
 		position: relative;
-		padding: 0 12px 0 5px;
+		padding: 2px 12px 0 6px;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 		color: var(--text);
+		letter-spacing: 0.04em;
 	}
 
 	.rename {
 		position: relative;
 		width: calc(100% - 8px);
-		margin-left: 3px;
-		padding: 0 3px;
+		margin: 1px 0 0 4px;
+		padding: 0 4px;
 		height: 14px;
 		font: inherit;
-		color: var(--head);
+		color: var(--text);
 		background: var(--bg);
-		border: 1px solid var(--head);
-		border-radius: 0;
+		border: 1px solid var(--green);
 	}
 
 	.handle {
 		position: absolute;
 		top: 0;
 		right: 0;
-		width: 7px;
+		width: 6px;
 		height: 100%;
 		padding: 0;
 		border: 0;
-		border-radius: 0;
 		background: transparent;
 		cursor: ew-resize;
+		transition: background 0.15s ease;
 	}
 
 	.handle.start {
@@ -279,18 +278,18 @@
 		left: 0;
 	}
 
-	.rate {
-		position: absolute;
-		top: 1px;
-		right: 9px;
-		padding: 0 2px;
-		font-size: 9px;
-		font-variant-numeric: tabular-nums;
-		color: var(--text);
-		background: color-mix(in srgb, var(--panel) 70%, transparent);
+	.handle:hover:not(:disabled) {
+		filter: none;
+		background: color-mix(in srgb, var(--text) 18%, transparent);
 	}
 
-	.handle:hover {
-		background: color-mix(in srgb, var(--text) 30%, transparent);
+	.rate {
+		position: absolute;
+		top: 2px;
+		right: 9px;
+		font-size: 9px;
+		letter-spacing: 0.04em;
+		font-variant-numeric: tabular-nums;
+		color: var(--text-subtle);
 	}
 </style>

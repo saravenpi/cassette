@@ -1,15 +1,19 @@
 /**
- * The track palette: eight muted fills the engine picks between by `colorIndex`.
- * They stay distinguishable from each other while none of them competes with the
- * accent blue, so a selection ring and a block fill never read as the same thing.
+ * The track palette: muted fills the engine picks between by `colorIndex`,
+ * drawn from the Kono family of sage, olive, sky, sand and rust. They stay
+ * legible on black and apart from each other, and none is the white a
+ * selection outline uses.
  */
 
 const TRACK_PALETTE: readonly string[] = [
-	'#84B7BD',
+	'#88A888',
 	'#A8B365',
-	'#D9AF67',
-	'#E55B3F',
-	'#947164'
+	'#7FA7BF',
+	'#C9B27C',
+	'#C27A5E',
+	'#9C8FB5',
+	'#6FA59A',
+	'#B58A8A'
 ];
 
 /** The fill for a track, wrapping if the engine ever hands out an index past the end. */

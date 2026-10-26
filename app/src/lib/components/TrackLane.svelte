@@ -1,6 +1,7 @@
 <script lang="ts">
 	/**
-	 * One track's lane: the grid behind it, the blocks on it, and the double-click
+	 * One track's lane: the bar, beat and snap grid behind it, the blocks on it,
+	 * and the double-click
 	 * that creates a MIDI block. A drop from the file browser finds this element by
 	 * its `data-lane-track` attribute.
 	 */
@@ -21,6 +22,11 @@
 	}
 
 	let { track, index, width, barWidth, height }: Props = $props();
+
+	const beatWidth = $derived(session.zoom);
+	const stepWidth = $derived(gridStep(session.zoom) * session.zoom);
+	const showBeats = $derived(beatWidth >= 12 && beatWidth < barWidth);
+	const showSteps = $derived(stepWidth < beatWidth);
 
 	interface LaneItem {
 		key: string;
@@ -104,11 +110,23 @@
 >
 	<svg class="grid-lines" width={width} height="100%" aria-hidden="true">
 		<defs>
-			<pattern id="grid-{index}" width={barWidth} height="100%" patternUnits="userSpaceOnUse">
-				<line x1="0" y1="0" x2="0" y2="100%" stroke="var(--line)" stroke-width="1" />
+			<pattern id="steps-{index}" width={stepWidth} height="100%" patternUnits="userSpaceOnUse">
+				<line x1="0.5" y1="0" x2="0.5" y2="100%" stroke="var(--grid-minor)" stroke-width="1" />
+			</pattern>
+			<pattern id="beats-{index}" width={beatWidth} height="100%" patternUnits="userSpaceOnUse">
+				<line x1="0.5" y1="0" x2="0.5" y2="100%" stroke="var(--edge)" stroke-width="1" />
+			</pattern>
+			<pattern id="bars-{index}" width={barWidth} height="100%" patternUnits="userSpaceOnUse">
+				<line x1="0.5" y1="0" x2="0.5" y2="100%" stroke="var(--grid-major)" stroke-width="1" />
 			</pattern>
 		</defs>
-		<rect width="100%" height="100%" fill="url(#grid-{index})" />
+		{#if showSteps}
+			<rect width="100%" height="100%" fill="url(#steps-{index})" />
+		{/if}
+		{#if showBeats}
+			<rect width="100%" height="100%" fill="url(#beats-{index})" />
+		{/if}
+		<rect width="100%" height="100%" fill="url(#bars-{index})" />
 	</svg>
 	{#each items as item (item.key)}
 		<Block
@@ -127,7 +145,7 @@
 	.lane {
 		position: relative;
 		flex: none;
-		border-bottom: 1px solid var(--line);
+		border-bottom: 1px solid var(--border-subtle);
 		background-color: var(--bg);
 	}
 

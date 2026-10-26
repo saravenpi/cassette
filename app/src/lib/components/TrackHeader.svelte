@@ -69,7 +69,7 @@
 		<button class="pick" aria-pressed={selected} onclick={() => session.dispatch({ selectTrack: { track: index } })}>
 			<span class="chip"></span>
 			<span class="name">{track.name}</span>
-			<span class="kind">{track.kind === 'midi' ? 'MID' : 'AUD'}</span>
+			<span class="kind">{track.kind === 'midi' ? track.preset || 'Midi' : 'Audio'}</span>
 		</button>
 		<div class="buttons">
 			<button
@@ -129,58 +129,65 @@
 		display: flex;
 		flex-direction: column;
 		justify-content: center;
-		gap: 6px;
+		gap: 8px;
 		flex: none;
 		overflow: hidden;
-		background: var(--panel);
-		border-left: 1px solid var(--line);
-		border-bottom: 1px solid var(--line);
-		padding: 4px 6px;
+		background: var(--surface);
+		border-left: 1px solid var(--border-subtle);
+		border-bottom: 1px solid var(--border-subtle);
+		padding: 6px 10px;
 	}
 
 	.top-row {
 		display: flex;
 		align-items: center;
-		gap: 4px;
+		gap: 6px;
 		min-width: 0;
 	}
 
 	.buttons {
 		display: flex;
 		align-items: center;
-		gap: 3px;
+		gap: 2px;
 		flex: none;
 	}
 
 	.pick {
 		display: flex;
 		align-items: center;
-		gap: 5px;
+		justify-content: flex-start;
+		gap: 8px;
 		flex: 1;
 		min-width: 0;
-		padding: 2px 4px;
+		height: 22px;
+		padding: 0 4px 0 0;
 		text-align: left;
+		text-transform: none;
+		letter-spacing: 0.02em;
 		overflow: hidden;
 		background: transparent;
-		border: 0;
-		border-radius: 0;
+		color: var(--text-subtle);
 	}
 
-	.pick:hover {
-		background: var(--panel-2);
+	.pick:hover:not(:disabled) {
+		filter: none;
+		color: var(--text);
+	}
+
+	.pick[aria-pressed='true'] {
+		background: transparent;
+		color: var(--text);
 	}
 
 	.chip {
 		flex: none;
-		width: 6px;
-		height: 8px;
-		border-radius: 0;
+		width: 2px;
+		height: 14px;
 		background: var(--fill);
 	}
 
 	.name {
-		font-size: 11px;
-		font-weight: 500;
+		font-size: 12px;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
@@ -189,15 +196,19 @@
 	.kind {
 		margin-left: auto;
 		flex: none;
-		font-size: 8px;
-		letter-spacing: 0.06em;
-		color: var(--dim);
+		max-width: 64px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		font-size: 9px;
+		letter-spacing: 0.14em;
+		text-transform: uppercase;
+		color: var(--text-subtle);
 	}
 
 	.mix {
 		display: flex;
 		align-items: center;
-		gap: 4px;
+		gap: 6px;
 	}
 
 	.fader {
@@ -205,37 +216,48 @@
 		width: 0;
 		height: 14px;
 		margin: 0;
-		accent-color: var(--dim);
+		accent-color: var(--green);
 	}
 
 	.meter {
 		flex: none;
 		width: 36px;
-		height: 6px;
-		border-radius: 0;
-		background: var(--panel-2);
+		height: 4px;
+		background: var(--surface-hover);
 		overflow: hidden;
 	}
 
 	.meter i {
 		display: block;
 		height: 100%;
-		background: var(--fill);
+		background: linear-gradient(
+			90deg,
+			var(--green) 0 60%,
+			var(--olive) 60% 85%,
+			var(--alert) 85% 100%
+		);
+		background-size: 36px 100%;
 	}
 
 	.toggle {
 		flex: none;
-		height: 16px;
-		min-width: 16px;
-		line-height: 14px;
-		padding: 0 4px;
-		font-size: 9px;
-		font-weight: 600;
-		border-radius: 0;
+		width: 20px;
+		height: 20px;
+		padding: 0;
+		font-size: 10px;
+		letter-spacing: 0;
+		color: var(--text-subtle);
 	}
 
 	.toggle.on {
-		border-color: var(--head);
-		color: var(--head);
+		color: var(--on-green);
+	}
+
+	.toggle.on[aria-label^='Mute'] {
+		background: var(--olive);
+	}
+
+	.toggle.on[aria-label^='Solo'] {
+		background: var(--green);
 	}
 </style>

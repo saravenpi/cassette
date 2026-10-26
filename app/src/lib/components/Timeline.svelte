@@ -45,6 +45,10 @@
 	const bars = $derived(barsFor(snapshot?.lengthBeats ?? 0, beatsPerBar, snapshot?.bars ?? 0));
 	const contentWidth = $derived(beatsToPx(bars * beatsPerBar, session.zoom));
 	const barWidth = $derived(beatsToPx(beatsPerBar, session.zoom));
+	const gridLabel = $derived.by(() => {
+		const step = gridStep(session.zoom);
+		return step >= 1 ? String(step) : `1/${Math.round(1 / step)}`;
+	});
 
 	function getHeight(index: number): number {
 		return trackHeights[index] ?? ROW_HEIGHT;
@@ -165,15 +169,17 @@
 			<div class="row ruler-row" style="height: {RULER_HEIGHT}px">
 				<Ruler pxPerBeat={session.zoom} {beatsPerBar} {bars} width={contentWidth} />
 				<div class="corner" style="width: {HEADER_WIDTH}px">
-					{#if session.hover !== null}
-						<span class="hover-at">{formatPrecise(session.hover.beats, beatsPerBar)}</span>
-					{/if}
-					<span class="zoom-label">zoom</span>
-					<button class="zoom" aria-label="Zoom out" onclick={() => session.setZoom(-1)}>
-						&minus;
-					</button>
-					<span class="zoom-value">{Math.round(session.zoom)}</span>
-					<button class="zoom" aria-label="Zoom in" onclick={() => session.setZoom(1)}>+</button>
+					<span class="hover-at">
+						{session.hover !== null ? formatPrecise(session.hover.beats, beatsPerBar) : ''}
+					</span>
+					<div class="zoom-row">
+						<span class="zoom-label">Grid {gridLabel}</span>
+						<button class="zoom" aria-label="Zoom out" onclick={() => session.setZoom(-1)}>
+							&minus;
+						</button>
+						<span class="zoom-value">{Math.round(session.zoom)}</span>
+						<button class="zoom" aria-label="Zoom in" onclick={() => session.setZoom(1)}>+</button>
+					</div>
 				</div>
 			</div>
 
@@ -245,8 +251,8 @@
 		position: sticky;
 		top: 0;
 		z-index: 5;
-		background: var(--panel);
-		border-bottom: 1px solid var(--line);
+		background: var(--surface);
+		border-bottom: 1px solid var(--border-subtle);
 	}
 
 	.corner,
@@ -255,23 +261,21 @@
 		right: 0;
 		flex: none;
 		z-index: 3;
-		background: var(--panel);
-		border-left: 1px solid var(--line);
+		background: var(--surface);
+		border-left: 1px solid var(--border-subtle);
 	}
 
 	.corner {
 		display: flex;
-		align-items: flex-end;
-		justify-content: flex-end;
-		gap: 4px;
-		padding: 0 6px 4px;
+		flex-direction: column;
+		justify-content: space-between;
+		padding: 8px 10px 6px;
 	}
 
 	.hover-at {
-		position: absolute;
-		top: 4px;
-		left: 6px;
-		font-size: 10px;
+		min-height: 16px;
+		font-size: 13px;
+		letter-spacing: 0.04em;
 		color: var(--text);
 		font-variant-numeric: tabular-nums;
 	}
@@ -279,36 +283,48 @@
 	.hover-line {
 		position: absolute;
 		width: 0;
-		border-left: 1px dashed var(--text);
-		opacity: 0.6;
+		border-left: 1px dashed var(--text-subtle);
 		pointer-events: none;
 		z-index: 2;
 	}
 
+	.zoom-row {
+		display: flex;
+		align-items: center;
+		gap: 2px;
+	}
+
 	.zoom-label {
-		font-size: 9px;
-		color: var(--dim);
 		margin-right: auto;
-		align-self: center;
+		font-size: 10px;
+		letter-spacing: 0.14em;
 		text-transform: uppercase;
-		letter-spacing: 0.06em;
+		color: var(--text-subtle);
+		font-variant-numeric: tabular-nums;
 	}
 
 	.zoom {
-		padding: 0 5px;
-		font-size: 10px;
-		line-height: 14px;
-		height: 16px;
-		border-radius: 0;
+		width: 20px;
+		height: 20px;
+		padding: 0;
+		font-size: 12px;
+		letter-spacing: 0;
+		background: transparent;
+		color: var(--text-subtle);
+	}
+
+	.zoom:hover:not(:disabled) {
+		filter: none;
+		color: var(--text);
+		background: var(--surface-hover);
 	}
 
 	.zoom-value {
-		font-size: 9px;
-		color: var(--dim);
-		font-variant-numeric: tabular-nums;
-		min-width: 18px;
+		min-width: 24px;
+		font-size: 10px;
 		text-align: center;
-		align-self: center;
+		color: var(--text-subtle);
+		font-variant-numeric: tabular-nums;
 	}
 
 	.slot {
@@ -327,7 +343,7 @@
 
 	.row-resize-handle:hover,
 	.row-resize-handle:focus-visible {
-		background: var(--accent);
+		background: var(--green);
 		opacity: 0.5;
 	}
 </style>
