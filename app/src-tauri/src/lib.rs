@@ -19,6 +19,7 @@ use crossbeam::channel::{Receiver, RecvTimeoutError, Sender, unbounded};
 use tauri::State;
 
 use cassette::app::{App, WAVEFORM_BUCKETS, peaks};
+use cassette::core::wav::MAX_DECODED_FRAMES;
 use cassette::events::Event;
 use cassette::ui::view::UiState;
 
@@ -118,7 +119,15 @@ fn parent_of(path: String) -> Option<String> {
 /// List one directory of the sample root: directories first, then names, at
 /// most [`MAX_ENTRIES`] of them. A `dir` outside the root is refused.
 #[tauri::command]
-fn list_samples(dir: Option<String>) -> Result<Vec<SampleEntry>, String> {
+async fn list_samples(dir: Option<String>) -> Result<Vec<SampleEntry>, String> {
+    tauri::async_runtime::spawn_blocking(move || list_dir(dir))
+        .await
+        .map_err(|error| format!("cassette: {error}"))?
+}
+
+/// The blocking body of [`list_samples`]. When a directory holds more than
+/// [`MAX_ENTRIES`] rows, the list ends with a notice row of kind `other`.
+fn list_dir(dir: Option<String>) -> Result<Vec<SampleEntry>, String> {
     let root = resolve(&samples_root())?;
     let requested = dir.unwrap_or_else(|| root.to_string_lossy().into_owned());
     let target = resolve(&requested)?;
@@ -130,24 +139,48 @@ fn list_samples(dir: Option<String>) -> Result<Vec<SampleEntry>, String> {
     }
     let listing = std::fs::read_dir(&target)
         .map_err(|error| format!("cassette: cannot read {}: {error}", target.display()))?;
-    let mut entries: Vec<SampleEntry> = listing
-        .take(MAX_ENTRIES)
+    let entries = listing
         .filter_map(|entry| entry.ok())
         .map(|entry| describe(&entry))
         .collect();
-    entries.sort_by_key(|entry| (entry.kind != SampleKind::Dir, entry.name.to_lowercase()));
-    Ok(entries)
+    Ok(sorted_and_capped(entries, MAX_ENTRIES))
 }
 
-/// Peaks of an audio file for drawing an audio block.
+/// Directories first, then names; past `cap` rows the tail becomes one notice row.
+fn sorted_and_capped(mut entries: Vec<SampleEntry>, cap: usize) -> Vec<SampleEntry> {
+    entries.sort_by_key(|entry| (entry.kind != SampleKind::Dir, entry.name.to_lowercase()));
+    if entries.len() > cap {
+        let hidden = entries.len() - cap;
+        entries.truncate(cap);
+        entries.push(SampleEntry {
+            name: format!("{hidden} more entries not shown"),
+            path: String::new(),
+            kind: SampleKind::Other,
+            size: 0,
+            modified_ms: 0,
+        });
+    }
+    entries
+}
+
+/// Peaks of an audio file for drawing an audio block. Any readable path is
+/// accepted, so files dropped from outside the sample root still draw; the
+/// decode stops at [`MAX_DECODED_FRAMES`].
 #[tauri::command]
-fn read_waveform(path: String) -> Result<Vec<f32>, String> {
-    let target = resolve(&path)?;
+async fn read_waveform(path: String) -> Result<Vec<f32>, String> {
+    tauri::async_runtime::spawn_blocking(move || waveform_of(&path))
+        .await
+        .map_err(|error| format!("cassette: {error}"))?
+}
+
+/// The blocking body of [`read_waveform`].
+fn waveform_of(path: &str) -> Result<Vec<f32>, String> {
+    let target = resolve(path)?;
     if !is_audio(&target) {
         return Err(format!("cassette: {path} is not a supported audio file"));
     }
-    let sample = cassette::core::wav::decode(&target, usize::MAX)
-        .map_err(|error| format!("cassette: cannot read {path}: {error}"))?;
+    let sample = cassette::core::wav::decode(&target, MAX_DECODED_FRAMES)
+        .map_err(|error| format!("cassette: cannot read {path}: {error:#}"))?;
     Ok(peaks(&sample.frames, WAVEFORM_BUCKETS))
 }
 
@@ -183,7 +216,7 @@ fn is_audio(path: &Path) -> bool {
 /// not offer one.
 fn describe(entry: &std::fs::DirEntry) -> SampleEntry {
     let path = entry.path();
-    let meta = entry.metadata().ok();
+    let meta = std::fs::metadata(&path).ok();
     let directory = meta.as_ref().is_some_and(std::fs::Metadata::is_dir);
     let kind = if directory {
         SampleKind::Dir
@@ -343,7 +376,7 @@ mod tests {
 
     #[test]
     fn a_missing_directory_is_an_error_not_a_panic() {
-        let listing = list_samples(Some("/nonexistent/cassette".into()));
+        let listing = list_dir(Some("/nonexistent/cassette".into()));
         assert!(
             listing.is_err(),
             "a missing directory must report, not panic"
@@ -358,11 +391,85 @@ mod tests {
         } else {
             "/etc"
         };
-        let listing = list_samples(Some(outside.into()));
+        let listing = list_dir(Some(outside.into()));
         assert!(
             listing.is_err(),
             "the browser must not walk out of its root: {listing:?}"
         );
+    }
+
+    fn entry(name: &str, kind: SampleKind) -> SampleEntry {
+        SampleEntry {
+            name: name.into(),
+            path: format!("/s/{name}"),
+            kind,
+            size: 0,
+            modified_ms: 0,
+        }
+    }
+
+    #[test]
+    fn the_cap_keeps_the_sorted_head_and_flags_the_rest() {
+        let entries = vec![
+            entry("z.wav", SampleKind::Wav),
+            entry("b.wav", SampleKind::Wav),
+            entry("sub", SampleKind::Dir),
+            entry("a.wav", SampleKind::Wav),
+        ];
+        let capped = sorted_and_capped(entries, 2);
+        let names: Vec<&str> = capped.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, ["sub", "a.wav", "2 more entries not shown"]);
+        assert_eq!(capped[2].kind, SampleKind::Other);
+        assert!(capped[2].path.is_empty());
+    }
+
+    #[test]
+    fn a_listing_within_the_cap_gets_no_notice() {
+        let capped = sorted_and_capped(vec![entry("a.wav", SampleKind::Wav)], 1);
+        assert_eq!(capped.len(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_is_described_by_its_target() {
+        let dir = std::env::temp_dir().join("cassette-describe-symlink");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("real")).expect("dir");
+        std::os::unix::fs::symlink(dir.join("real"), dir.join("link")).expect("symlink");
+        let found = std::fs::read_dir(&dir)
+            .expect("listing")
+            .filter_map(Result::ok)
+            .find(|e| e.file_name() == "link")
+            .map(|e| describe(&e));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(found.expect("the link is listed").kind, SampleKind::Dir);
+    }
+
+    #[test]
+    fn a_waveform_outside_the_sample_root_still_reads() {
+        let path = std::env::temp_dir().join("cassette-waveform-outside.wav");
+        let mut data = Vec::new();
+        for value in [0i16, 16_384, -16_384, 0] {
+            data.extend_from_slice(&value.to_le_bytes());
+        }
+        let mut wav = Vec::new();
+        wav.extend_from_slice(b"RIFF");
+        wav.extend_from_slice(&(36u32 + data.len() as u32).to_le_bytes());
+        wav.extend_from_slice(b"WAVEfmt ");
+        wav.extend_from_slice(&16u32.to_le_bytes());
+        wav.extend_from_slice(&1u16.to_le_bytes());
+        wav.extend_from_slice(&1u16.to_le_bytes());
+        wav.extend_from_slice(&44_100u32.to_le_bytes());
+        wav.extend_from_slice(&88_200u32.to_le_bytes());
+        wav.extend_from_slice(&2u16.to_le_bytes());
+        wav.extend_from_slice(&16u16.to_le_bytes());
+        wav.extend_from_slice(b"data");
+        wav.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        wav.extend_from_slice(&data);
+        std::fs::write(&path, wav).expect("write");
+        let peaks = waveform_of(&path.to_string_lossy());
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(peaks.expect("should read").len(), WAVEFORM_BUCKETS);
     }
 
     #[test]
