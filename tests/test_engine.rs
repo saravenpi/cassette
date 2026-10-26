@@ -6,8 +6,8 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use cassette::core::engine::AudioEngine;
-use cassette::core::render::{MirroredBlock, RtCommand};
-use cassette::core::sample::SampleMsg;
+use cassette::core::render::{MirroredBlock, MirroredNote, RtCommand};
+use cassette::core::sample::{NO_SLOT, SampleMsg};
 use cassette::models::Song;
 
 #[test]
@@ -215,6 +215,46 @@ fn a_block_later_in_the_song_stays_silent() {
     let peaks = engine.shared().peaks();
     assert_eq!(peaks[0], 0.0, "a block at beat 64 must not fire early");
     assert_eq!(peaks.iter().fold(0.0f32, |max, p| max.max(*p)), 0.0);
+}
+
+/// A note in a MIDI block's mirror sounds on its track once the playhead
+/// reaches it, and not before.
+#[test]
+fn a_mirrored_note_sounds_at_its_start() {
+    let song = Song::new();
+    let engine = AudioEngine::start_silent(&song).expect("engine should start");
+    assert!(engine.set_blocks(
+        0,
+        vec![MirroredBlock {
+            start_beats: 0.0,
+            end_beats: 4.0,
+            slot: NO_SLOT,
+            gain: 0.0,
+        }],
+    ));
+    assert!(engine.set_notes(
+        0,
+        vec![MirroredNote {
+            start_beats: 1.0,
+            end_beats: 2.0,
+            pitch: 60,
+            velocity: 100,
+        }],
+    ));
+    engine.send(RtCommand::Play);
+
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let mut peak = 0.0f32;
+    while peak <= 0.01 && Instant::now() < deadline {
+        sleep(Duration::from_millis(2));
+        peak = engine.shared().peaks()[0];
+    }
+    let position = engine.position_frames();
+    assert!(peak > 0.01, "the note should sound, the meter read {peak}");
+    assert!(
+        position >= 22_050 / 512 * 512,
+        "beat one is frame 22050, yet the note sounded at frame {position}"
+    );
 }
 
 /// Dropping a sample on a track makes it audible, through the app's own

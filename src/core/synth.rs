@@ -604,7 +604,7 @@ impl SynthEngine {
     }
 
     /// Begin the release fade on every playing sample voice.
-    pub fn release_all_samples(&mut self) {
+    fn release_all_samples(&mut self) {
         for track in &mut self.tracks[..self.track_count] {
             let player = &mut track.sample;
             if player.playing() && player.level_step >= 0.0 {
