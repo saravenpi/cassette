@@ -1,12 +1,14 @@
 <script lang="ts">
 	/**
 	 * The session window: the transport on top, the sidebar beside the timeline,
-	 * and the status bar below. Every piece of state lives in the session store.
+	 * the piano roll under the timeline while a MIDI block is open, and the status
+	 * bar below. Every piece of state lives in the session store.
 	 */
 
 	import { onMount } from 'svelte';
 	import { getCurrentWebview } from '@tauri-apps/api/webview';
 
+	import PianoRoll from '$lib/components/PianoRoll.svelte';
 	import Sidebar from '$lib/components/Sidebar.svelte';
 	import StatusBar from '$lib/components/StatusBar.svelte';
 	import Timeline from '$lib/components/Timeline.svelte';
@@ -79,7 +81,16 @@
 	<Transport />
 	<div class="body">
 		<Sidebar />
-		<Timeline />
+		<div class="main">
+			<div class="lanes">
+				<Timeline />
+			</div>
+			{#if session.roll !== null}
+				{#key session.roll.serial}
+					<PianoRoll />
+				{/key}
+			{/if}
+		</div>
 	</div>
 	<StatusBar />
 </div>
@@ -92,6 +103,19 @@
 	}
 
 	.body {
+		flex: 1;
+		min-height: 0;
+		display: flex;
+	}
+
+	.main {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+	}
+
+	.lanes {
 		flex: 1;
 		min-height: 0;
 		display: flex;

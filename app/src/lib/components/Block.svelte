@@ -1,13 +1,16 @@
 <script lang="ts">
 	/**
-	 * One block on a lane: its label, the waveform of the sample it plays, its
-	 * selection and the two drags a pointer can start on it. The inline rename
-	 * field is the engine's, so typing is routed through the wire, not the browser.
+	 * One block on a lane: its label, the waveform of the sample it plays or a
+	 * preview of its notes, its selection and the two drags a pointer can start on
+	 * it. A double-click on a MIDI block opens it in the piano roll. The inline
+	 * rename field is the engine's, so typing is routed through the wire, not the
+	 * browser.
 	 */
 
 	import { loadWaveform } from '$lib/api';
 	import { MIN_BLOCK_PX, beatsToPx, pxToBeats, waveformPoints } from '$lib/geometry';
 	import { trackColor } from '$lib/palette';
+	import { previewRange, velocityOpacity } from '$lib/pianoRoll';
 	import { session } from '$lib/session.svelte';
 	import type { BlockView } from '$lib/wire';
 
@@ -30,6 +33,7 @@
 	const left = $derived(beatsToPx(startBeats, session.zoom));
 	const width = $derived(Math.max(beatsToPx(lengthBeats, session.zoom), MIN_BLOCK_PX));
 	const renaming = $derived(session.snapshot?.renaming === true && block.selected);
+	const range = $derived(previewRange(block.notes));
 
 	$effect(() => {
 		const source = block.kind === 'audio' ? block.source : '';
@@ -69,6 +73,10 @@
 		session.dispatch({ selectBlock: { track, block: index } });
 		session.drag.beginResize(track, index, block);
 	}
+
+	function onDoubleClick(): void {
+		if (block.kind === 'midi') session.openRoll(track, index);
+	}
 </script>
 
 <div
@@ -79,6 +87,7 @@
 	data-block
 	style="left: {left}px; width: {width}px; --fill: {trackColor(colorIndex)}"
 	onpointerdown={onPointerDown}
+	ondblclick={onDoubleClick}
 >
 	{#if block.kind === 'audio' && peaks !== null}
 		<svg
@@ -88,6 +97,26 @@
 			aria-hidden="true"
 		>
 			<polygon points={waveformPoints(peaks, WAVE_HEIGHT)} />
+		</svg>
+	{/if}
+
+	{#if block.kind === 'midi' && block.notes.length > 0}
+		<svg
+			class="wave"
+			viewBox="0 0 {Math.max(lengthBeats, 0.001)} {range.rows}"
+			preserveAspectRatio="none"
+			aria-hidden="true"
+		>
+			{#each block.notes as note, position (position)}
+				<rect
+					class="bar"
+					x={note.startBeats}
+					y={range.top - note.pitch}
+					width={note.lengthBeats}
+					height="1"
+					opacity={velocityOpacity(note.velocity)}
+				/>
+			{/each}
 		</svg>
 	{/if}
 
@@ -144,6 +173,10 @@
 
 	.wave polygon {
 		fill: color-mix(in srgb, var(--fill) 80%, transparent);
+	}
+
+	.wave .bar {
+		fill: color-mix(in srgb, var(--fill) 85%, var(--text));
 	}
 
 	.name {
