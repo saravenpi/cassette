@@ -19,7 +19,7 @@ use crate::core::render::{MirroredBlock, MirroredNote, RenderCore, RtCommand};
 use crate::core::sample::{NO_SLOT, SAMPLE_RING_CAPACITY, SampleMsg};
 use crate::core::synth::sample_gain;
 use crate::core::{DEFAULT_SAMPLE_RATE, RT_COMMAND_CAPACITY};
-use crate::models::Song;
+use crate::models::{EffectChain, Song};
 
 /// Everything the audio thread owns: the render core, the command consumer and
 /// the shared snapshot it publishes. The sample ring's consumer lives inside the
@@ -45,6 +45,7 @@ impl AudioThread {
             self.core.position_frames(),
             self.core.is_playing(),
             self.core.is_looping(),
+            self.core.count_in_frames(),
             &peaks,
         );
     }
@@ -236,6 +237,10 @@ impl AudioEngine {
                 muted: track.muted,
                 solo: track.solo,
             });
+            ok &= self.send(RtCommand::SetEffects {
+                track: track_id,
+                chain: EffectChain::from_effects(&track.effects),
+            });
             let blocks: Vec<MirroredBlock> = track
                 .blocks
                 .iter()
@@ -261,6 +266,11 @@ impl AudioEngine {
     /// Whether the transport is running according to the audio thread.
     pub fn is_playing(&self) -> bool {
         self.shared.playing.load(Ordering::Relaxed)
+    }
+
+    /// Frames of count-in pre-roll still to run, according to the audio thread.
+    pub fn count_in_frames(&self) -> u64 {
+        self.shared.count_in_frames.load(Ordering::Relaxed)
     }
 }
 

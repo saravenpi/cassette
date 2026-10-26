@@ -302,3 +302,59 @@ fn a_dropped_sample_reaches_the_meter_end_to_end() {
         "the dropped sample should be audible, the meter read {level}"
     );
 }
+
+#[test]
+fn a_count_in_publishes_its_frames_then_plays() {
+    let song = Song::new();
+    let engine = AudioEngine::start_silent(&song).expect("engine should start");
+    engine.send(RtCommand::SetBpm { bpm: 400.0 });
+    engine.send(RtCommand::PlayAfterCountIn { beats: 2 });
+
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while engine.count_in_frames() == 0 && Instant::now() < deadline {
+        sleep(Duration::from_millis(5));
+    }
+    let counting = engine.count_in_frames();
+    assert!(counting > 0, "the pre-roll is published");
+    assert!(counting <= 2 * 6_615, "two beats at 400 bpm");
+    assert!(!engine.is_playing());
+
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while engine.count_in_frames() > 0 && Instant::now() < deadline {
+        sleep(Duration::from_millis(5));
+    }
+    assert_eq!(engine.count_in_frames(), 0, "the pre-roll counts down to 0");
+    assert!(
+        engine.is_playing(),
+        "the transport starts after the count-in"
+    );
+}
+
+#[test]
+fn stop_cancels_a_published_count_in() {
+    let song = Song::new();
+    let engine = AudioEngine::start_silent(&song).expect("engine should start");
+    engine.send(RtCommand::PlayAfterCountIn { beats: 16 });
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while engine.count_in_frames() == 0 && Instant::now() < deadline {
+        sleep(Duration::from_millis(5));
+    }
+    assert!(engine.count_in_frames() > 0);
+    engine.send(RtCommand::Stop);
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while engine.count_in_frames() > 0 && Instant::now() < deadline {
+        sleep(Duration::from_millis(5));
+    }
+    assert_eq!(engine.count_in_frames(), 0);
+    assert!(!engine.is_playing());
+}
+
+#[test]
+fn resync_pushes_a_song_with_effects() {
+    let mut song = Song::new();
+    song.tracks[0].effects = vec![cassette::models::Effect::new(
+        cassette::models::EffectKind::Reverb,
+    )];
+    let engine = AudioEngine::start_silent(&song).expect("engine should start");
+    assert!(engine.resync(&song));
+}
