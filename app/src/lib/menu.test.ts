@@ -69,8 +69,8 @@ function find(entries: MenuEntry[], label: string): MenuItem {
 
 describe('block menu', () => {
 	test('only a MIDI block offers the piano roll, only audio offers reset stretch', () => {
-		const midi = labels(blockMenu(host(), 0, 0, block({ kind: 'midi', source: '' }), 9));
-		const audio = labels(blockMenu(host(), 0, 0, block(), 9));
+		const midi = labels(blockMenu(host(), 0, 0, block({ kind: 'midi', source: '' }), 9, 1));
+		const audio = labels(blockMenu(host(), 0, 0, block(), 9, 1));
 		expect(midi.includes('Open in piano roll')).toBe(true);
 		expect(midi.includes('Reset stretch')).toBe(false);
 		expect(audio.includes('Open in piano roll')).toBe(false);
@@ -78,9 +78,9 @@ describe('block menu', () => {
 	});
 
 	test('reset stretch is disabled at rate one and restores the unstretched length', () => {
-		expect(find(blockMenu(host(), 0, 0, block(), 9), 'Reset stretch').disabled).toBe(true);
+		expect(find(blockMenu(host(), 0, 0, block(), 9, 1), 'Reset stretch').disabled).toBe(true);
 		const fake = host();
-		const reset = find(blockMenu(fake, 1, 2, block({ rate: 2 }), 9), 'Reset stretch');
+		const reset = find(blockMenu(fake, 1, 2, block({ rate: 2 }), 9, 1), 'Reset stretch');
 		expect(reset.disabled).toBe(false);
 		reset.run();
 		expect(fake.sent).toEqual([{ stretchBlock: { track: 1, block: 2, lengthBeats: 8 } }]);
@@ -88,13 +88,13 @@ describe('block menu', () => {
 
 	test('split sends the snapped beat inside the block', () => {
 		const fake = host();
-		find(blockMenu(fake, 0, 3, block(), 9.4), 'Split here').run();
+		find(blockMenu(fake, 0, 3, block(), 9.4, 1), 'Split here').run();
 		expect(fake.sent).toEqual([{ splitBlock: { track: 0, block: 3, atBeats: 9 } }]);
 	});
 
 	test('rename selects the block before it opens the prompt', async () => {
 		const fake = host();
-		find(blockMenu(fake, 0, 1, block(), 9), 'Rename').run();
+		find(blockMenu(fake, 0, 1, block(), 9, 1), 'Rename').run();
 		await Promise.resolve();
 		await Promise.resolve();
 		expect(fake.sent).toEqual([{ selectBlock: { track: 0, block: 1 } }, 'renameBlock']);
@@ -108,28 +108,28 @@ describe('split point', () => {
 	});
 
 	test('snaps to the grid when both halves stay long enough', () => {
-		expect(splitPoint(block(), 10.4)).toBe(10);
+		expect(splitPoint(block(), 10.4, 1)).toBe(10);
 	});
 
 	test('falls back to the raw beat when the grid line sits on an edge', () => {
-		expect(splitPoint(block({ startBeats: 8, lengthBeats: 1 }), 8.4)).toBe(8.4);
+		expect(splitPoint(block({ startBeats: 8, lengthBeats: 1 }), 8.4, 1)).toBe(8.4);
 	});
 
 	test('refuses a cut that would leave a sliver', () => {
-		expect(splitPoint(block(), 8.1)).toBeNull();
-		expect(splitPoint(block(), 11.9)).toBeNull();
+		expect(splitPoint(block(), 8.1, 1)).toBeNull();
+		expect(splitPoint(block(), 11.9, 1)).toBeNull();
 	});
 });
 
 describe('lane and track menus', () => {
 	test('an audio lane cannot create a block', () => {
-		expect(find(laneMenu(host(), 0, 'audio', 3, 4), 'New block here').disabled).toBe(true);
-		expect(find(laneMenu(host(), 0, 'midi', 3, 4), 'New block here').disabled).toBe(undefined);
+		expect(find(laneMenu(host(), 0, 'audio', 3, 4, 1), 'New block here').disabled).toBe(true);
+		expect(find(laneMenu(host(), 0, 'midi', 3, 4, 1), 'New block here').disabled).toBe(undefined);
 	});
 
 	test('loop from here spans one bar from the snapped beat', () => {
 		const fake = host();
-		find(laneMenu(fake, 0, 'midi', 5.2, 4), 'Loop from here').run();
+		find(laneMenu(fake, 0, 'midi', 5.2, 4, 1), 'Loop from here').run();
 		expect(fake.sent).toEqual([{ setLoopRegion: { startBeats: 5, endBeats: 9 } }]);
 	});
 
@@ -169,12 +169,12 @@ describe('viewport clamp', () => {
 
 describe('markAt', () => {
 	test('marks the split point over a block', () => {
-		expect(markAt(block(), 10.4)).toBe(10);
-		expect(markAt(block(), 10.4, true)).toBe(10.4);
+		expect(markAt(block(), 10.4, 1)).toBe(10);
+		expect(markAt(block(), 10.4, 1, true)).toBe(10.4);
 	});
 
 	test('marks the grid line off every block', () => {
-		expect(markAt(undefined, 3.6)).toBe(4);
-		expect(markAt(undefined, 3.6, true)).toBe(3.6);
+		expect(markAt(undefined, 3.6, 1)).toBe(4);
+		expect(markAt(undefined, 3.6, 1, true)).toBe(3.6);
 	});
 });

@@ -10,7 +10,14 @@
 	import { loadWaveform } from '$lib/api';
 	import { beatUnder, blockMenu } from '$lib/menu';
 	import { menu } from '$lib/menu.svelte';
-	import { MIN_BLOCK_PX, beatsToPx, pxToBeats, waveWindow, waveformPoints } from '$lib/geometry';
+	import {
+		MIN_BLOCK_PX,
+		beatsToPx,
+		gridStep,
+		pxToBeats,
+		waveWindow,
+		waveformPoints
+	} from '$lib/geometry';
 	import { trackColor } from '$lib/palette';
 	import { previewRange, velocityOpacity } from '$lib/pianoRoll';
 	import { session } from '$lib/session.svelte';
@@ -115,7 +122,7 @@
 		if (!(element instanceof HTMLElement)) return;
 		const at = beatUnder(block.startBeats, event.clientX - element.getBoundingClientRect().left, session.zoom);
 		session.dispatch({ selectBlock: { track, block: index } });
-		menu.open(event.clientX, event.clientY, blockMenu(session, track, index, block, at, event.altKey));
+		menu.open(event.clientX, event.clientY, blockMenu(session, track, index, block, at, gridStep(session.zoom), event.altKey));
 	}
 </script>
 

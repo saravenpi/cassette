@@ -8,7 +8,7 @@
 
 import { pickProject, send as sendEvent, sendNow as sendWithoutWaiting, state } from './api';
 import { DragController } from './drag.svelte';
-import { ZOOM_DEFAULT, zoomBy } from './geometry';
+import { ZOOM_DEFAULT, clampZoom, zoomBy } from './geometry';
 import { attachKeyboard } from './keyboard';
 import { NoteCache } from './noteCache';
 import { locateBlock } from './pianoRoll';
@@ -247,6 +247,11 @@ class Session {
 		} catch (error) {
 			this.fail(error, 'send');
 		}
+	}
+
+	/** Set the zoom to a scale, clamped to the zoom range. */
+	zoomTo(pxPerBeat: number): void {
+		this.zoom = clampZoom(pxPerBeat);
 	}
 
 	/** Move one zoom press in the given direction. */

@@ -1,10 +1,10 @@
 import {
 	MIN_BARS,
 	MIN_LABEL_PX,
-	SNAP_BEATS,
 	ZOOM_DEFAULT,
 	ZOOM_MAX,
 	ZOOM_MIN,
+	anchoredScroll,
 	barsFor,
 	beatsToPx,
 	clampRowHeight,
@@ -13,6 +13,7 @@ import {
 	formatPosition,
 	formatPrecise,
 	freeStart,
+	gridStep,
 	labelStep,
 	position,
 	pruneHeights,
@@ -22,7 +23,8 @@ import {
 	trimSpan,
 	waveWindow,
 	waveformPoints,
-	zoomBy
+	zoomBy,
+	zoomByWheel
 } from './geometry';
 
 // bun test injects these as globals; @types/bun is not a dependency, so svelte-check
@@ -33,6 +35,8 @@ interface Matchers {
 	toBeNull(): void;
 	toBeCloseTo(expected: number, digits?: number): void;
 	toHaveLength(expected: number): void;
+	toBeGreaterThan(expected: number): void;
+	toBeLessThan(expected: number): void;
 	not: Matchers;
 }
 
@@ -62,33 +66,33 @@ describe('beatsToPx and pxToBeats', () => {
 
 describe('snapBeats', () => {
 	test('rounds to the nearest beat', () => {
-		expect(snapBeats(2.4)).toBe(2);
-		expect(snapBeats(2.6)).toBe(3);
-		expect(snapBeats(15.5)).toBe(16);
+		expect(snapBeats(2.4, 1)).toBe(2);
+		expect(snapBeats(2.6, 1)).toBe(3);
+		expect(snapBeats(15.5, 1)).toBe(16);
 	});
 
 	test('leaves a beat already on the grid alone', () => {
 		for (const beat of [0, 1, 2, 7, 64]) {
-			expect(snapBeats(beat)).toBe(beat);
+			expect(snapBeats(beat, 1)).toBe(beat);
 		}
 	});
 
 	test('lands on a multiple of the snap grid', () => {
 		for (const beat of [0.2, 1.1, 3.9, 12.6]) {
-			const snapped = snapBeats(beat);
-			expect(snapped % SNAP_BEATS).toBe(0);
+			const snapped = snapBeats(beat, 1);
+			expect(snapped % 1).toBe(0);
 		}
 	});
 
 	test('leaves the value alone when the drag is free', () => {
-		expect(snapBeats(2.4, true)).toBe(2.4);
-		expect(snapBeats(2.6, true)).toBe(2.6);
+		expect(snapBeats(2.4, 1, true)).toBe(2.4);
+		expect(snapBeats(2.6, 1, true)).toBe(2.6);
 	});
 
 	test('never returns a position above the top of the song', () => {
-		expect(snapBeats(-3)).toBe(0);
-		expect(snapBeats(-3, true)).toBe(0);
-		expect(snapBeats(-0.4)).toBe(0);
+		expect(snapBeats(-3, 1)).toBe(0);
+		expect(snapBeats(-3, 1, true)).toBe(0);
+		expect(snapBeats(-0.4, 1)).toBe(0);
 	});
 });
 
@@ -339,5 +343,36 @@ describe('formatPrecise', () => {
 		expect(formatPrecise(5.25, 4)).toBe('2.2.25');
 		expect(formatPrecise(0, 4)).toBe('1.1.00');
 		expect(formatPrecise(0.999, 4)).toBe('1.1.99');
+	});
+});
+
+describe('gridStep', () => {
+	test('snaps to finer divisions as the zoom grows', () => {
+		expect(gridStep(8)).toBe(2);
+		expect(gridStep(16)).toBe(1);
+		expect(gridStep(32)).toBe(0.5);
+		expect(gridStep(64)).toBe(0.25);
+		expect(gridStep(256)).toBe(1 / 16);
+	});
+
+	test('snaps to a quarter-beat grid', () => {
+		expect(snapBeats(2.3, 0.25)).toBe(2.25);
+	});
+});
+
+describe('wheel zoom', () => {
+	test('zooms in on an upward wheel and out on a downward one', () => {
+		expect(zoomByWheel(32, -100)).toBeGreaterThan(32);
+		expect(zoomByWheel(32, 100)).toBeLessThan(32);
+	});
+
+	test('stays inside the zoom range', () => {
+		expect(zoomByWheel(ZOOM_MAX, -10_000)).toBe(ZOOM_MAX);
+		expect(zoomByWheel(ZOOM_MIN, 10_000)).toBe(ZOOM_MIN);
+	});
+
+	test('keeps the beat under the pointer in place', () => {
+		const left = anchoredScroll(320, 100, 32, 64);
+		expect((left + 100) / 64).toBe((320 + 100) / 32);
 	});
 });

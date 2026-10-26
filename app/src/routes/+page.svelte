@@ -18,7 +18,7 @@
 	import { runDropQueue } from '$lib/dropQueue';
 	import type { BlockView } from '$lib/wire';
 	import { laneUnder } from '$lib/drag.svelte';
-	import { freeStart, snapBeats } from '$lib/geometry';
+	import { freeStart, gridStep, snapBeats } from '$lib/geometry';
 	import { session } from '$lib/session.svelte';
 
 	onMount(() => session.attachKeyboard());
@@ -44,8 +44,8 @@
 			const targetTrack = lane?.track ?? session.snapshot?.cursor.track ?? 0;
 			const blocks = session.snapshot?.tracks[targetTrack]?.blocks ?? [];
 			const startBeats = lane
-				? (lane.beats < 2.0 ? 0 : snapBeats(lane.beats))
-				: snapBeats(freeStart(blocks));
+				? (lane.beats < 2.0 ? 0 : snapBeats(lane.beats, gridStep(session.zoom)))
+				: snapBeats(freeStart(blocks), gridStep(session.zoom));
 			const audio = paths.filter((path) => AUDIO_EXTS.test(path));
 			for (const path of paths) {
 				if (path.endsWith('.json')) session.dispatch({ loadProject: { path } });

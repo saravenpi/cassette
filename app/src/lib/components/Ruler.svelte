@@ -4,7 +4,7 @@
 	 * draw the loop region, and double-click the region to loop the whole song.
 	 */
 
-	import { RULER_HEIGHT, beatsToPx, labelStep, pxToBeats, snapBeats } from '$lib/geometry';
+	import { RULER_HEIGHT, beatsToPx, gridStep, labelStep, pxToBeats, snapBeats } from '$lib/geometry';
 	import { session } from '$lib/session.svelte';
 	import type { LoopRegion } from '$lib/wire';
 
@@ -55,7 +55,7 @@
 		if (!ruler) return null;
 		const rect = ruler.getBoundingClientRect();
 		const px = Math.max(0, event.clientX - rect.left);
-		return snapBeats(Math.max(0, pxToBeats(px, pxPerBeat)));
+		return snapBeats(Math.max(0, pxToBeats(px, pxPerBeat)), gridStep(pxPerBeat));
 	}
 
 	function seekFromPointer(event: PointerEvent): void {

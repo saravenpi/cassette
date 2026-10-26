@@ -8,7 +8,7 @@
 	import { onDestroy, onMount } from 'svelte';
 
 	import { listSamples, samplesRoot } from '$lib/api';
-	import { freeStart, snapBeats } from '$lib/geometry';
+	import { freeStart, gridStep, snapBeats } from '$lib/geometry';
 	import { Latest } from '$lib/queue';
 	import { SampleDrag } from '$lib/sampleDrag.svelte';
 	import { session } from '$lib/session.svelte';
@@ -85,7 +85,7 @@
 		const track = snapshot?.cursor.track ?? 0;
 		const blocks = snapshot?.tracks[track]?.blocks ?? [];
 		session.dispatch({
-			importSample: { track, path: entry.path, startBeats: snapBeats(freeStart(blocks)) }
+			importSample: { track, path: entry.path, startBeats: snapBeats(freeStart(blocks), gridStep(session.zoom)) }
 		});
 	}
 </script>

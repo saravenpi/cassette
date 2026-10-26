@@ -7,10 +7,11 @@
 	 * split or a click would land on; Alt frees it from the grid.
 	 */
 
-	import { onDestroy } from 'svelte';
+	import { onDestroy, tick } from 'svelte';
 
 	import {
 		HEADER_WIDTH,
+		anchoredScroll,
 		MAX_ROW_HEIGHT,
 		MIN_ROW_HEIGHT,
 		ROW_HEIGHT,
@@ -19,7 +20,9 @@
 		beatsToPx,
 		clampRowHeight,
 		formatPrecise,
-		pruneHeights
+		gridStep,
+		pruneHeights,
+		zoomByWheel
 	} from '$lib/geometry';
 	import { laneUnder } from '$lib/drag.svelte';
 	import { markAt } from '$lib/menu';
@@ -98,7 +101,7 @@
 		}
 		const block = blockUnder(pointer.x, pointer.y, lane.track);
 		const view = block === null ? undefined : tracks[lane.track]?.blocks[block];
-		session.hover = { beats: markAt(view, lane.beats, pointer.free), track: lane.track, block };
+		session.hover = { beats: markAt(view, lane.beats, gridStep(session.zoom), pointer.free), track: lane.track, block };
 	}
 
 	function onPointerMove(event: PointerEvent): void {
@@ -110,6 +113,28 @@
 		pointer = null;
 		session.hover = null;
 	}
+
+	async function onWheel(event: WheelEvent): Promise<void> {
+		if (!(event.ctrlKey || event.metaKey) || scroller === null) return;
+		event.preventDefault();
+		const element = scroller;
+		const x = event.clientX - element.getBoundingClientRect().left;
+		const from = session.zoom;
+		const delta = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? event.deltaY * 33 : event.deltaY;
+		session.zoomTo(zoomByWheel(from, delta));
+		if (session.zoom === from) return;
+		const left = anchoredScroll(element.scrollLeft, x, from, session.zoom);
+		await tick();
+		element.scrollLeft = left;
+	}
+
+	$effect(() => {
+		const element = scroller;
+		if (element === null) return;
+		const listener = (event: WheelEvent) => void onWheel(event);
+		element.addEventListener('wheel', listener, { passive: false });
+		return () => element.removeEventListener('wheel', listener);
+	});
 
 	onDestroy(() => {
 		cancelResize?.();

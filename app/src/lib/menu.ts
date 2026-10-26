@@ -59,11 +59,16 @@ export function beatUnder(startBeats: number, offsetPx: number, pxPerBeat: numbe
  * halves long enough, otherwise exactly under the pointer, and null when even
  * that would leave a sliver. `free` drops the grid, the way Alt does.
  */
-export function splitPoint(block: BlockView, beats: number, free = false): number | null {
+export function splitPoint(
+	block: BlockView,
+	beats: number,
+	step: number,
+	free = false
+): number | null {
 	const first = block.startBeats + MIN_LENGTH_BEATS;
 	const last = block.startBeats + block.lengthBeats - MIN_LENGTH_BEATS;
 	const inside = (at: number) => at >= first && at <= last;
-	const snapped = snapBeats(beats, free);
+	const snapped = snapBeats(beats, step, free);
 	if (inside(snapped)) return snapped;
 	return inside(beats) ? beats : null;
 }
@@ -72,9 +77,14 @@ export function splitPoint(block: BlockView, beats: number, free = false): numbe
  * The beat the hover line marks for a pointer at `beats`: over a block, the
  * point a split there would cut at; elsewhere, the grid line a click lands on.
  */
-export function markAt(block: BlockView | undefined, beats: number, free = false): number {
-	if (block === undefined) return snapBeats(beats, free);
-	return splitPoint(block, beats, free) ?? beats;
+export function markAt(
+	block: BlockView | undefined,
+	beats: number,
+	step: number,
+	free = false
+): number {
+	if (block === undefined) return snapBeats(beats, step, free);
+	return splitPoint(block, beats, step, free) ?? beats;
 }
 
 /** Keep a `width` by `height` menu opened at `x`, `y` inside the window. */
@@ -101,10 +111,11 @@ export function blockMenu(
 	index: number,
 	block: BlockView,
 	atBeats: number,
+	step: number,
 	free = false
 ): MenuEntry[] {
 	const at = { track, block: index };
-	const cut = splitPoint(block, atBeats, free);
+	const cut = splitPoint(block, atBeats, step, free);
 	const entries: MenuEntry[] = [
 		item(
 			'Split here',
@@ -168,9 +179,10 @@ export function laneMenu(
 	track: number,
 	kind: TrackKind,
 	beats: number,
-	beatsPerBar: number
+	beatsPerBar: number,
+	step: number
 ): MenuEntry[] {
-	const start = snapBeats(beats);
+	const start = snapBeats(beats, step);
 	return [
 		item(
 			'New block here',

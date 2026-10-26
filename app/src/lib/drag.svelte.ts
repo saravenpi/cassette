@@ -6,7 +6,14 @@
  * frame, and follows the block when the engine re-sorts the lane under it.
  */
 
-import { MIN_LENGTH_BEATS, pxToBeats, snapBeats, stretchLength, trimSpan } from './geometry';
+import {
+	MIN_LENGTH_BEATS,
+	gridStep,
+	pxToBeats,
+	snapBeats,
+	stretchLength,
+	trimSpan
+} from './geometry';
 import type { BlockView, EngineEvent, UiState } from './wire';
 
 /** Which part of a block a drag moves. */
@@ -140,13 +147,13 @@ export class DragController {
 		const lane = laneUnder(event.clientX, event.clientY, this.context.zoom());
 		if (lane === null) return;
 		if (drag.kind === 'move') {
-			const startBeats = snapBeats(lane.beats - drag.grab, event.altKey);
+			const startBeats = snapBeats(lane.beats - drag.grab, gridStep(this.context.zoom()), event.altKey);
 			if (startBeats === drag.startBeats && lane.track === drag.targetTrack) return;
 			drag.startBeats = startBeats;
 			drag.targetTrack = lane.track;
 		} else if (drag.kind === 'trim') {
 			const span = trimSpan(
-				snapBeats(lane.beats, event.altKey),
+				snapBeats(lane.beats, gridStep(this.context.zoom()), event.altKey),
 				drag.startBeats + drag.lengthBeats,
 				drag.floorBeats
 			);
@@ -154,7 +161,7 @@ export class DragController {
 			drag.startBeats = span.startBeats;
 			drag.lengthBeats = span.lengthBeats;
 		} else {
-			const end = snapBeats(lane.beats, event.altKey);
+			const end = snapBeats(lane.beats, gridStep(this.context.zoom()), event.altKey);
 			const wanted = Math.max(MIN_LENGTH_BEATS, end - drag.startBeats);
 			const lengthBeats =
 				drag.kind === 'stretch' ? stretchLength(drag.view.lengthBeats, drag.view.rate, wanted) : wanted;

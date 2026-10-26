@@ -5,7 +5,7 @@
 	 * its `data-lane-track` attribute.
 	 */
 
-	import { DEFAULT_LENGTH_BEATS, ROW_HEIGHT, pxToBeats, snapBeats } from '$lib/geometry';
+	import { DEFAULT_LENGTH_BEATS, ROW_HEIGHT, gridStep, pxToBeats, snapBeats } from '$lib/geometry';
 	import { laneMenu } from '$lib/menu';
 	import { menu } from '$lib/menu.svelte';
 	import { session } from '$lib/session.svelte';
@@ -78,7 +78,7 @@
 		if (!(lane instanceof HTMLElement)) return;
 		const beats = pxToBeats(event.clientX - lane.getBoundingClientRect().left, session.zoom);
 		session.dispatch({
-			createBlock: { track: index, startBeats: snapBeats(beats), lengthBeats: DEFAULT_LENGTH_BEATS }
+			createBlock: { track: index, startBeats: snapBeats(beats, gridStep(session.zoom)), lengthBeats: DEFAULT_LENGTH_BEATS }
 		});
 	}
 
@@ -89,7 +89,7 @@
 		event.preventDefault();
 		const beats = pxToBeats(event.clientX - lane.getBoundingClientRect().left, session.zoom);
 		const beatsPerBar = session.snapshot?.beatsPerBar ?? 4;
-		menu.open(event.clientX, event.clientY, laneMenu(session, index, track.kind, beats, beatsPerBar));
+		menu.open(event.clientX, event.clientY, laneMenu(session, index, track.kind, beats, beatsPerBar, gridStep(session.zoom)));
 	}
 </script>
 

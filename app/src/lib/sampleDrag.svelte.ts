@@ -5,7 +5,7 @@
  */
 
 import { laneUnder } from './drag.svelte';
-import { snapBeats } from './geometry';
+import { gridStep, snapBeats } from './geometry';
 import type { SampleEntry } from './wire';
 
 /** What the gesture needs from the browser that owns it. */
@@ -49,7 +49,7 @@ export class SampleDrag {
 		const lane = laneUnder(event.clientX, event.clientY, this.context.zoom());
 		this.stop();
 		if (entry === null || lane === null || event.type === 'pointercancel') return;
-		const startBeats = lane.beats < 2.0 ? 0 : snapBeats(lane.beats);
+		const startBeats = lane.beats < 2.0 ? 0 : snapBeats(lane.beats, gridStep(this.context.zoom()));
 		this.context.drop(entry, lane.track, startBeats);
 	};
 

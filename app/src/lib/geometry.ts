@@ -10,8 +10,10 @@ export const ZOOM_MIN = 8;
 export const ZOOM_MAX = 256;
 const ZOOM_STEP = 1.25;
 
-/** Beats a drag snaps to, unless Alt is held. */
-export const SNAP_BEATS = 1;
+/** Grid steps the snap picks from, coarsest first, in beats. */
+const GRID_STEPS = [2, 1, 1 / 2, 1 / 4, 1 / 8, 1 / 16];
+/** Narrowest a grid step may be on screen before the snap picks a coarser one. */
+const MIN_GRID_PX = 12;
 /** Shortest block a resize can leave behind: one sixteenth note. */
 export const MIN_LENGTH_BEATS = 0.25;
 /** Length a double-clicked block is created with: one bar. */
@@ -42,9 +44,18 @@ export function pxToBeats(px: number, pxPerBeat: number): number {
 	return px / pxPerBeat;
 }
 
-/** Clamp a beat to the grid, or leave it free when Alt holds the drag. */
-export function snapBeats(beats: number, free = false): number {
-	const snapped = free ? beats : Math.round(beats / SNAP_BEATS) * SNAP_BEATS;
+/**
+ * The grid step at a zoom: the finest step still at least `MIN_GRID_PX` wide,
+ * so zooming in snaps to finer divisions the way other DAWs do.
+ */
+export function gridStep(pxPerBeat: number): number {
+	const fine = GRID_STEPS.filter((step) => step * pxPerBeat >= MIN_GRID_PX);
+	return fine[fine.length - 1] ?? GRID_STEPS[0];
+}
+
+/** Clamp a beat to a grid of `step` beats, or leave it free when Alt holds the drag. */
+export function snapBeats(beats: number, step: number, free = false): number {
+	const snapped = free || step <= 0 ? beats : Math.round(beats / step) * step;
 	return Math.max(0, snapped);
 }
 
@@ -99,6 +110,26 @@ export function waveWindow(
 /** Keep a scale inside the zoom range. */
 export function clampZoom(pxPerBeat: number): number {
 	return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, pxPerBeat));
+}
+
+/** How strongly one pixel of wheel travel zooms; a notch of about 100 px is one press. */
+const WHEEL_ZOOM_RATE = 0.0022;
+
+/**
+ * The scale after a wheel movement of `deltaY` pixels, clamped. It is
+ * exponential, so a trackpad's many small deltas and a mouse notch's one big
+ * delta zoom alike.
+ */
+export function zoomByWheel(pxPerBeat: number, deltaY: number): number {
+	return clampZoom(pxPerBeat * Math.exp(-deltaY * WHEEL_ZOOM_RATE));
+}
+
+/**
+ * The scroll offset that keeps the beat under a pointer `x` pixels into the
+ * view in place when the scale changes from `from` to `to`.
+ */
+export function anchoredScroll(scrollLeft: number, x: number, from: number, to: number): number {
+	return Math.max(0, ((scrollLeft + x) / from) * to - x);
 }
 
 /** The next scale one zoom press away, clamped. */
