@@ -110,6 +110,8 @@ fn block_edits_can_be_pushed_while_running() {
             end_beats: 4.0,
             slot: 0,
             gain: 1.0,
+            offset_seconds: 0.0,
+            rate: 1.0,
         }],
     );
     assert!(pushed, "command queue should accept the edit");
@@ -170,6 +172,8 @@ fn a_block_under_the_playhead_reaches_the_meter() {
             end_beats: 4.0,
             slot: 0,
             gain: 1.0,
+            offset_seconds: 0.0,
+            rate: 1.0,
         }],
     ));
     engine.send(RtCommand::Play);
@@ -201,6 +205,8 @@ fn a_block_later_in_the_song_stays_silent() {
             end_beats: 68.0,
             slot: 0,
             gain: 1.0,
+            offset_seconds: 0.0,
+            rate: 1.0,
         }],
     ));
     engine.send(RtCommand::Play);
@@ -224,6 +230,8 @@ fn a_mirrored_note_sounds_at_its_start() {
             end_beats: 4.0,
             slot: NO_SLOT,
             gain: 0.0,
+            offset_seconds: 0.0,
+            rate: 1.0,
         }],
     ));
     assert!(engine.set_notes(

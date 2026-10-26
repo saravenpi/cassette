@@ -244,6 +244,8 @@ impl AudioEngine {
                     end_beats: block.start_beats + block.length_beats,
                     slot: NO_SLOT,
                     gain: sample_gain(&track.instrument),
+                    offset_seconds: block.offset_seconds,
+                    rate: block.rate,
                 })
                 .collect();
             ok &= self.set_blocks(track_index, blocks);

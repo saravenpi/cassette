@@ -19,11 +19,7 @@ impl App {
         let Some(track_index) = self.clamp_track(track) else {
             return;
         };
-        if self.song.tracks[track_index].blocks.len() >= MAX_BLOCKS {
-            self.status = format!(
-                "track {} is already at {MAX_BLOCKS} blocks",
-                track_index + 1
-            );
+        if !self.has_room(track_index) {
             return;
         }
         let index = self.song.tracks[track_index].add_block(start_beats, length_beats);
@@ -92,24 +88,83 @@ impl App {
         self.status = format!("block length {length:.2} beats");
     }
 
-    /// Cut a block in two at an absolute beat.
-    pub(crate) fn split_block(&mut self, _track: usize, _block: usize, _at_beats: f32) {
-        self.status = "split is not wired yet".into();
+    /// Cut a block in two at an absolute beat and put the cursor on the right
+    /// half, which keeps playing the material from where the cut fell.
+    pub(crate) fn split_block(&mut self, track: usize, block: usize, at_beats: f32) {
+        let Some(track_index) = self.editable_block(track, block, "split") else {
+            return;
+        };
+        if !self.has_room(track_index) {
+            return;
+        }
+        let seconds_per_beat = self.seconds_per_beat();
+        let lane = &mut self.song.tracks[track_index];
+        let name = lane.next_name();
+        let Some(right) = lane.blocks[block].split_off(at_beats, seconds_per_beat, name) else {
+            self.status = "split inside the block, away from its edges".into();
+            return;
+        };
+        let right_name = right.name.clone();
+        let index = lane.insert_block(right);
+        self.cursor = Cursor {
+            track: track_index,
+            block: index,
+        };
+        self.push_mirror(track_index);
+        self.status = format!("split off block {right_name}");
     }
 
-    /// Copy a block onto the beat right after it.
-    pub(crate) fn duplicate_block(&mut self, _track: usize, _block: usize) {
-        self.status = "duplicate is not wired yet".into();
+    /// Copy a block onto the beat right after it and put the cursor on the copy.
+    pub(crate) fn duplicate_block(&mut self, track: usize, block: usize) {
+        let Some(track_index) = self.editable_block(track, block, "duplicate") else {
+            return;
+        };
+        if !self.has_room(track_index) {
+            return;
+        }
+        let lane = &mut self.song.tracks[track_index];
+        let mut copy = lane.blocks[block].clone();
+        copy.name = lane.next_name();
+        copy.set_start(copy.end_beats());
+        let name = copy.name.clone();
+        let index = lane.insert_block(copy);
+        self.cursor = Cursor {
+            track: track_index,
+            block: index,
+        };
+        self.push_mirror(track_index);
+        self.status = format!("block {name} duplicated");
     }
 
-    /// Move a block's left edge, keeping its end and its material in place.
-    pub(crate) fn trim_block_start(&mut self, _track: usize, _block: usize, _start_beats: f32) {
-        self.status = "trim is not wired yet".into();
+    /// Drag a block's left edge: its end and its material stay where they are.
+    pub(crate) fn trim_block_start(&mut self, track: usize, block: usize, start_beats: f32) {
+        let Some(track_index) = self.editable_block(track, block, "trim") else {
+            return;
+        };
+        let seconds_per_beat = self.seconds_per_beat();
+        let lane = &mut self.song.tracks[track_index];
+        let mut trimmed = lane.blocks.remove(block);
+        trimmed.trim_start(start_beats, seconds_per_beat);
+        let start = trimmed.start_beats;
+        let index = lane.insert_block(trimmed);
+        self.cursor = Cursor {
+            track: track_index,
+            block: index,
+        };
+        self.push_mirror(track_index);
+        self.status = format!("block starts at beat {start:.2}");
     }
 
-    /// Change a block's length by changing its playback rate.
-    pub(crate) fn stretch_block(&mut self, _track: usize, _block: usize, _length_beats: f32) {
-        self.status = "stretch is not wired yet".into();
+    /// Drag a block's right edge so its material fills the new length.
+    pub(crate) fn stretch_block(&mut self, track: usize, block: usize, length_beats: f32) {
+        let Some(track_index) = self.editable_block(track, block, "stretch") else {
+            return;
+        };
+        let stretched = &mut self.song.tracks[track_index].blocks[block];
+        stretched.stretch_to(length_beats);
+        let (length, rate) = (stretched.length_beats, stretched.rate);
+        self.push_mirror(track_index);
+        self.status = format!("block length {length:.2} beats at {rate:.2}x");
     }
 
     /// Remove one block from one track, wherever the cursor is.
@@ -161,6 +216,8 @@ impl App {
                         end_beats: block.end_beats(),
                         slot: NO_SLOT,
                         gain: 0.0,
+                        offset_seconds: 0.0,
+                        rate: 1.0,
                     };
                 }
                 MirroredBlock {
@@ -168,6 +225,8 @@ impl App {
                     end_beats: block.end_beats(),
                     slot: self.samples.get(&block.source).copied().unwrap_or(NO_SLOT),
                     gain: sample_gain(&source.instrument),
+                    offset_seconds: block.offset_seconds,
+                    rate: block.rate,
                 }
             })
             .collect()
@@ -249,6 +308,31 @@ impl App {
             self.note_revision += 1;
             *revision = self.note_revision;
         }
+    }
+
+    /// The track of a block the UI named, or `None` with a status saying there
+    /// is no block there to `verb`.
+    fn editable_block(&mut self, track: usize, block: usize, verb: &str) -> Option<usize> {
+        let track_index = self.clamp_track(track)?;
+        if block >= self.song.tracks[track_index].blocks.len() {
+            self.status = format!("no block there to {verb}");
+            return None;
+        }
+        Some(track_index)
+    }
+
+    /// Whether a track can take one more block, setting the status when not.
+    fn has_room(&mut self, track: usize) -> bool {
+        if self.song.tracks[track].blocks.len() < MAX_BLOCKS {
+            return true;
+        }
+        self.status = format!("track {} is already at {MAX_BLOCKS} blocks", track + 1);
+        false
+    }
+
+    /// Seconds one beat lasts at the song's tempo.
+    fn seconds_per_beat(&self) -> f32 {
+        60.0 / self.song.bpm().max(1.0)
     }
 
     /// Clamp a track index from the UI to a real track.
@@ -634,5 +718,204 @@ mod tests {
         );
         assert_eq!(app.song.tracks[1].blocks[0].notes.len(), 1);
         assert!(!app.resync_pending);
+    }
+
+    fn seconds_per_beat(app: &App) -> f32 {
+        60.0 / app.song.bpm()
+    }
+
+    #[test]
+    fn splitting_an_audio_block_keeps_the_right_half_in_step() {
+        let mut app = headless_app();
+        app.song.tracks[2].insert_block(Block::new("a", TrackKind::Audio, 4.0, 8.0, "/tmp/a.wav"));
+        app.handle(Event::SplitBlock {
+            track: 2,
+            block: 0,
+            at_beats: 7.0,
+        });
+        let lane = &app.song.tracks[2].blocks;
+        assert_eq!(lane.len(), 2);
+        assert_eq!((lane[0].start_beats, lane[0].length_beats), (4.0, 3.0));
+        assert_eq!((lane[1].start_beats, lane[1].length_beats), (7.0, 5.0));
+        assert_eq!(lane[0].offset_seconds, 0.0);
+        let expected = 3.0 * seconds_per_beat(&app);
+        assert!((lane[1].offset_seconds - expected).abs() < 1e-5);
+        assert_eq!(lane[1].source, "/tmp/a.wav");
+        assert_ne!(lane[0].name, lane[1].name);
+        assert_eq!(app.cursor, Cursor { track: 2, block: 1 });
+    }
+
+    #[test]
+    fn splitting_a_midi_block_hands_over_its_later_notes() {
+        let mut app = headless_app();
+        let mut block = Block::new("m", TrackKind::Midi, 0.0, 8.0, "");
+        block.notes = vec![
+            Note {
+                pitch: 60,
+                start_beats: 1.0,
+                length_beats: 4.0,
+                velocity: 100,
+            },
+            Note {
+                pitch: 62,
+                start_beats: 5.0,
+                length_beats: 1.0,
+                velocity: 90,
+            },
+        ];
+        app.song.tracks[0].insert_block(block);
+        app.handle(Event::SplitBlock {
+            track: 0,
+            block: 0,
+            at_beats: 4.0,
+        });
+        let lane = &app.song.tracks[0].blocks;
+        assert_eq!(lane[0].notes.len(), 1);
+        assert_eq!(
+            lane[0].notes[0].length_beats, 3.0,
+            "the crossing note is cut"
+        );
+        assert_eq!(lane[1].notes.len(), 1);
+        assert_eq!(lane[1].notes[0].pitch, 62);
+        assert_eq!(lane[1].notes[0].start_beats, 1.0);
+        assert_eq!(lane[1].offset_seconds, 0.0);
+    }
+
+    #[test]
+    fn a_split_at_or_outside_an_edge_changes_nothing() {
+        let mut app = headless_app();
+        app.song.tracks[0].insert_block(Block::new("a", TrackKind::Midi, 4.0, 4.0, ""));
+        for at_beats in [2.0, 4.0, 4.1, 8.0, 12.0] {
+            app.handle(Event::SplitBlock {
+                track: 0,
+                block: 0,
+                at_beats,
+            });
+        }
+        assert_eq!(app.song.tracks[0].blocks.len(), 1);
+        assert_eq!(app.song.tracks[0].blocks[0].length_beats, 4.0);
+    }
+
+    #[test]
+    fn duplicating_places_a_renamed_copy_right_after() {
+        let mut app = headless_app();
+        let mut block = Block::new("a", TrackKind::Audio, 2.0, 3.0, "/tmp/a.wav");
+        block.offset_seconds = 0.5;
+        block.rate = 2.0;
+        app.song.tracks[2].insert_block(block);
+        app.handle(Event::DuplicateBlock { track: 2, block: 0 });
+        let lane = &app.song.tracks[2].blocks;
+        assert_eq!(lane.len(), 2);
+        assert_eq!(lane[1].start_beats, 5.0);
+        assert_eq!(lane[1].length_beats, 3.0);
+        assert_eq!((lane[1].offset_seconds, lane[1].rate), (0.5, 2.0));
+        assert_ne!(lane[1].name, lane[0].name);
+        assert_eq!(app.cursor, Cursor { track: 2, block: 1 });
+    }
+
+    #[test]
+    fn trimming_the_start_advances_the_offset_and_keeps_the_end() {
+        let mut app = headless_app();
+        app.song.tracks[2].insert_block(Block::new("a", TrackKind::Audio, 4.0, 8.0, "/tmp/a.wav"));
+        app.handle(Event::TrimBlockStart {
+            track: 2,
+            block: 0,
+            start_beats: 6.0,
+        });
+        let block = &app.song.tracks[2].blocks[0];
+        assert_eq!((block.start_beats, block.end_beats()), (6.0, 12.0));
+        assert!((block.offset_seconds - 2.0 * seconds_per_beat(&app)).abs() < 1e-5);
+
+        app.handle(Event::TrimBlockStart {
+            track: 2,
+            block: 0,
+            start_beats: 0.0,
+        });
+        let block = &app.song.tracks[2].blocks[0];
+        assert!(
+            (block.start_beats - 4.0).abs() < 1e-4,
+            "it cannot reach before its material"
+        );
+        assert!(block.offset_seconds.abs() < 1e-5);
+        assert_eq!(block.end_beats(), 12.0);
+    }
+
+    #[test]
+    fn trimming_a_midi_start_shifts_and_drops_notes() {
+        let mut app = headless_app();
+        let mut block = Block::new("m", TrackKind::Midi, 0.0, 8.0, "");
+        block.notes = vec![
+            Note {
+                pitch: 60,
+                start_beats: 0.0,
+                length_beats: 1.0,
+                velocity: 100,
+            },
+            Note {
+                pitch: 62,
+                start_beats: 1.0,
+                length_beats: 2.0,
+                velocity: 100,
+            },
+            Note {
+                pitch: 64,
+                start_beats: 4.0,
+                length_beats: 1.0,
+                velocity: 100,
+            },
+        ];
+        app.song.tracks[0].insert_block(block);
+        app.handle(Event::TrimBlockStart {
+            track: 0,
+            block: 0,
+            start_beats: 2.0,
+        });
+        let block = &app.song.tracks[0].blocks[0];
+        assert_eq!((block.start_beats, block.length_beats), (2.0, 6.0));
+        let notes: Vec<(u8, f32, f32)> = block
+            .notes
+            .iter()
+            .map(|note| (note.pitch, note.start_beats, note.length_beats))
+            .collect();
+        assert_eq!(notes, vec![(62, 0.0, 1.0), (64, 2.0, 1.0)]);
+    }
+
+    #[test]
+    fn stretching_changes_the_rate_within_its_limits() {
+        let mut app = headless_app();
+        app.song.tracks[2].insert_block(Block::new("a", TrackKind::Audio, 0.0, 4.0, "/tmp/a.wav"));
+        app.handle(Event::StretchBlock {
+            track: 2,
+            block: 0,
+            length_beats: 8.0,
+        });
+        let block = &app.song.tracks[2].blocks[0];
+        assert_eq!((block.length_beats, block.rate), (8.0, 0.5));
+        assert_eq!(app.mirror(2)[0].rate, 0.5);
+
+        app.handle(Event::StretchBlock {
+            track: 2,
+            block: 0,
+            length_beats: 0.25,
+        });
+        let block = &app.song.tracks[2].blocks[0];
+        assert_eq!(block.rate, Block::MAX_RATE);
+        assert_eq!(
+            block.length_beats, 1.0,
+            "the length follows the clamped rate"
+        );
+    }
+
+    #[test]
+    fn stretching_a_midi_block_resizes_it() {
+        let mut app = headless_app();
+        app.song.tracks[0].insert_block(Block::new("m", TrackKind::Midi, 0.0, 4.0, ""));
+        app.handle(Event::StretchBlock {
+            track: 0,
+            block: 0,
+            length_beats: 6.0,
+        });
+        let block = &app.song.tracks[0].blocks[0];
+        assert_eq!((block.length_beats, block.rate), (6.0, 1.0));
     }
 }

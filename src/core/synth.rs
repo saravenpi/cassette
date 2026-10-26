@@ -167,6 +167,28 @@ impl Voice {
     }
 }
 
+/// Where a sample voice enters its slot and how fast it runs.
+///
+/// `offset_seconds` is where the block starts reading its material and
+/// `elapsed_frames` is how far, in engine frames, the playhead already is past
+/// the block's start. `rate` scales the material's own speed, so a block
+/// stretched to twice its length plays at half rate.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SampleCue {
+    pub offset_seconds: f32,
+    pub elapsed_frames: f64,
+    pub rate: f32,
+}
+
+impl SampleCue {
+    /// The top of the material, at its own speed.
+    pub const START: SampleCue = SampleCue {
+        offset_seconds: 0.0,
+        elapsed_frames: 0.0,
+        rate: 1.0,
+    };
+}
+
 /// One track's sample voice: where its slot is playing, and how fast it moves.
 ///
 /// The position is a phase in the slot's own frames, so a rate ratio of one
@@ -447,7 +469,7 @@ impl SynthEngine {
         self.sample_ratios[slot] = if rate > 0.0 { rate / engine_rate } else { 1.0 };
     }
 
-    /// Start a sample voice on `track`, entered `offset_frames` into `slot`.
+    /// Start a sample voice on `track`, entered into `slot` where `cue` says.
     ///
     /// Returns `false`, changing nothing, when the track is not one of the
     /// engine's, when the slot is [`NO_SLOT`], when the slot holds no finished
@@ -459,7 +481,7 @@ impl SynthEngine {
         track: usize,
         pitch: u8,
         slot: u8,
-        offset_frames: u32,
+        cue: SampleCue,
         gain: f32,
         tag: u8,
     ) -> bool {
@@ -467,12 +489,21 @@ impl SynthEngine {
         {
             return false;
         }
+        let ratio = f64::from(self.sample_ratios[slot as usize]);
+        let rate = if cue.rate.is_finite() && cue.rate > 0.0 {
+            f64::from(cue.rate)
+        } else {
+            1.0
+        };
+        let slot_rate = ratio * f64::from(self.sample_rate);
+        let offset = f64::from(cue.offset_seconds.max(0.0)) * slot_rate;
+        let position = offset + cue.elapsed_frames.max(0.0) * ratio * rate;
         let player = &mut self.tracks[track].sample;
         let was_idle = !player.playing();
         *player = SamplePlayer {
             slot,
-            position: offset_frames as f64,
-            step: self.sample_ratios[slot as usize] as f64,
+            position,
+            step: ratio * rate,
             gain,
             pitch,
             tag,
@@ -848,7 +879,7 @@ mod tests {
     fn a_loaded_sample_sounds_on_its_track() {
         let mut e = engine();
         constant(&mut e, 0, 512, 0.5);
-        assert!(e.play_sample(0, EVENT, 0, 0, 1.0, 0));
+        assert!(e.play_sample(0, EVENT, 0, SampleCue::START, 1.0, 0));
         let peaks = run(&mut e, 400);
         assert!(
             (peaks[0] - 0.5).abs() < 1e-6,
@@ -861,7 +892,7 @@ mod tests {
     fn a_sample_plays_only_on_its_own_track() {
         let mut e = tracks(2);
         constant(&mut e, 0, 512, 0.5);
-        assert!(e.play_sample(0, EVENT, 0, 0, 1.0, 0));
+        assert!(e.play_sample(0, EVENT, 0, SampleCue::START, 1.0, 0));
         let mut peaks = [0.0; MAX_TRACKS];
         let mut other = 0.0f32;
         for _ in 0..400 {
@@ -875,14 +906,23 @@ mod tests {
     #[test]
     fn an_empty_slot_is_refused_and_stays_silent() {
         let mut e = engine();
-        assert!(!e.play_sample(0, EVENT, 0, 0, 1.0, 0), "nothing is loaded");
         assert!(
-            !e.play_sample(0, EVENT, NO_SLOT, 0, 1.0, 0),
+            !e.play_sample(0, EVENT, 0, SampleCue::START, 1.0, 0),
+            "nothing is loaded"
+        );
+        assert!(
+            !e.play_sample(0, EVENT, NO_SLOT, SampleCue::START, 1.0, 0),
             "no slot at all"
         );
-        assert!(!e.play_sample(9, EVENT, 0, 0, 1.0, 0), "no such track");
+        assert!(
+            !e.play_sample(9, EVENT, 0, SampleCue::START, 1.0, 0),
+            "no such track"
+        );
         constant(&mut e, 0, 512, 0.5);
-        assert!(!e.play_sample(0, EVENT, 0, 0, 0.0, 0), "silent gain");
+        assert!(
+            !e.play_sample(0, EVENT, 0, SampleCue::START, 0.0, 0),
+            "silent gain"
+        );
         assert!(!e.is_active());
         assert_eq!(run(&mut e, 64), [0.0; MAX_TRACKS]);
     }
@@ -893,7 +933,17 @@ mod tests {
         let mut frames = vec![0.25f32; 200];
         frames.extend_from_slice(&[0.75f32; 200]);
         load(&mut e, 0, &frames, 44_100.0);
-        assert!(e.play_sample(0, EVENT, 0, 200, 1.0, 0));
+        assert!(e.play_sample(
+            0,
+            EVENT,
+            0,
+            SampleCue {
+                elapsed_frames: 200.0,
+                ..SampleCue::START
+            },
+            1.0,
+            0
+        ));
         let peaks = run(&mut e, 1);
         assert!(
             (peaks[0] - 0.75).abs() < 1e-6,
@@ -910,13 +960,13 @@ mod tests {
         let mut fast = engine();
         fast.set_sample_rate(0, 44_100.0);
         load(&mut fast, 0, &frames, 44_100.0);
-        assert!(fast.play_sample(0, EVENT, 0, 0, 1.0, 0));
+        assert!(fast.play_sample(0, EVENT, 0, SampleCue::START, 1.0, 0));
         let fast_peaks = run(&mut fast, 150);
 
         let mut slow = engine();
         slow.set_sample_rate(0, 22_050.0);
         load(&mut slow, 0, &frames, 44_100.0);
-        assert!(slow.play_sample(0, EVENT, 0, 0, 1.0, 0));
+        assert!(slow.play_sample(0, EVENT, 0, SampleCue::START, 1.0, 0));
         let slow_peaks = run(&mut slow, 150);
 
         assert!(fast_peaks[0] > 0.5, "at engine rate it is half way through");
@@ -924,17 +974,54 @@ mod tests {
     }
 
     #[test]
+    fn a_cue_offset_enters_the_material_in_seconds() {
+        let mut frames = vec![0.0f32; 100];
+        frames.extend_from_slice(&[1.0f32; 100]);
+        let mut e = engine();
+        load(&mut e, 0, &frames, 44_100.0);
+        let cue = SampleCue {
+            offset_seconds: 150.0 / 44_100.0,
+            ..SampleCue::START
+        };
+        assert!(e.play_sample(0, EVENT, 0, cue, 1.0, 0));
+        assert!(run(&mut e, 1)[0] > 0.5, "the voice started past frame 100");
+    }
+
+    #[test]
+    fn a_cue_rate_scales_how_fast_the_material_runs() {
+        let mut frames = vec![0.0f32; 100];
+        frames.extend_from_slice(&[1.0f32; 100]);
+
+        let mut double = engine();
+        load(&mut double, 0, &frames, 44_100.0);
+        let cue = SampleCue {
+            rate: 2.0,
+            ..SampleCue::START
+        };
+        assert!(double.play_sample(0, EVENT, 0, cue, 1.0, 0));
+        let double_peaks = run(&mut double, 60);
+
+        let mut normal = engine();
+        load(&mut normal, 0, &frames, 44_100.0);
+        assert!(normal.play_sample(0, EVENT, 0, SampleCue::START, 1.0, 0));
+        let normal_peaks = run(&mut normal, 60);
+
+        assert!(double_peaks[0] > 0.5, "at double rate it read 120 frames");
+        assert_eq!(normal_peaks[0], 0.0, "at its own rate it read 60");
+    }
+
+    #[test]
     fn a_sample_and_a_synth_voice_on_one_track_sum() {
         let mut sample_only = engine();
         constant(&mut sample_only, 0, 512, 0.25);
-        assert!(sample_only.play_sample(0, EVENT, 0, 0, 1.0, 0));
+        assert!(sample_only.play_sample(0, EVENT, 0, SampleCue::START, 1.0, 0));
 
         let mut voice_only = engine();
         voice_only.note_on(0, 69, 100, HELD);
 
         let mut both = engine();
         constant(&mut both, 0, 512, 0.25);
-        assert!(both.play_sample(0, EVENT, 0, 0, 1.0, 0));
+        assert!(both.play_sample(0, EVENT, 0, SampleCue::START, 1.0, 0));
         both.note_on(0, 69, 100, HELD);
 
         let sample_peak = run(&mut sample_only, 400)[0];
@@ -953,7 +1040,7 @@ mod tests {
     fn a_finished_sample_goes_idle_and_the_track_stops() {
         let mut e = engine();
         constant(&mut e, 0, 100, 0.5);
-        assert!(e.play_sample(0, EVENT, 0, 0, 1.0, 0));
+        assert!(e.play_sample(0, EVENT, 0, SampleCue::START, 1.0, 0));
         assert!(e.is_active());
         run(&mut e, 100);
         assert!(!e.is_active(), "the voice count was given back");
@@ -964,7 +1051,7 @@ mod tests {
     fn all_notes_off_stops_a_sample_voice() {
         let mut e = engine();
         constant(&mut e, 0, 512, 0.5);
-        assert!(e.play_sample(0, EVENT, 0, 0, 1.0, 0));
+        assert!(e.play_sample(0, EVENT, 0, SampleCue::START, 1.0, 0));
         e.all_notes_off();
         assert!(e.is_active(), "the voice fades rather than cutting");
         run(&mut e, RELEASE_FADE_FRAMES as usize + 2);
@@ -978,8 +1065,8 @@ mod tests {
         let mut e = engine();
         constant(&mut e, 0, 512, 0.25);
         constant(&mut e, 1, 512, 0.5);
-        assert!(e.play_sample(0, EVENT, 0, 0, 1.0, 0));
-        assert!(e.play_sample(0, EVENT, 1, 0, 1.0, 0));
+        assert!(e.play_sample(0, EVENT, 0, SampleCue::START, 1.0, 0));
+        assert!(e.play_sample(0, EVENT, 1, SampleCue::START, 1.0, 0));
         let peaks = run(&mut e, 1);
         assert!((peaks[0] - 0.5).abs() < 1e-6, "the newer slot is playing");
     }
@@ -988,7 +1075,7 @@ mod tests {
     fn a_lower_track_count_releases_its_samples() {
         let mut e = tracks(2);
         constant(&mut e, 0, 512, 0.5);
-        assert!(e.play_sample(1, EVENT, 0, 0, 1.0, 0));
+        assert!(e.play_sample(1, EVENT, 0, SampleCue::START, 1.0, 0));
         e.set_track_count(1);
         assert!(!e.is_active());
         assert_eq!(run(&mut e, 32), [0.0; MAX_TRACKS]);
@@ -998,7 +1085,7 @@ mod tests {
     fn an_unloaded_slot_plays_nothing_once_it_is_freed() {
         let mut e = engine();
         constant(&mut e, 0, 512, 0.5);
-        assert!(e.play_sample(0, EVENT, 0, 0, 1.0, 0));
+        assert!(e.play_sample(0, EVENT, 0, SampleCue::START, 1.0, 0));
         e.push_sample(SampleMsg::Free { slot: 0 });
         assert_eq!(run(&mut e, 8), [0.0; MAX_TRACKS]);
         assert!(!e.is_active());
@@ -1016,7 +1103,7 @@ mod tests {
     fn releasing_a_sample_fades_it_out_and_frees_the_voice() {
         let mut e = engine();
         constant(&mut e, 0, 2_000, 0.5);
-        assert!(e.play_sample(0, EVENT, 0, 0, 1.0, 7));
+        assert!(e.play_sample(0, EVENT, 0, SampleCue::START, 1.0, 7));
         assert!(e.release_sample(0, 7));
         let mut peak_before = 0.0f32;
         let mut peaks = [0.0; MAX_TRACKS];
@@ -1034,7 +1121,7 @@ mod tests {
     fn a_release_for_another_blocks_tag_is_ignored() {
         let mut e = engine();
         constant(&mut e, 0, 2_000, 0.5);
-        assert!(e.play_sample(0, EVENT, 0, 0, 1.0, 3));
+        assert!(e.play_sample(0, EVENT, 0, SampleCue::START, 1.0, 3));
         assert!(!e.release_sample(0, 4), "a different block's end");
         assert!(!e.release_sample(9, 3), "no such track");
         assert!(e.is_active());
@@ -1044,7 +1131,7 @@ mod tests {
     fn releasing_a_sample_twice_is_a_no_op() {
         let mut e = engine();
         constant(&mut e, 0, 2_000, 0.5);
-        assert!(e.play_sample(0, EVENT, 0, 0, 1.0, 1));
+        assert!(e.play_sample(0, EVENT, 0, SampleCue::START, 1.0, 1));
         assert!(e.release_sample(0, 1));
         assert!(!e.release_sample(0, 1), "already releasing");
     }
