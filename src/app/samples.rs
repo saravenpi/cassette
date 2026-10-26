@@ -6,6 +6,7 @@
 //! never blocks the render path.
 
 use std::path::Path;
+use std::sync::Arc;
 
 use rtrb::Producer;
 
@@ -37,43 +38,19 @@ impl App {
             );
             return;
         }
-        let sample = match wav::decode(Path::new(&path), usize::MAX) {
-            Ok(sample) => sample,
-            Err(error) => {
-                self.status = format!("cannot read {path}: {error}");
-                return;
-            }
-        };
-        let Some(slot) = self.slot_for(&path) else {
-            self.status = format!("all {MAX_SAMPLE_SLOTS} sample slots are busy");
+        if !self.samples.contains_key(&path) && self.producer.is_none() {
+            self.status = "the audio thread takes no samples".into();
             return;
-        };
-        if !self.samples.contains_key(&path) {
-            if self.producer.is_none() {
-                self.status = "the audio thread takes no samples".into();
-                return;
-            }
-            if !push_load(self.producer.as_mut(), slot, &sample) {
-                if let Some(producer) = self.producer.as_mut() {
-                    let _ = producer.push(SampleMsg::Free { slot });
-                }
-                self.status = format!(
-                    "{path} dropped: another load is still in flight, try again in a moment"
-                );
-                return;
-            }
-            self.loaded_samples
-                .insert(slot, std::sync::Arc::from(sample.frames.as_slice()));
         }
-        self.samples.insert(path.clone(), slot);
-        self.send(crate::core::render::RtCommand::SetSampleRate {
-            slot,
-            rate: sample.sample_rate as f32,
-        });
-
-        let length_beats = (sample.frames.len() as f64
-            / sample.sample_rate as f64
-            / (60.0 / self.song.bpm() as f64)) as f32;
+        let loaded = match self.ensure_loaded(&path) {
+            Ok(loaded) => loaded,
+            Err(message) => {
+                self.status = message;
+                return;
+            }
+        };
+        let length_beats =
+            (loaded.frames as f64 / loaded.rate as f64 / (60.0 / self.song.bpm() as f64)) as f32;
         let name = Path::new(&path)
             .file_stem()
             .and_then(|stem| stem.to_str())
@@ -98,6 +75,55 @@ impl App {
         } else {
             format!("loaded {name} into track {}", track_index + 1)
         };
+        if let Some(note) = loaded.note {
+            self.status = format!("{}; {note}", self.status);
+        }
+    }
+
+    fn ensure_loaded(&mut self, path: &str) -> Result<Loaded, String> {
+        if let Some(&slot) = self.samples.get(path) {
+            let rate = wav::sample_rate(Path::new(path))
+                .map_err(|error| format!("cannot read {path}: {error:#}"))?;
+            let frames = self
+                .loaded_samples
+                .get(&slot)
+                .map_or(0, |frames| frames.len());
+            return Ok(Loaded {
+                slot,
+                frames,
+                rate,
+                note: None,
+            });
+        }
+        let slot = self
+            .slot_for(path)
+            .ok_or_else(|| format!("all {MAX_SAMPLE_SLOTS} sample slots are busy"))?;
+        let sample = wav::decode(Path::new(path), wav::MAX_DECODED_FRAMES)
+            .map_err(|error| format!("cannot read {path}: {error:#}"))?;
+        let note = decode_note(&sample);
+        let rate = sample.sample_rate;
+        let frames: Arc<[f32]> = Arc::from(sample.frames);
+        let count = frames.len();
+        if let Some(producer) = self.producer.as_mut()
+            && !push_load(producer, slot, rate, frames.clone())
+        {
+            let _ = producer.push(SampleMsg::Free { slot });
+            return Err(format!(
+                "{path} dropped: another load is still in flight, try again in a moment"
+            ));
+        }
+        self.loaded_samples.insert(slot, frames);
+        self.samples.insert(path.to_string(), slot);
+        self.send(crate::core::render::RtCommand::SetSampleRate {
+            slot,
+            rate: rate as f32,
+        });
+        Ok(Loaded {
+            slot,
+            frames: count,
+            rate,
+            note,
+        })
     }
 
     fn slot_for(&self, path: &str) -> Option<u8> {
@@ -111,35 +137,41 @@ impl App {
         if let Some(&slot) = self.samples.get(path) {
             return Some(slot);
         }
-        let sample = wav::decode(Path::new(path), usize::MAX).ok()?;
-        let slot = self.slot_for(path)?;
-        if let Some(producer) = self.producer.as_mut()
-            && !push_load(Some(producer), slot, &sample)
-        {
-            let _ = producer.push(SampleMsg::Free { slot });
-            return None;
+        let loaded = self.ensure_loaded(path).ok()?;
+        if let Some(note) = loaded.note {
+            self.status = format!("{path}: {note}");
         }
-        self.loaded_samples
-            .insert(slot, std::sync::Arc::from(sample.frames.as_slice()));
-        self.samples.insert(path.to_string(), slot);
-        self.send(crate::core::render::RtCommand::SetSampleRate {
-            slot,
-            rate: sample.sample_rate as f32,
-        });
-        Some(slot)
+        Some(loaded.slot)
     }
 }
 
-fn push_load(producer: Option<&mut Producer<SampleMsg>>, slot: u8, sample: &Sample) -> bool {
-    let Some(producer) = producer else {
-        return false;
-    };
-    let frames: std::sync::Arc<[f32]> = std::sync::Arc::from(sample.frames.as_slice());
+struct Loaded {
+    slot: u8,
+    frames: usize,
+    rate: u32,
+    note: Option<String>,
+}
+
+fn decode_note(sample: &Sample) -> Option<String> {
+    let mut notes = Vec::new();
+    if sample.truncated {
+        notes.push(format!(
+            "truncated to the first {} frames",
+            wav::MAX_DECODED_FRAMES
+        ));
+    }
+    if let Some(error) = &sample.error {
+        notes.push(format!("stopped early: {error}"));
+    }
+    (!notes.is_empty()).then(|| notes.join(", "))
+}
+
+fn push_load(producer: &mut Producer<SampleMsg>, slot: u8, rate: u32, frames: Arc<[f32]>) -> bool {
     producer
         .push(SampleMsg::Load {
             slot,
             frames,
-            rate: sample.sample_rate as f32,
+            rate: rate as f32,
         })
         .is_ok()
 }
@@ -299,6 +331,43 @@ mod tests {
         });
         assert!(app.song.tracks[2].blocks.is_empty());
         assert!(app.status.contains("busy"), "status: {}", app.status);
+    }
+
+    #[test]
+    fn a_full_slot_table_refuses_before_touching_the_file() {
+        let mut app = headless_app();
+        for slot in 0..MAX_SAMPLE_SLOTS as u8 {
+            app.samples.insert(format!("/tmp/taken-{slot}.wav"), slot);
+        }
+        app.handle(Event::ImportSample {
+            track: 2,
+            path: "/nonexistent/cassette.wav".into(),
+            start_beats: 0.0,
+        });
+        assert!(app.status.contains("busy"), "status: {}", app.status);
+    }
+
+    #[test]
+    fn a_truncated_or_cut_short_decode_is_reported() {
+        let clean = Sample {
+            frames: vec![0.0],
+            sample_rate: 44_100,
+            source_channels: 1,
+            source_frames: 1,
+            truncated: false,
+            error: None,
+        };
+        assert_eq!(decode_note(&clean), None);
+        let cut = Sample {
+            truncated: true,
+            error: Some("boom".into()),
+            ..clean
+        };
+        let note = decode_note(&cut).expect("a note");
+        assert!(
+            note.contains("truncated") && note.contains("boom"),
+            "{note}"
+        );
     }
 
     #[test]

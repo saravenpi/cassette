@@ -7,6 +7,7 @@
 use std::fs::File;
 use std::io::Cursor;
 use std::path::Path;
+use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
 use symphonia::core::audio::SampleBuffer;
@@ -15,9 +16,11 @@ use symphonia::core::errors::Error as SymphoniaError;
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::io::{MediaSource, MediaSourceStream};
 use symphonia::core::meta::MetadataOptions;
-use symphonia::core::probe::Hint;
+use symphonia::core::probe::{Hint, ProbeResult};
 
 const MAX_FILE_BYTES: u64 = 256 * 1024 * 1024;
+
+pub const MAX_DECODED_FRAMES: usize = 10 * 60 * 48_000;
 
 const FORMAT_PCM: u16 = 1;
 const FORMAT_FLOAT: u16 = 3;
@@ -25,17 +28,31 @@ const FORMAT_EXTENSIBLE: u16 = 0xFFFE;
 
 const MAX_CHANNELS: u16 = 32;
 
+const STREAMING_SIZE: usize = 0xFFFF_FFFF;
+
 #[derive(Clone, Debug)]
 pub struct Sample {
     pub frames: Vec<f32>,
     pub sample_rate: u32,
-    pub channels: u16,
+    pub source_channels: u16,
     pub source_frames: usize,
     pub truncated: bool,
+    pub error: Option<String>,
 }
 
-pub fn decode(path: &Path, max_frames: usize) -> Result<Sample> {
+struct Shared(Arc<Vec<u8>>);
+
+impl AsRef<[u8]> for Shared {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+fn check_file(path: &Path) -> Result<()> {
     let meta = std::fs::metadata(path).with_context(|| format!("reading {}", path.display()))?;
+    if !meta.is_file() {
+        bail!("{} is not a regular file", path.display());
+    }
     if meta.len() > MAX_FILE_BYTES {
         bail!(
             "{} is {} bytes, past the {} byte ceiling",
@@ -44,39 +61,82 @@ pub fn decode(path: &Path, max_frames: usize) -> Result<Sample> {
             MAX_FILE_BYTES
         );
     }
+    Ok(())
+}
+
+fn hint_for(path: &Path) -> Hint {
     let mut hint = Hint::new();
     if let Some(ext) = path.extension().and_then(|ext| ext.to_str()) {
         hint.with_extension(ext);
     }
+    hint
+}
+
+pub fn decode(path: &Path, max_frames: usize) -> Result<Sample> {
+    check_file(path)?;
+    let hint = hint_for(path);
     let file = File::open(path).with_context(|| format!("opening {}", path.display()))?;
     decode_stream(Box::new(file), &hint, max_frames)
-        .or_else(|_| {
-            let bytes = std::fs::read(path)?;
-            decode_bytes(&bytes, max_frames)
-        })
+        .or_else(|_| decode_owned(std::fs::read(path)?, max_frames))
         .with_context(|| format!("decoding {}", path.display()))
 }
 
-pub fn encode_pcm16(path: &Path, frames: &[f32], channels: u16, sample_rate: u32) -> Result<()> {
-    let bits: u16 = 16;
-    let block_align = channels * (bits / 8);
-    let byte_rate = sample_rate * block_align as u32;
-    let data_len = frames.len() * 2;
-    let total_len = 36 + data_len;
+pub fn sample_rate(path: &Path) -> Result<u32> {
+    check_file(path)?;
+    let file = File::open(path).with_context(|| format!("opening {}", path.display()))?;
+    let probed = probe(Box::new(file), &hint_for(path))?;
+    probed
+        .format
+        .tracks()
+        .iter()
+        .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
+        .and_then(|t| t.codec_params.sample_rate)
+        .context("missing sample rate")
+}
 
-    let mut bytes = Vec::with_capacity(44 + data_len);
+struct PcmLengths {
+    data: u32,
+    total: u32,
+    block_align: u16,
+    byte_rate: u32,
+}
+
+fn pcm16_lengths(samples: usize, channels: u16, sample_rate: u32) -> Result<PcmLengths> {
+    let data = u32::try_from((samples as u64).saturating_mul(2))
+        .ok()
+        .filter(|data| data.checked_add(36).is_some())
+        .context("output is past the 4 GiB limit of a WAV file")?;
+    let block_align = channels
+        .checked_mul(2)
+        .context("too many channels for a WAV file")?;
+    let byte_rate = sample_rate
+        .checked_mul(block_align as u32)
+        .context("sample rate is too high for a WAV file")?;
+    Ok(PcmLengths {
+        data,
+        total: data + 36,
+        block_align,
+        byte_rate,
+    })
+}
+
+pub fn encode_pcm16(path: &Path, frames: &[f32], channels: u16, sample_rate: u32) -> Result<()> {
+    let lengths = pcm16_lengths(frames.len(), channels, sample_rate)?;
+    let bits: u16 = 16;
+
+    let mut bytes = Vec::with_capacity(44 + lengths.data as usize);
     bytes.extend_from_slice(b"RIFF");
-    bytes.extend_from_slice(&(total_len as u32).to_le_bytes());
+    bytes.extend_from_slice(&lengths.total.to_le_bytes());
     bytes.extend_from_slice(b"WAVEfmt ");
     bytes.extend_from_slice(&16u32.to_le_bytes());
     bytes.extend_from_slice(&FORMAT_PCM.to_le_bytes());
     bytes.extend_from_slice(&channels.to_le_bytes());
     bytes.extend_from_slice(&sample_rate.to_le_bytes());
-    bytes.extend_from_slice(&byte_rate.to_le_bytes());
-    bytes.extend_from_slice(&block_align.to_le_bytes());
+    bytes.extend_from_slice(&lengths.byte_rate.to_le_bytes());
+    bytes.extend_from_slice(&lengths.block_align.to_le_bytes());
     bytes.extend_from_slice(&bits.to_le_bytes());
     bytes.extend_from_slice(b"data");
-    bytes.extend_from_slice(&(data_len as u32).to_le_bytes());
+    bytes.extend_from_slice(&lengths.data.to_le_bytes());
 
     for &sample in frames {
         let clamped = sample.clamp(-1.0, 1.0);
@@ -93,31 +153,54 @@ pub fn encode_pcm16(path: &Path, frames: &[f32], channels: u16, sample_rate: u32
 }
 
 pub fn decode_bytes(bytes: &[u8], max_frames: usize) -> Result<Sample> {
+    decode_owned(bytes.to_vec(), max_frames)
+}
+
+fn decode_owned(bytes: Vec<u8>, max_frames: usize) -> Result<Sample> {
     let mut hint = Hint::new();
     hint.with_extension("wav");
-    decode_stream(Box::new(Cursor::new(bytes.to_vec())), &hint, max_frames).or_else(|_| {
-        let header = parse(bytes)?;
+    let shared = Arc::new(bytes);
+    decode_stream(
+        Box::new(Cursor::new(Shared(shared.clone()))),
+        &hint,
+        max_frames,
+    )
+    .or_else(|_| {
+        let header = parse(&shared)?;
         let frames = header.decode(max_frames);
         Ok(Sample {
             frames,
             sample_rate: header.sample_rate,
-            channels: header.channels,
+            source_channels: header.channels,
             source_frames: header.frames,
             truncated: header.frames > max_frames,
+            error: None,
         })
     })
 }
 
-fn decode_stream(source: Box<dyn MediaSource>, hint: &Hint, max_frames: usize) -> Result<Sample> {
+fn probe(source: Box<dyn MediaSource>, hint: &Hint) -> Result<ProbeResult> {
     let mss = MediaSourceStream::new(source, Default::default());
-    let probed = symphonia::default::get_probe()
+    symphonia::default::get_probe()
         .format(
             hint,
             mss,
             &FormatOptions::default(),
             &MetadataOptions::default(),
         )
-        .context("probing audio format")?;
+        .context("probing audio format")
+}
+
+fn is_end_of_stream(error: &SymphoniaError) -> bool {
+    match error {
+        SymphoniaError::IoError(e) => e.kind() == std::io::ErrorKind::UnexpectedEof,
+        SymphoniaError::ResetRequired => true,
+        _ => false,
+    }
+}
+
+fn decode_stream(source: Box<dyn MediaSource>, hint: &Hint, max_frames: usize) -> Result<Sample> {
+    let probed = probe(source, hint)?;
     let mut format = probed.format;
     let track = format
         .tracks()
@@ -129,80 +212,95 @@ fn decode_stream(source: Box<dyn MediaSource>, hint: &Hint, max_frames: usize) -
         .codec_params
         .sample_rate
         .context("missing sample rate")?;
-    let channels = track
-        .codec_params
-        .channels
-        .map(|c| c.count() as u16)
-        .unwrap_or(1);
     let mut decoder = symphonia::default::get_codecs()
         .make(&track.codec_params, &DecoderOptions::default())
         .context("creating audio decoder")?;
 
     let mut sample_buf: Option<SampleBuffer<f32>> = None;
+    let mut buf_frames = 0u64;
     let mut frames = Vec::new();
     let mut source_frames = 0;
+    let mut source_channels = 0u16;
+    let mut truncated = false;
+    let mut error = None;
 
-    while let Ok(packet) = format.next_packet() {
+    loop {
+        let packet = match format.next_packet() {
+            Ok(packet) => packet,
+            Err(e) if is_end_of_stream(&e) => break,
+            Err(e) => {
+                error = Some(format!("reading audio packet: {e}"));
+                break;
+            }
+        };
         if packet.track_id() != track_id {
             continue;
         }
-        match decoder.decode(&packet) {
-            Ok(decoded) => {
-                if sample_buf.is_none() {
-                    let spec = *decoded.spec();
-                    let duration = decoded.capacity() as u64;
-                    sample_buf = Some(SampleBuffer::<f32>::new(duration, spec));
-                }
-                if let Some(buf) = &mut sample_buf {
-                    buf.copy_interleaved_ref(decoded);
-                    let samples = buf.samples();
-                    let ch = channels.max(1) as usize;
-                    let packet_frames = samples.len() / ch;
-                    source_frames += packet_frames;
-                    for frame_idx in 0..packet_frames {
-                        if frames.len() < max_frames {
-                            let mut sum = 0.0f32;
-                            for c in 0..ch {
-                                sum += samples[frame_idx * ch + c];
-                            }
-                            frames.push(sum / ch as f32);
-                        }
-                    }
-                }
-            }
-            Err(SymphoniaError::IoError(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+        if frames.len() >= max_frames {
+            truncated = true;
+            break;
+        }
+        let decoded = match decoder.decode(&packet) {
+            Ok(decoded) => decoded,
+            Err(SymphoniaError::DecodeError(_)) => continue,
+            Err(e) if is_end_of_stream(&e) => break,
+            Err(e) => {
+                error = Some(format!("decoding audio packet: {e}"));
                 break;
             }
-            Err(SymphoniaError::DecodeError(_)) => {
-                continue;
-            }
-            Err(e) => {
-                bail!("decoding audio packet: {e}");
-            }
+        };
+        let spec = *decoded.spec();
+        let ch = spec.channels.count().max(1);
+        source_channels = ch as u16;
+        let capacity = decoded.capacity() as u64;
+        if sample_buf.is_none() || capacity > buf_frames {
+            sample_buf = Some(SampleBuffer::<f32>::new(capacity, spec));
+            buf_frames = capacity;
         }
+        let Some(buf) = &mut sample_buf else {
+            continue;
+        };
+        buf.copy_interleaved_ref(decoded);
+        let samples = buf.samples();
+        let packet_frames = samples.len() / ch;
+        source_frames += packet_frames;
+        let room = max_frames - frames.len();
+        if packet_frames > room {
+            truncated = true;
+        }
+        frames.extend(
+            samples
+                .chunks_exact(ch)
+                .take(room)
+                .map(|frame| frame.iter().sum::<f32>() / ch as f32),
+        );
     }
 
     if source_frames == 0 {
-        bail!("audio stream contained no playable frames");
+        match error {
+            Some(error) => bail!("{error}"),
+            None => bail!("audio stream contained no playable frames"),
+        }
     }
 
     Ok(Sample {
         frames,
         sample_rate,
-        channels,
+        source_channels,
         source_frames,
-        truncated: source_frames > max_frames,
+        truncated,
+        error,
     })
 }
 
 /// The parts of the file the decoder needs.
-struct Header {
+struct Header<'a> {
     format: u16,
     bits: u16,
     channels: u16,
     sample_rate: u32,
     frames: usize,
-    data: Vec<u8>,
+    data: &'a [u8],
 }
 
 /// Little-endian `u16` at `at`, or `None` when the buffer is too short.
@@ -218,7 +316,7 @@ fn u32_at(bytes: &[u8], at: usize) -> Option<u32> {
 }
 
 /// Walk the RIFF chunks and pull out `fmt ` and `data`.
-fn parse(bytes: &[u8]) -> Result<Header> {
+fn parse(bytes: &[u8]) -> Result<Header<'_>> {
     if bytes.len() < 12 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
         bail!("not a RIFF/WAVE file");
     }
@@ -227,17 +325,19 @@ fn parse(bytes: &[u8]) -> Result<Header> {
     let mut bits = 0u16;
     let mut channels = 0u16;
     let mut sample_rate = 0u32;
-    let mut data: Option<Vec<u8>> = None;
+    let mut data: Option<&[u8]> = None;
 
     let mut at = 12;
     while at + 8 <= bytes.len() {
         let id = &bytes[at..at + 4];
         let size = u32_at(bytes, at + 4).context("chunk size")? as usize;
         let body = at + 8;
-        let end = body
-            .checked_add(size)
-            .filter(|end| *end <= bytes.len())
-            .context("chunk runs past the end of the file")?;
+        let streaming = id == b"data" && (size == 0 || size == STREAMING_SIZE);
+        let end = if streaming {
+            bytes.len()
+        } else {
+            body.saturating_add(size).min(bytes.len())
+        };
 
         match id {
             b"fmt " => {
@@ -245,18 +345,16 @@ fn parse(bytes: &[u8]) -> Result<Header> {
                 channels = u16_at(bytes, body + 2).context("fmt channels")?;
                 sample_rate = u32_at(bytes, body + 4).context("fmt sample rate")?;
                 bits = u16_at(bytes, body + 14).context("fmt bits per sample")?;
-                // WAVE_FORMAT_EXTENSIBLE hides the real format in a subformat GUID.
                 format = Some(if raw == FORMAT_EXTENSIBLE {
                     u16_at(bytes, body + 24).context("extensible subformat")?
                 } else {
                     raw
                 });
             }
-            b"data" => data = Some(bytes[body..end].to_vec()),
+            b"data" => data = Some(&bytes[body..end]),
             _ => {}
         }
 
-        // Chunks are word-aligned: an odd size carries one byte of padding.
         at = end + (size & 1);
     }
 
@@ -272,10 +370,13 @@ fn parse(bytes: &[u8]) -> Result<Header> {
         bail!("unsupported WAV format {format}");
     }
 
-    let bytes_per_frame = (bits as usize / 8) * channels as usize;
-    if bytes_per_frame == 0 {
-        bail!("{bits} bits per sample is not a depth");
+    if !matches!(
+        (format, bits),
+        (FORMAT_PCM, 8 | 16 | 24 | 32) | (FORMAT_FLOAT, 32 | 64)
+    ) {
+        bail!("{bits} bits per sample is not supported for WAV format {format}");
     }
+    let bytes_per_frame = (bits as usize / 8) * channels as usize;
     let frames = data.len() / bytes_per_frame;
 
     Ok(Header {
@@ -288,7 +389,7 @@ fn parse(bytes: &[u8]) -> Result<Header> {
     })
 }
 
-impl Header {
+impl Header<'_> {
     /// Downmix the interleaved frames to mono.
     fn decode(&self, max_frames: usize) -> Vec<f32> {
         let channels = self.channels as usize;
@@ -308,7 +409,7 @@ impl Header {
 
     /// One channel's sample, normalised to `[-1, 1]`.
     fn value_at(&self, at: usize) -> f32 {
-        let bytes = &self.data;
+        let bytes = self.data;
         match (self.format, self.bits) {
             (FORMAT_FLOAT, 32) => u32_at(bytes, at).map_or(0.0, f32::from_bits),
             (FORMAT_FLOAT, 64) => bytes
@@ -318,7 +419,6 @@ impl Header {
                     f64::from_le_bytes(raw) as f32
                 })
                 .unwrap_or(0.0),
-            // 8-bit PCM is unsigned, unlike every deeper depth.
             (FORMAT_PCM, 8) => bytes.get(at).map_or(0.0, |byte| *byte as f32 / 128.0 - 1.0),
             (FORMAT_PCM, 16) => i16_at(bytes, at).map_or(0.0, |raw| raw as f32 / 32_768.0),
             (FORMAT_PCM, 24) => i24_at(bytes, at).map_or(0.0, |raw| raw as f32 / 8_388_608.0),
@@ -381,7 +481,7 @@ mod tests {
         let bytes = pcm16(&[0, 16_384, -16_384], 1);
         let sample = decode_bytes(&bytes, 1_000).expect("should decode");
         assert_eq!(sample.frames.len(), 3);
-        assert_eq!(sample.channels, 1);
+        assert_eq!(sample.source_channels, 1);
         assert_eq!(sample.sample_rate, 44_100);
         assert!((sample.frames[0]).abs() < 1e-6);
         assert!((sample.frames[1] - 0.5).abs() < 1e-4);
@@ -390,7 +490,6 @@ mod tests {
 
     #[test]
     fn stereo_is_downmixed_to_mono() {
-        // Full left, silence right: the downmix is half amplitude, not full.
         let bytes = pcm16(&[32_767, 0, 32_767, 0], 2);
         let sample = decode_bytes(&bytes, 1_000).expect("should decode");
         assert_eq!(sample.frames.len(), 2);
@@ -423,12 +522,10 @@ mod tests {
         assert!((sample.frames[0] - 0.25).abs() < 1e-6);
         assert!((sample.frames[1] + 0.5).abs() < 1e-6);
 
-        // 24-bit: 0x7FFFFF is the positive ceiling.
         let sample =
             decode_bytes(&wav(FORMAT_PCM, 24, 1, 44_100, &[0xff, 0xff, 0x7f]), 10).expect("i24");
         assert!((sample.frames[0] - 1.0).abs() < 1e-6);
 
-        // 8-bit PCM is unsigned: 0x80 is silence, 0xff is positive.
         let sample = decode_bytes(&wav(FORMAT_PCM, 8, 1, 44_100, &[0x80, 0xff]), 10).expect("u8");
         assert!(sample.frames[0].abs() < 1e-6);
         assert!((sample.frames[1] - 0.992).abs() < 0.01);
@@ -481,7 +578,7 @@ mod tests {
             return;
         }
         let sample = decode(&path, 96_000).expect("the repo sample should decode");
-        assert_eq!(sample.channels, 2);
+        assert_eq!(sample.source_channels, 2);
         assert_eq!(sample.sample_rate, 44_100);
         assert_eq!(sample.frames.len(), 96_000);
         assert!(sample.truncated, "the file is longer than the ceiling");
@@ -496,7 +593,7 @@ mod tests {
                 continue;
             }
             let sample = decode(&path, 96_000).expect("should decode audio file");
-            assert!(sample.channels >= 1);
+            assert!(sample.source_channels >= 1);
             assert!(sample.sample_rate > 0);
             assert!(!sample.frames.is_empty());
         }
@@ -510,11 +607,90 @@ mod tests {
         encode_pcm16(&path, &original_frames, 1, 44_100).expect("encoding should succeed");
         let decoded = decode(&path, 100).expect("decoding should succeed");
         let _ = std::fs::remove_file(&path);
-        assert_eq!(decoded.channels, 1);
+        assert_eq!(decoded.source_channels, 1);
         assert_eq!(decoded.sample_rate, 44_100);
         assert_eq!(decoded.frames.len(), 4);
         assert!((decoded.frames[0]).abs() < 1e-3);
         assert!((decoded.frames[1] - 0.5).abs() < 1e-3);
         assert!((decoded.frames[2] + 0.5).abs() < 1e-3);
+    }
+
+    fn declare_data_size(mut bytes: Vec<u8>, size: u32) -> Vec<u8> {
+        bytes[40..44].copy_from_slice(&size.to_le_bytes());
+        bytes
+    }
+
+    #[test]
+    fn a_data_size_past_the_end_is_clamped_to_the_bytes_present() {
+        let bytes = declare_data_size(pcm16(&[1_000, 2_000, 3_000], 1), 1_000_000);
+        let sample = decode_bytes(&bytes, 100).expect("should decode");
+        assert_eq!(sample.frames.len(), 3);
+        let header = parse(&bytes).expect("should parse");
+        assert_eq!(header.frames, 3);
+    }
+
+    #[test]
+    fn streaming_headers_read_to_the_end_of_the_file() {
+        for size in [0, u32::MAX] {
+            let bytes = declare_data_size(pcm16(&[1_000, 2_000, 3_000], 1), size);
+            let header = parse(&bytes).expect("should parse");
+            assert_eq!(header.frames, 3, "declared size {size}");
+        }
+    }
+
+    #[test]
+    fn an_unsupported_bit_depth_is_rejected_not_silenced() {
+        let bytes = wav(FORMAT_PCM, 12, 1, 44_100, &[0; 8]);
+        assert!(parse(&bytes).is_err());
+        let bytes = wav(FORMAT_FLOAT, 16, 1, 44_100, &[0; 8]);
+        assert!(parse(&bytes).is_err());
+        assert!(decode_bytes(&bytes, 10).is_err());
+    }
+
+    #[test]
+    fn the_channel_count_comes_from_the_decoded_buffer() {
+        let sample = decode_bytes(&pcm16(&[100, 200, 300, 400], 2), 10).expect("should decode");
+        assert_eq!(sample.source_channels, 2);
+        assert_eq!(sample.frames.len(), 2);
+    }
+
+    #[test]
+    fn a_clean_stream_reports_no_error() {
+        let sample = decode_bytes(&pcm16(&[1, 2, 3], 1), 10).expect("should decode");
+        assert!(sample.error.is_none());
+    }
+
+    #[test]
+    fn only_real_end_of_stream_errors_end_quietly() {
+        let eof = SymphoniaError::IoError(std::io::ErrorKind::UnexpectedEof.into());
+        let broken = SymphoniaError::IoError(std::io::ErrorKind::PermissionDenied.into());
+        assert!(is_end_of_stream(&eof));
+        assert!(is_end_of_stream(&SymphoniaError::ResetRequired));
+        assert!(!is_end_of_stream(&broken));
+        assert!(!is_end_of_stream(&SymphoniaError::Unsupported("x")));
+    }
+
+    #[test]
+    fn a_directory_is_not_a_sample() {
+        assert!(decode(&std::env::temp_dir(), 10).is_err());
+        assert!(sample_rate(&std::env::temp_dir()).is_err());
+    }
+
+    #[test]
+    fn the_rate_can_be_probed_without_decoding() {
+        let path = std::env::temp_dir().join("cassette_test_probe_rate.wav");
+        std::fs::write(&path, pcm16(&[0, 1, 2], 1)).expect("should write");
+        let rate = sample_rate(&path);
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(rate.expect("should probe"), 44_100);
+    }
+
+    #[test]
+    fn output_past_four_gibibytes_is_an_error_not_an_overflow() {
+        assert!(pcm16_lengths(usize::MAX / 4, 2, 44_100).is_err());
+        assert!(pcm16_lengths(1 << 31, 2, 44_100).is_err());
+        assert!(pcm16_lengths(16, u16::MAX, 44_100).is_err());
+        let ok = pcm16_lengths(4, 2, 44_100).expect("a small file fits");
+        assert_eq!((ok.data, ok.total), (8, 44));
     }
 }
