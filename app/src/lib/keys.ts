@@ -1,6 +1,6 @@
 /**
- * The webview keymap: the piano row, the engine commands, and the two zoom keys
- * and scroll key that only the interface itself handles.
+ * The webview keymap: the piano row, the engine commands, and the zoom, scroll
+ * and piano roll keys that only the interface itself handles.
  */
 
 import type { EngineEvent } from './wire';
@@ -49,14 +49,18 @@ const COMMANDS: Record<string, EngineEvent> = {
 };
 
 /** An intent the interface answers itself, because no engine event describes it. */
-type LocalIntent = 'zoomIn' | 'zoomOut' | 'scrollStart';
+type LocalIntent = 'zoomIn' | 'zoomOut' | 'scrollStart' | 'openRoll' | 'closeRoll';
 
 /**
  * The minus and equals keys already nudge the volume, so the zoom pair sits on
- * their shifted characters (`+` and `_`) plus the numeric keypad.
+ * their shifted characters (`+` and `_`) plus the numeric keypad. Enter already
+ * adds a block, so the piano roll opens on `P` and closes on Escape, which is
+ * free whenever no name is being typed.
  */
 const LOCAL: Record<string, LocalIntent> = {
 	Home: 'scrollStart',
+	KeyP: 'openRoll',
+	Escape: 'closeRoll',
 	NumpadAdd: 'zoomIn',
 	NumpadSubtract: 'zoomOut'
 };

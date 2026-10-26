@@ -1,5 +1,5 @@
 /**
- * The window keymap. It turns key presses into engine intents and into the two
+ * The window keymap. It turns key presses into engine intents and into the
  * intents only the interface answers itself, and it releases every held note when
  * the window loses focus. Nothing here is bound to a component.
  */
@@ -15,6 +15,8 @@ interface KeyboardHost {
 	sendNow(event: EngineEvent): void;
 	setZoom(direction: number): void;
 	requestScrollStart(): void;
+	openSelectedRoll(): void;
+	closeRoll(): void;
 }
 
 /** Velocity the on-screen keyboard plays at. */
@@ -48,6 +50,10 @@ export function attachKeyboard(host: KeyboardHost): () => void {
 			const local = localFor(event, host.renaming);
 			if (local === 'scrollStart') {
 				if (!event.repeat) host.requestScrollStart();
+			} else if (local === 'openRoll') {
+				if (!event.repeat) host.openSelectedRoll();
+			} else if (local === 'closeRoll') {
+				host.closeRoll();
 			} else if (local === 'zoomIn') {
 				host.setZoom(1);
 			} else if (local === 'zoomOut') {

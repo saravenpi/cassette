@@ -1,14 +1,16 @@
 /**
  * The one place that owns interface state. It polls the engine once per animation
  * frame, holds the snapshot every component reads, funnels intent back through one
- * queue so a drag or a fader sends at most one message per frame, and hands the
- * block drags to the drag controller.
+ * queue so a drag or a fader sends at most one message per frame, hands the
+ * block drags to the drag controller, and remembers which block the piano roll
+ * has open.
  */
 
 import { pickProject, send as sendEvent, sendNow as sendWithoutWaiting, state } from './api';
 import { DragController } from './drag.svelte';
 import { ZOOM_DEFAULT, zoomBy } from './geometry';
 import { attachKeyboard } from './keyboard';
+import { locateBlock } from './pianoRoll';
 import { KeyedQueue, nextBackoff } from './queue';
 import type { EngineEvent, UiState } from './wire';
 
@@ -22,6 +24,19 @@ export interface Voice {
 	release: number;
 }
 
+/**
+ * The MIDI block the piano roll edits, with what identifies it across re-sorts.
+ * `serial` changes only when a block is opened, so the pane can tell a fresh
+ * open from the same block moving.
+ */
+export interface OpenBlock {
+	serial: number;
+	track: number;
+	block: number;
+	name: string;
+	startBeats: number;
+}
+
 function message(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
@@ -31,6 +46,7 @@ class Session {
 	error = $state<string | null>(null);
 	zoom = $state(ZOOM_DEFAULT);
 	scrollRequest = $state(0);
+	roll = $state<OpenBlock | null>(null);
 	drag: DragController;
 
 	private errorFrom: 'poll' | 'send' | null = null;
@@ -39,6 +55,9 @@ class Session {
 	private polling = false;
 	private mix = new KeyedQueue<EngineEvent>();
 	private voice = new KeyedQueue<EngineEvent>();
+	private noteDrag = new KeyedQueue<EngineEvent>();
+	private noteVelocity = new KeyedQueue<EngineEvent>();
+	private opened = 0;
 	private backoff = 0;
 	private resumeAt = 0;
 
@@ -115,6 +134,52 @@ class Session {
 		this.voice.set(index, { setInstrument: { track: index, ...voice } });
 	}
 
+	/** Open the piano roll on a block, if it is a MIDI block. */
+	openRoll(track: number, block: number): void {
+		const view = this.snapshot?.tracks[track]?.blocks[block];
+		if (view === undefined || view.kind !== 'midi') return;
+		this.opened += 1;
+		this.roll = { serial: this.opened, track, block, name: view.name, startBeats: view.startBeats };
+	}
+
+	/** Open the piano roll on the block under the cursor. */
+	openSelectedRoll(): void {
+		const cursor = this.snapshot?.cursor;
+		if (cursor !== undefined) this.openRoll(cursor.track, cursor.block);
+	}
+
+	/** Close the piano roll. */
+	closeRoll(): void {
+		this.roll = null;
+	}
+
+	/** Move a note of the open block, collapsed to one message per frame. */
+	queueNoteMove(note: number, pitch: number, startBeats: number): void {
+		const roll = this.roll;
+		if (roll === null) return;
+		this.noteDrag.set(note, {
+			moveNote: { track: roll.track, block: roll.block, note, pitch, startBeats }
+		});
+	}
+
+	/** Resize a note of the open block, collapsed to one message per frame. */
+	queueNoteResize(note: number, lengthBeats: number): void {
+		const roll = this.roll;
+		if (roll === null) return;
+		this.noteDrag.set(note, {
+			resizeNote: { track: roll.track, block: roll.block, note, lengthBeats }
+		});
+	}
+
+	/** Set a note's velocity on the open block, collapsed to one message per frame. */
+	queueNoteVelocity(note: number, velocity: number): void {
+		const roll = this.roll;
+		if (roll === null) return;
+		this.noteVelocity.set(note, {
+			setNoteVelocity: { track: roll.track, block: roll.block, note, velocity }
+		});
+	}
+
 	/** Ask for a project file and load it. */
 	async loadProjectFromDialog(): Promise<void> {
 		try {
@@ -157,6 +222,7 @@ class Session {
 				return;
 			}
 			this.clear('poll');
+			this.followRoll();
 			this.backoff = 0;
 			this.resumeAt = 0;
 			await this.drag.flush();
@@ -167,7 +233,30 @@ class Session {
 	}
 
 	private async flushQueued(): Promise<void> {
-		for (const event of [...this.mix.drain(), ...this.voice.drain()]) await this.send(event);
+		const queued = [
+			...this.mix.drain(),
+			...this.voice.drain(),
+			...this.noteDrag.drain(),
+			...this.noteVelocity.drain()
+		];
+		for (const event of queued) await this.send(event);
+	}
+
+	/** Keep the piano roll on its block as the lane re-sorts, and close it once the block is gone. */
+	private followRoll(): void {
+		const roll = this.roll;
+		const snapshot = this.snapshot;
+		if (roll === null || snapshot === null) return;
+		const blocks = snapshot.tracks[roll.track]?.blocks ?? [];
+		const index = locateBlock(blocks, roll.block, roll.name, roll.startBeats);
+		if (index === null) {
+			this.roll = null;
+			return;
+		}
+		const view = blocks[index];
+		const same = index === roll.block && view.name === roll.name;
+		if (same && view.startBeats === roll.startBeats) return;
+		this.roll = { ...roll, block: index, name: view.name, startBeats: view.startBeats };
 	}
 
 	private fail(error: unknown, from: 'poll' | 'send'): void {

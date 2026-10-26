@@ -96,6 +96,11 @@ describe('localFor', () => {
 		expect(localFor(press('Equal', '='), false)).toBeNull();
 	});
 
+	test('opens the piano roll on P and closes it on Escape', () => {
+		expect(localFor(press('KeyP', 'p'), false)).toBe('openRoll');
+		expect(localFor(press('Escape'), false)).toBe('closeRoll');
+	});
+
 	test('returns null for anything else', () => {
 		expect(localFor(press('KeyQ', 'q'), false)).toBeNull();
 		expect(localFor(press('Space', ' '), false)).toBeNull();
@@ -274,7 +279,7 @@ describe('intentFor when not renaming', () => {
 		expect(intentFor(held(press('Minus', '_')), false)).toBeNull();
 	});
 
-	test('returns null for Escape, which only cancels a rename', () => {
+	test('leaves Escape to the interface, which closes the piano roll with it', () => {
 		expect(intentFor(press('Escape'), false)).toBeNull();
 	});
 
@@ -305,17 +310,18 @@ describe('isAppKey', () => {
 	test('returns false for a key the app does not own, such as F1 or Tab', () => {
 		expect(isAppKey(press('F1'), false)).toBe(false);
 		expect(isAppKey(press('Tab'), false)).toBe(false);
-		expect(isAppKey(press('Escape'), false)).toBe(false);
 		expect(isAppKey(press('Shift'), false)).toBe(false);
 	});
 
 	test('returns false for an unbound letter such as KeyQ', () => {
 		expect(isAppKey(press('KeyQ', 'q'), false)).toBe(false);
-		expect(isAppKey(press('KeyP', 'p'), false)).toBe(false);
+		expect(isAppKey(press('KeyB', 'b'), false)).toBe(false);
 	});
 
-	test('returns true for the zoom and scroll keys the interface owns', () => {
+	test('returns true for the zoom, scroll and piano roll keys the interface owns', () => {
 		expect(isAppKey(press('Home'), false)).toBe(true);
+		expect(isAppKey(press('KeyP', 'p'), false)).toBe(true);
+		expect(isAppKey(press('Escape'), false)).toBe(true);
 		expect(isAppKey(press('NumpadAdd', '+'), false)).toBe(true);
 		expect(isAppKey(press('NumpadSubtract', '-'), false)).toBe(true);
 		expect(isAppKey(held(press('Equal', '+')), false)).toBe(true);
