@@ -297,3 +297,19 @@ Loop points, frame-accurate note starts, and a review pass over v0.9.0.
 
 - `tauri dev` failed on Node older than 20.19: Vite now runs on bun, so Node is not needed.
 - `tauri dev` refused to start because `@tauri-apps/api` 2.11 did not match the 2.12 Rust crate; the JS packages are now 2.12.
+
+## [0.11.0] - 2026-10-26
+
+### Added
+
+- Split a block at the playhead with `B` or `Ctrl/Cmd+E`; the right half of an audio block keeps playing from where the cut fell.
+- Duplicate a block with `Ctrl/Cmd+D`; the copy lands right after the original.
+- A left-edge handle trims a block's start while its end and its material stay in place.
+- `Shift`-drag on an audio block's right edge stretches it by changing the playback rate (0.25x to 4x); a badge shows the rate.
+- Right-click context menus on blocks, empty lane space and track headers, keyboard-navigable per the WAI-ARIA menu pattern; `Shift+F10` or the menu key opens the selected block's menu.
+- Blocks store `offsetSeconds` and `rate`; older projects load with defaults.
+
+### Fixed
+
+- Starting or seeking into a sample recorded at another sample rate began at the wrong position.
+- `Ctrl`/`Cmd` chords no longer play notes or fire plain-key commands.
