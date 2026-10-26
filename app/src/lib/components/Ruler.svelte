@@ -127,7 +127,7 @@
 	.ruler {
 		position: relative;
 		flex: none;
-		background: var(--panel);
+		background: var(--surface);
 		cursor: pointer;
 		user-select: none;
 	}
@@ -135,38 +135,45 @@
 	.loop {
 		position: absolute;
 		top: 0;
-		height: 6px;
+		height: 100%;
 		padding: 0;
-		border: none;
-		border-radius: 0 0 3px 3px;
-		background: var(--accent);
-		opacity: 0.8;
+		border: 0;
+		border-left: 1px solid var(--green);
+		border-right: 1px solid var(--green);
+		border-top: 2px solid var(--green);
+		background: var(--green-soft);
 		cursor: pointer;
 	}
 
+	.loop:hover:not(:disabled) {
+		filter: none;
+	}
+
 	.loop.off {
-		opacity: 0.3;
+		opacity: 0.35;
 	}
 
 	.mark {
 		position: absolute;
 		bottom: 0;
 		width: 1px;
-		height: 6px;
-		background: var(--line);
+		height: 5px;
+		background: var(--border);
+		pointer-events: none;
 	}
 
 	.mark.bar {
 		height: 12px;
-		background: var(--dim);
+		background: var(--grid-major);
 	}
 
 	.label {
 		position: absolute;
-		top: -22px;
-		left: 3px;
+		top: -18px;
+		left: 4px;
 		font-size: 10px;
-		color: var(--dim);
+		letter-spacing: 0.04em;
+		color: var(--text-subtle);
 		font-variant-numeric: tabular-nums;
 	}
 </style>
