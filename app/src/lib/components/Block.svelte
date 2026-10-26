@@ -8,6 +8,8 @@
 	 */
 
 	import { loadWaveform } from '$lib/api';
+	import { beatUnder, blockMenu } from '$lib/menu';
+	import { menu } from '$lib/menu.svelte';
 	import { MIN_BLOCK_PX, beatsToPx, pxToBeats, waveformPoints } from '$lib/geometry';
 	import { trackColor } from '$lib/palette';
 	import { previewRange, velocityOpacity } from '$lib/pianoRoll';
@@ -77,6 +79,16 @@
 	function onDoubleClick(): void {
 		if (block.kind === 'midi') session.openRoll(track, index);
 	}
+
+	function onContextMenu(event: MouseEvent): void {
+		event.preventDefault();
+		event.stopPropagation();
+		const element = event.currentTarget;
+		if (!(element instanceof HTMLElement)) return;
+		const at = beatUnder(block.startBeats, event.clientX - element.getBoundingClientRect().left, session.zoom);
+		session.dispatch({ selectBlock: { track, block: index } });
+		menu.open(event.clientX, event.clientY, blockMenu(session, track, index, block, at));
+	}
 </script>
 
 <div
@@ -88,6 +100,7 @@
 	style="left: {left}px; width: {width}px; --fill: {trackColor(colorIndex)}"
 	onpointerdown={onPointerDown}
 	ondblclick={onDoubleClick}
+	oncontextmenu={onContextMenu}
 >
 	{#if block.kind === 'audio' && peaks !== null}
 		<svg

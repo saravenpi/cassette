@@ -8,6 +8,7 @@
 	import { onMount } from 'svelte';
 	import { getCurrentWebview } from '@tauri-apps/api/webview';
 
+	import ContextMenu from '$lib/components/ContextMenu.svelte';
 	import PianoRoll from '$lib/components/PianoRoll.svelte';
 	import Sidebar from '$lib/components/Sidebar.svelte';
 	import StatusBar from '$lib/components/StatusBar.svelte';
@@ -94,6 +95,8 @@
 	</div>
 	<StatusBar />
 </div>
+
+<ContextMenu />
 
 <style>
 	.app {
