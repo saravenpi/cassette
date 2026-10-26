@@ -61,6 +61,41 @@ export function trimSpan(
 	return { startBeats, lengthBeats: end - startBeats };
 }
 
+/** Slowest and fastest an audio block may play its material, as the engine clamps it. */
+export const MIN_RATE = 0.25;
+export const MAX_RATE = 4;
+/** Longest block the engine keeps, in beats. */
+export const MAX_LENGTH_BEATS = 512;
+
+/**
+ * The length a stretch to `wanted` beats ends at: the block's material, which
+ * is `length * rate`, held fixed while the rate stays inside the engine's range.
+ */
+export function stretchLength(length: number, rate: number, wanted: number): number {
+	const material = length * rate;
+	const span = Math.min(Math.max(wanted, material / MAX_RATE), material / MIN_RATE);
+	return Math.min(Math.max(span, MIN_LENGTH_BEATS), MAX_LENGTH_BEATS);
+}
+
+/**
+ * The stretch of a waveform's x axis a block shows, in peak indices: from the
+ * point its offset reaches into the file, for as many seconds of material as
+ * its length plays at its rate. Past the file's end the window runs on blank.
+ */
+export function waveWindow(
+	offsetSeconds: number,
+	lengthBeats: number,
+	bpm: number,
+	rate: number,
+	seconds: number,
+	buckets: number
+): { x: number; width: number } {
+	if (seconds <= 0 || bpm <= 0 || buckets <= 1) return { x: 0, width: Math.max(1, buckets - 1) };
+	const perSecond = (buckets - 1) / seconds;
+	const played = ((lengthBeats * 60) / bpm) * rate;
+	return { x: offsetSeconds * perSecond, width: Math.max(played * perSecond, 0.001) };
+}
+
 /** Keep a scale inside the zoom range. */
 export function clampZoom(pxPerBeat: number): number {
 	return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, pxPerBeat));
@@ -92,6 +127,13 @@ export function position(beats: number, beatsPerBar: number): Position {
 export function formatPosition(beats: number, beatsPerBar: number): string {
 	const at = position(beats, beatsPerBar);
 	return `${at.bar}.${at.beat}`;
+}
+
+/** A beat as `bar.beat.hundredths`, precise enough to place a cut by eye. */
+export function formatPrecise(beats: number, beatsPerBar: number): string {
+	const at = position(beats, beatsPerBar);
+	const hundredths = Math.min(99, Math.floor(at.fraction * 100));
+	return `${at.bar}.${at.beat}.${String(hundredths).padStart(2, '0')}`;
 }
 
 /** How many bars the ruler has to draw to cover a length, and the engine's count. */

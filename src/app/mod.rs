@@ -9,6 +9,7 @@
 //! ([`tracks`]), audio samples ([`samples`]) and the transport ([`transport`]).
 
 mod export;
+mod history;
 mod notes;
 mod samples;
 mod timeline;
@@ -34,6 +35,7 @@ use crate::events::bus::EventBus;
 use crate::models::{Instrument, Song};
 use crate::ui::view::{BlockView, Cursor, TrackView, UiState};
 
+use history::History;
 use tracks::VoiceEdit;
 use transport::HeldNote;
 
@@ -66,6 +68,7 @@ pub struct App {
     samples: HashMap<String, u8>,
     loaded_samples: HashMap<u8, std::sync::Arc<[f32]>>,
     producer: Option<Producer<SampleMsg>>,
+    history: History,
 }
 
 impl App {
@@ -116,6 +119,7 @@ impl App {
             samples: HashMap::new(),
             loaded_samples: HashMap::new(),
             producer,
+            history: History::default(),
         }
     }
 
@@ -149,8 +153,11 @@ impl App {
     }
 
     /// Route one intent to the module that owns it.
-    fn handle(&mut self, event: Event) {
+    fn apply(&mut self, event: Event) {
         match event {
+            Event::Undo => self.undo(),
+            Event::Redo => self.redo(),
+            Event::Checkpoint => {}
             Event::TogglePlay => self.toggle_play(),
             Event::Stop => self.stop(),
             Event::Seek { beats } => self.seek(beats),
@@ -385,6 +392,8 @@ impl App {
             tracks,
             status: self.status.clone(),
             renaming: self.rename.is_some(),
+            can_undo: self.history.can_undo(),
+            can_redo: self.history.can_redo(),
             backend: self.engine.backend_name().to_string(),
             backend_note: self.engine.note().to_string(),
             sample_rate: self.engine.sample_rate(),

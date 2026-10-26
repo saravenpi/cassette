@@ -56,6 +56,7 @@ type LocalIntent =
 	| 'openRoll'
 	| 'closeRoll'
 	| 'splitAtPlayhead'
+	| 'splitAtPointer'
 	| 'duplicate';
 
 /**
@@ -68,7 +69,7 @@ const LOCAL: Record<string, LocalIntent> = {
 	Home: 'scrollStart',
 	KeyP: 'openRoll',
 	Escape: 'closeRoll',
-	KeyB: 'splitAtPlayhead',
+	KeyB: 'splitAtPointer',
 	NumpadAdd: 'zoomIn',
 	NumpadSubtract: 'zoomOut'
 };
@@ -82,6 +83,13 @@ const CHORDS: Record<string, LocalIntent> = {
 	KeyE: 'splitAtPlayhead',
 	KeyD: 'duplicate'
 };
+
+/** Chords that carry an engine intent: undo, and redo on Shift+Z or on Y. */
+function chordIntent(event: KeyboardEvent): EngineEvent | null {
+	if (event.code === 'KeyZ') return event.shiftKey ? 'redo' : 'undo';
+	if (event.code === 'KeyY') return 'redo';
+	return null;
+}
 
 /** Intents that must fire once per press. Movement, nudging and typing may repeat. */
 const ONCE_PER_PRESS = new Set<string>([
@@ -109,8 +117,12 @@ export function pitchFor(code: string, octave: number): number | null {
 	return Math.min(127, Math.max(0, 60 + octave * 12 + semitone));
 }
 
-/** Whether Ctrl or Cmd is held, which turns a key into a chord. */
+/**
+ * Whether Ctrl or Cmd is held, which turns a key into a chord. AltGr reports
+ * itself as Ctrl on Windows, so a character typed with it is not a chord.
+ */
 export function isChord(event: KeyboardEvent): boolean {
+	if (event.getModifierState?.('AltGraph') === true) return false;
 	return event.ctrlKey === true || event.metaKey === true;
 }
 
@@ -142,10 +154,12 @@ export function intentFor(event: KeyboardEvent, renaming: boolean): EngineEvent 
 		if (event.key === 'Escape') return 'cancelRename';
 		if (event.key === 'Enter') return 'renameBlock';
 		if (event.key === 'Backspace') return 'textBackspace';
+		if (isChord(event)) return null;
 		if (event.key.length === 1) return { textInput: event.key };
 		return null;
 	}
-	if (isChord(event) || localFor(event, false) !== null) return null;
+	if (localFor(event, false) !== null) return null;
+	if (isChord(event)) return chordIntent(event);
 	return COMMANDS[event.code] ?? null;
 }
 
@@ -153,6 +167,6 @@ export function intentFor(event: KeyboardEvent, renaming: boolean): EngineEvent 
 export function isAppKey(event: KeyboardEvent, renaming: boolean): boolean {
 	if (renaming) return true;
 	if (localFor(event, false) !== null) return true;
-	if (isChord(event)) return false;
+	if (isChord(event)) return chordIntent(event) !== null;
 	return event.code in COMMANDS || pitchFor(event.code, 0) !== null;
 }

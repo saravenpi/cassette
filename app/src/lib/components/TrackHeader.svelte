@@ -102,6 +102,7 @@
 			step="0.01"
 			value={volume}
 			aria-label="Volume of {track.name}"
+			onpointerdown={() => session.dispatch('checkpoint')}
 			oninput={(event) => onFader(event, 'volume')}
 			onchange={releaseFaders}
 			onblur={releaseFaders}
@@ -114,6 +115,7 @@
 			step="0.02"
 			value={pan}
 			aria-label="Pan of {track.name}"
+			onpointerdown={() => session.dispatch('checkpoint')}
 			oninput={(event) => onFader(event, 'pan')}
 			onchange={releaseFaders}
 			onblur={releaseFaders}

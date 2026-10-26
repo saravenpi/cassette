@@ -104,6 +104,10 @@ pub struct UiState {
     pub status: String,
     /// Whether the block-name prompt is open, so the webview routes typing to it.
     pub renaming: bool,
+    /// Whether an undo has a step to go back to.
+    pub can_undo: bool,
+    /// Whether a redo has a step to go forward to.
+    pub can_redo: bool,
     pub backend: String,
     /// Why the engine chose its backend.
     pub backend_note: String,
@@ -179,6 +183,8 @@ mod tests {
             beats_per_bar: 4,
             cursor: Cursor { track: 0, block: 1 },
             octave: 0,
+            can_undo: false,
+            can_redo: false,
             presets: crate::models::Instrument::PRESETS
                 .iter()
                 .map(|name| (*name).to_string())

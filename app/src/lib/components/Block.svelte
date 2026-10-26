@@ -10,11 +10,11 @@
 	import { loadWaveform } from '$lib/api';
 	import { beatUnder, blockMenu } from '$lib/menu';
 	import { menu } from '$lib/menu.svelte';
-	import { MIN_BLOCK_PX, beatsToPx, pxToBeats, waveformPoints } from '$lib/geometry';
+	import { MIN_BLOCK_PX, beatsToPx, pxToBeats, waveWindow, waveformPoints } from '$lib/geometry';
 	import { trackColor } from '$lib/palette';
 	import { previewRange, velocityOpacity } from '$lib/pianoRoll';
 	import { session } from '$lib/session.svelte';
-	import type { BlockView } from '$lib/wire';
+	import type { BlockView, Waveform } from '$lib/wire';
 
 	const WAVE_HEIGHT = 16;
 
@@ -30,27 +30,45 @@
 
 	let { block, track, index, startBeats, lengthBeats, dragging, colorIndex }: Props = $props();
 
-	let peaks = $state<number[] | null>(null);
+	let wave = $state<Waveform | null>(null);
 
 	const left = $derived(beatsToPx(startBeats, session.zoom));
 	const width = $derived(Math.max(beatsToPx(lengthBeats, session.zoom), MIN_BLOCK_PX));
 	const renaming = $derived(session.snapshot?.renaming === true && block.selected);
 	const range = $derived(previewRange(block.notes));
-	const stretched = $derived(block.kind === 'audio' && Math.abs(block.rate - 1) > 0.001);
+	const bpm = $derived(session.snapshot?.bpm ?? 120);
+	const editing = $derived.by(() => {
+		const drag = session.drag.state;
+		return drag !== null && drag.track === track && drag.index === index ? drag.kind : null;
+	});
+	const rate = $derived(
+		editing === 'stretch' ? (block.lengthBeats * block.rate) / Math.max(lengthBeats, 0.001) : block.rate
+	);
+	const offsetSeconds = $derived(
+		editing === 'trim'
+			? block.offsetSeconds + ((startBeats - block.startBeats) * 60 * block.rate) / bpm
+			: block.offsetSeconds
+	);
+	const stretched = $derived(block.kind === 'audio' && Math.abs(rate - 1) > 0.001);
+	const visible = $derived(
+		wave === null
+			? null
+			: waveWindow(offsetSeconds, lengthBeats, bpm, rate, wave.seconds, wave.peaks.length)
+	);
 
 	$effect(() => {
 		const source = block.kind === 'audio' ? block.source : '';
 		if (source === '') {
-			peaks = null;
+			wave = null;
 			return;
 		}
 		let live = true;
 		void loadWaveform(source)
 			.then((value) => {
-				if (live) peaks = value;
+				if (live) wave = value;
 			})
 			.catch(() => {
-				if (live) peaks = null;
+				if (live) wave = null;
 			});
 		return () => {
 			live = false;
@@ -97,7 +115,7 @@
 		if (!(element instanceof HTMLElement)) return;
 		const at = beatUnder(block.startBeats, event.clientX - element.getBoundingClientRect().left, session.zoom);
 		session.dispatch({ selectBlock: { track, block: index } });
-		menu.open(event.clientX, event.clientY, blockMenu(session, track, index, block, at));
+		menu.open(event.clientX, event.clientY, blockMenu(session, track, index, block, at, event.altKey));
 	}
 </script>
 
@@ -106,20 +124,21 @@
 	class:selected={block.selected}
 	class:dragging
 	role="listitem"
-	data-block
+	data-block={index}
+	data-block-track={track}
 	style="left: {left}px; width: {width}px; --fill: {trackColor(colorIndex)}"
 	onpointerdown={onPointerDown}
 	ondblclick={onDoubleClick}
 	oncontextmenu={onContextMenu}
 >
-	{#if block.kind === 'audio' && peaks !== null}
+	{#if block.kind === 'audio' && wave !== null && visible !== null}
 		<svg
 			class="wave"
-			viewBox="0 0 {peaks.length - 1} {WAVE_HEIGHT}"
+			viewBox="{visible.x} 0 {visible.width} {WAVE_HEIGHT}"
 			preserveAspectRatio="none"
 			aria-hidden="true"
 		>
-			<polygon points={waveformPoints(peaks, WAVE_HEIGHT)} />
+			<polygon points={waveformPoints(wave.peaks, WAVE_HEIGHT)} />
 		</svg>
 	{/if}
 
@@ -150,7 +169,7 @@
 	{/if}
 
 	{#if stretched}
-		<span class="rate">&times;{block.rate.toFixed(2)}</span>
+		<span class="rate">&times;{rate.toFixed(2)}</span>
 	{/if}
 
 	<button

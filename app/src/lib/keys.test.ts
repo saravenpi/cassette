@@ -390,8 +390,8 @@ describe('keymap invariant', () => {
 });
 
 describe('clip editing keys', () => {
-	test('splits at the playhead on B and on Ctrl or Cmd plus E', () => {
-		expect(localFor(press('KeyB', 'b'), false)).toBe('splitAtPlayhead');
+	test('splits at the pointer on B and at the playhead on Ctrl or Cmd plus E', () => {
+		expect(localFor(press('KeyB', 'b'), false)).toBe('splitAtPointer');
 		expect(localFor(chord(press('KeyE', 'e')), false)).toBe('splitAtPlayhead');
 		expect(localFor(chord(press('KeyE', 'e'), 'metaKey'), false)).toBe('splitAtPlayhead');
 	});
@@ -412,6 +412,28 @@ describe('clip editing keys', () => {
 		expect(localFor(chord(press('KeyC', 'c')), false)).toBeNull();
 		expect(isAppKey(chord(press('KeyC', 'c')), false)).toBe(false);
 		expect(isAppKey(chord(press('KeyD', 'd')), false)).toBe(true);
+	});
+
+	test('undoes on Ctrl+Z and redoes on Ctrl+Shift+Z or Ctrl+Y', () => {
+		expect(intentFor(chord(press('KeyZ', 'z')), false)).toBe('undo');
+		expect(intentFor(chord(press('KeyZ', 'z'), 'metaKey'), false)).toBe('undo');
+		expect(intentFor(held(chord(press('KeyZ', 'Z'))), false)).toBe('redo');
+		expect(intentFor(chord(press('KeyY', 'y')), false)).toBe('redo');
+		expect(isAppKey(chord(press('KeyZ', 'z')), false)).toBe(true);
+		expect(intentFor(press('KeyZ', 'z'), false)).toEqual({ octaveDelta: -1 });
+	});
+
+	test('types no letter for a chord while renaming', () => {
+		expect(intentFor(chord(press('KeyZ', 'z')), true)).toBeNull();
+	});
+
+	test('treats AltGr as typing, not as a chord', () => {
+		const altGr = {
+			...chord(press('KeyE', '€')),
+			altKey: true,
+			getModifierState: (key: string) => key === 'AltGraph'
+		} as KeyboardEvent;
+		expect(localFor(altGr, false)).toBeNull();
 	});
 
 	test('types B into a name instead of splitting', () => {

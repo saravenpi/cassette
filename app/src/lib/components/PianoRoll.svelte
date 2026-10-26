@@ -157,6 +157,7 @@
 		const note = notes[hit.note];
 		selected = hit.note;
 		grid.setPointerCapture(event.pointerId);
+		session.dispatch('checkpoint');
 		drag = {
 			kind: hit.edge ? 'resize' : 'move',
 			note: hit.note,

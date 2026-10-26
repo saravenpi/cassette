@@ -18,6 +18,7 @@ interface KeyboardHost {
 	openSelectedRoll(): void;
 	closeRoll(): void;
 	splitSelected(): void;
+	splitAtPointer(): void;
 	duplicateSelected(): void;
 }
 
@@ -62,6 +63,8 @@ export function attachKeyboard(host: KeyboardHost): () => void {
 				host.setZoom(-1);
 			} else if (local === 'splitAtPlayhead') {
 				if (!event.repeat) host.splitSelected();
+			} else if (local === 'splitAtPointer') {
+				if (!event.repeat) host.splitAtPointer();
 			} else if (local === 'duplicate') {
 				if (!event.repeat) host.duplicateSelected();
 			}

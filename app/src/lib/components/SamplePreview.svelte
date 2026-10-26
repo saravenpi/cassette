@@ -31,7 +31,7 @@
 		void loadWaveform(path)
 			.then((value) => {
 				if (!live) return;
-				peaks = value;
+				peaks = value.peaks;
 				failure = null;
 			})
 			.catch((error: unknown) => {

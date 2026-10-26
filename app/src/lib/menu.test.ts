@@ -3,6 +3,7 @@ import {
 	blockMenu,
 	clampToViewport,
 	laneMenu,
+	markAt,
 	splitPoint,
 	trackMenu,
 	type MenuEntry,
@@ -163,5 +164,17 @@ describe('viewport clamp', () => {
 			x: 4,
 			y: 4
 		});
+	});
+});
+
+describe('markAt', () => {
+	test('marks the split point over a block', () => {
+		expect(markAt(block(), 10.4)).toBe(10);
+		expect(markAt(block(), 10.4, true)).toBe(10.4);
+	});
+
+	test('marks the grid line off every block', () => {
+		expect(markAt(undefined, 3.6)).toBe(4);
+		expect(markAt(undefined, 3.6, true)).toBe(3.6);
 	});
 });

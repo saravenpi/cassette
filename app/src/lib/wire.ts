@@ -76,9 +76,17 @@ export interface UiState {
 	tracks: TrackView[];
 	status: string;
 	renaming: boolean;
+	canUndo: boolean;
+	canRedo: boolean;
 	backend: string;
 	backendNote: string;
 	sampleRate: number;
+}
+
+/** One audio file as a block draws it: its peaks and its length in seconds. */
+export interface Waveform {
+	peaks: number[];
+	seconds: number;
 }
 
 export type SampleKind = 'dir' | 'wav' | 'audio' | 'project' | 'other';
@@ -161,5 +169,8 @@ export type EngineEvent =
 	| { exportAudio: { path: string | null } }
 	| { recordAudio: { path: string | null } }
 	| { exportProject: { path: string | null } }
-	| { loadProject: { path: string | null } };
+	| { loadProject: { path: string | null } }
+	| 'undo'
+	| 'redo'
+	| 'checkpoint';
 

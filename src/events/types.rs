@@ -210,4 +210,11 @@ pub enum Event {
     LoadProject {
         path: Option<String>,
     },
+    /// Step back to the song before the last edit.
+    Undo,
+    /// Step forward to the song the last undo went back from.
+    Redo,
+    /// Close the gesture collecting drag events, so the next drag is its own
+    /// undo step. The webview sends it when a drag begins.
+    Checkpoint,
 }

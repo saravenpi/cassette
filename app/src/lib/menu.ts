@@ -57,15 +57,24 @@ export function beatUnder(startBeats: number, offsetPx: number, pxPerBeat: numbe
 /**
  * Where a cut at `beats` lands: on the grid when the grid line leaves both
  * halves long enough, otherwise exactly under the pointer, and null when even
- * that would leave a sliver.
+ * that would leave a sliver. `free` drops the grid, the way Alt does.
  */
-export function splitPoint(block: BlockView, beats: number): number | null {
+export function splitPoint(block: BlockView, beats: number, free = false): number | null {
 	const first = block.startBeats + MIN_LENGTH_BEATS;
 	const last = block.startBeats + block.lengthBeats - MIN_LENGTH_BEATS;
 	const inside = (at: number) => at >= first && at <= last;
-	const snapped = snapBeats(beats);
+	const snapped = snapBeats(beats, free);
 	if (inside(snapped)) return snapped;
 	return inside(beats) ? beats : null;
+}
+
+/**
+ * The beat the hover line marks for a pointer at `beats`: over a block, the
+ * point a split there would cut at; elsewhere, the grid line a click lands on.
+ */
+export function markAt(block: BlockView | undefined, beats: number, free = false): number {
+	if (block === undefined) return snapBeats(beats, free);
+	return splitPoint(block, beats, free) ?? beats;
 }
 
 /** Keep a `width` by `height` menu opened at `x`, `y` inside the window. */
@@ -91,10 +100,11 @@ export function blockMenu(
 	track: number,
 	index: number,
 	block: BlockView,
-	atBeats: number
+	atBeats: number,
+	free = false
 ): MenuEntry[] {
 	const at = { track, block: index };
-	const cut = splitPoint(block, atBeats);
+	const cut = splitPoint(block, atBeats, free);
 	const entries: MenuEntry[] = [
 		item(
 			'Split here',

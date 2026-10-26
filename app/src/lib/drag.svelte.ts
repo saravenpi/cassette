@@ -6,7 +6,7 @@
  * frame, and follows the block when the engine re-sorts the lane under it.
  */
 
-import { MIN_LENGTH_BEATS, pxToBeats, snapBeats, trimSpan } from './geometry';
+import { MIN_LENGTH_BEATS, pxToBeats, snapBeats, stretchLength, trimSpan } from './geometry';
 import type { BlockView, EngineEvent, UiState } from './wire';
 
 /** Which part of a block a drag moves. */
@@ -80,10 +80,15 @@ export class DragController {
 		this.begin('trim', track, index, view, 0);
 	}
 
-	/** Send the pending drag position, at most once per frame. */
+	/**
+	 * Send the pending drag position, at most once per frame. A MIDI trim waits
+	 * for the release: the engine drops the notes a trim uncovers, so trimming
+	 * past a note and back would otherwise lose it.
+	 */
 	async flush(): Promise<void> {
 		const drag = this.state;
 		if (drag === null || !drag.dirty) return;
+		if (drag.kind === 'trim' && drag.view.kind === 'midi' && !drag.released) return;
 		drag.dirty = false;
 		await this.context.send(request(drag));
 	}
@@ -104,6 +109,7 @@ export class DragController {
 	}
 
 	private begin(kind: DragKind, track: number, index: number, view: BlockView, grab: number): void {
+		void this.context.send('checkpoint');
 		this.state = {
 			kind,
 			view: { ...view, selected: true },
@@ -149,7 +155,9 @@ export class DragController {
 			drag.lengthBeats = span.lengthBeats;
 		} else {
 			const end = snapBeats(lane.beats, event.altKey);
-			const lengthBeats = Math.max(MIN_LENGTH_BEATS, end - drag.startBeats);
+			const wanted = Math.max(MIN_LENGTH_BEATS, end - drag.startBeats);
+			const lengthBeats =
+				drag.kind === 'stretch' ? stretchLength(drag.view.lengthBeats, drag.view.rate, wanted) : wanted;
 			if (lengthBeats === drag.lengthBeats) return;
 			drag.lengthBeats = lengthBeats;
 		}

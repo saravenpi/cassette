@@ -11,13 +11,16 @@ import {
 	clampZoom,
 	envelopePoints,
 	formatPosition,
+	formatPrecise,
 	freeStart,
 	labelStep,
 	position,
 	pruneHeights,
 	pxToBeats,
 	snapBeats,
+	stretchLength,
 	trimSpan,
+	waveWindow,
 	waveformPoints,
 	zoomBy
 } from './geometry';
@@ -302,5 +305,39 @@ describe('trimSpan', () => {
 
 	test('never pulls the start back past the floor', () => {
 		expect(trimSpan(1, 8, 3)).toEqual({ startBeats: 3, lengthBeats: 5 });
+	});
+});
+
+describe('stretchLength', () => {
+	test('follows the pointer inside the rate range', () => {
+		expect(stretchLength(4, 1, 6)).toBe(6);
+	});
+
+	test('stops where the rate reaches its limits', () => {
+		expect(stretchLength(4, 1, 0.5)).toBe(1);
+		expect(stretchLength(4, 1, 40)).toBe(16);
+		expect(stretchLength(4, 2, 40)).toBe(32);
+	});
+});
+
+describe('waveWindow', () => {
+	test('shows the whole file for a block that plays all of it', () => {
+		expect(waveWindow(0, 4, 120, 1, 2, 257)).toEqual({ x: 0, width: 256 });
+	});
+
+	test('starts at the offset and covers the played seconds', () => {
+		expect(waveWindow(1, 1, 120, 1, 2, 257)).toEqual({ x: 128, width: 64 });
+	});
+
+	test('covers twice the file time at double rate', () => {
+		expect(waveWindow(0, 1, 120, 2, 2, 257)).toEqual({ x: 0, width: 128 });
+	});
+});
+
+describe('formatPrecise', () => {
+	test('adds hundredths of a beat to bar and beat', () => {
+		expect(formatPrecise(5.25, 4)).toBe('2.2.25');
+		expect(formatPrecise(0, 4)).toBe('1.1.00');
+		expect(formatPrecise(0.999, 4)).toBe('1.1.99');
 	});
 });

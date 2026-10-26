@@ -3,6 +3,8 @@
 	 * The main window: a ruler, one lane and one header per track, the playhead,
 	 * and one scroll surface for all of it. The track lanes sit on the left and the
 	 * header column sits on the right, sticky so it stays visible while scrolling.
+	 * A hover line follows the pointer across the lanes and marks the beat a
+	 * split or a click would land on; Alt frees it from the grid.
 	 */
 
 	import { onDestroy } from 'svelte';
@@ -16,8 +18,11 @@
 		barsFor,
 		beatsToPx,
 		clampRowHeight,
+		formatPrecise,
 		pruneHeights
 	} from '$lib/geometry';
+	import { laneUnder } from '$lib/drag.svelte';
+	import { markAt } from '$lib/menu';
 	import { session } from '$lib/session.svelte';
 	import Playhead from './Playhead.svelte';
 	import Ruler from './Ruler.svelte';
@@ -29,6 +34,7 @@
 	let scroller = $state<HTMLDivElement | null>(null);
 	let trackHeights = $state<Record<number, number>>({});
 	let cancelResize: (() => void) | null = null;
+	let pointer: { x: number; y: number; free: boolean } | null = null;
 
 	const snapshot = $derived(session.snapshot);
 	const tracks = $derived(snapshot?.tracks ?? []);
@@ -76,7 +82,39 @@
 		trackHeights[index] = ROW_HEIGHT;
 	}
 
-	onDestroy(() => cancelResize?.());
+	function blockUnder(x: number, y: number, track: number): number | null {
+		const hit = document.elementFromPoint(x, y);
+		const element = hit instanceof Element ? hit.closest('[data-block]') : null;
+		if (!(element instanceof HTMLElement)) return null;
+		const index = Number(element.dataset.block);
+		return Number(element.dataset.blockTrack) === track && Number.isInteger(index) ? index : null;
+	}
+
+	function trackHover(): void {
+		const lane = pointer === null ? null : laneUnder(pointer.x, pointer.y, session.zoom);
+		if (pointer === null || lane === null) {
+			session.hover = null;
+			return;
+		}
+		const block = blockUnder(pointer.x, pointer.y, lane.track);
+		const view = block === null ? undefined : tracks[lane.track]?.blocks[block];
+		session.hover = { beats: markAt(view, lane.beats, pointer.free), track: lane.track, block };
+	}
+
+	function onPointerMove(event: PointerEvent): void {
+		pointer = { x: event.clientX, y: event.clientY, free: event.altKey };
+		trackHover();
+	}
+
+	function onPointerLeave(): void {
+		pointer = null;
+		session.hover = null;
+	}
+
+	onDestroy(() => {
+		cancelResize?.();
+		session.hover = null;
+	});
 
 	$effect(() => {
 		const pruned = pruneHeights(trackHeights, tracks.length);
@@ -90,11 +128,21 @@
 </script>
 
 <section class="timeline">
-	<div class="scroller" bind:this={scroller}>
+	<div
+		class="scroller"
+		role="presentation"
+		bind:this={scroller}
+		onpointermove={onPointerMove}
+		onpointerleave={onPointerLeave}
+		onscroll={trackHover}
+	>
 		<div class="grid" style="width: {HEADER_WIDTH + contentWidth}px">
 			<div class="row ruler-row" style="height: {RULER_HEIGHT}px">
 				<Ruler pxPerBeat={session.zoom} {beatsPerBar} {bars} width={contentWidth} />
 				<div class="corner" style="width: {HEADER_WIDTH}px">
+					{#if session.hover !== null}
+						<span class="hover-at">{formatPrecise(session.hover.beats, beatsPerBar)}</span>
+					{/if}
 					<span class="zoom-label">zoom</span>
 					<button class="zoom" aria-label="Zoom out" onclick={() => session.setZoom(-1)}>
 						&minus;
@@ -133,6 +181,13 @@
 				offset={0}
 				top={RULER_HEIGHT}
 			/>
+
+			{#if session.hover !== null}
+				<div
+					class="hover-line"
+					style="left: {beatsToPx(session.hover.beats, session.zoom)}px; top: {RULER_HEIGHT}px; height: calc(100% - {RULER_HEIGHT}px)"
+				></div>
+			{/if}
 		</div>
 	</div>
 </section>
@@ -185,6 +240,24 @@
 		justify-content: flex-end;
 		gap: 4px;
 		padding: 0 6px 4px;
+	}
+
+	.hover-at {
+		position: absolute;
+		top: 4px;
+		left: 6px;
+		font-size: 10px;
+		color: var(--text);
+		font-variant-numeric: tabular-nums;
+	}
+
+	.hover-line {
+		position: absolute;
+		width: 0;
+		border-left: 1px dashed var(--text);
+		opacity: 0.6;
+		pointer-events: none;
+		z-index: 2;
 	}
 
 	.zoom-label {

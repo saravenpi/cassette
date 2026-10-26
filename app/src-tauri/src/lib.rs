@@ -168,25 +168,37 @@ fn sorted_and_capped(mut entries: Vec<SampleEntry>, cap: usize) -> Vec<SampleEnt
     entries
 }
 
+/// The drawing of one audio file: its peaks and how long the file runs, so a
+/// block can show only the stretch of the file it plays.
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Waveform {
+    peaks: Vec<f32>,
+    seconds: f32,
+}
+
 /// Peaks of an audio file for drawing an audio block. Any readable path is
 /// accepted, so files dropped from outside the sample root still draw; the
 /// decode stops at [`MAX_DECODED_FRAMES`].
 #[tauri::command]
-async fn read_waveform(path: String) -> Result<Vec<f32>, String> {
+async fn read_waveform(path: String) -> Result<Waveform, String> {
     tauri::async_runtime::spawn_blocking(move || waveform_of(&path))
         .await
         .map_err(|error| format!("cassette: {error}"))?
 }
 
 /// The blocking body of [`read_waveform`].
-fn waveform_of(path: &str) -> Result<Vec<f32>, String> {
+fn waveform_of(path: &str) -> Result<Waveform, String> {
     let target = resolve(path)?;
     if !is_audio(&target) {
         return Err(format!("cassette: {path} is not a supported audio file"));
     }
     let sample = cassette::core::wav::decode(&target, MAX_DECODED_FRAMES)
         .map_err(|error| format!("cassette: cannot read {path}: {error:#}"))?;
-    Ok(peaks(&sample.frames, WAVEFORM_BUCKETS))
+    Ok(Waveform {
+        peaks: peaks(&sample.frames, WAVEFORM_BUCKETS),
+        seconds: sample.frames.len() as f32 / sample.sample_rate.max(1) as f32,
+    })
 }
 
 /// Canonicalise a path, reporting the failure as a message rather than panicking.
@@ -473,9 +485,11 @@ mod tests {
         wav.extend_from_slice(&(data.len() as u32).to_le_bytes());
         wav.extend_from_slice(&data);
         std::fs::write(&path, wav).expect("write");
-        let peaks = waveform_of(&path.to_string_lossy());
+        let waveform = waveform_of(&path.to_string_lossy());
         let _ = std::fs::remove_file(&path);
-        assert_eq!(peaks.expect("should read").len(), WAVEFORM_BUCKETS);
+        let waveform = waveform.expect("should read");
+        assert_eq!(waveform.peaks.len(), WAVEFORM_BUCKETS);
+        assert!(waveform.seconds > 0.0);
     }
 
     #[test]

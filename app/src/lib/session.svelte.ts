@@ -41,6 +41,16 @@ export interface OpenBlock {
 	startBeats: number;
 }
 
+/**
+ * Where the pointer sits on the timeline: the beat the hover line marks, the
+ * lane, and the block under the pointer if there is one.
+ */
+export interface Hover {
+	beats: number;
+	track: number;
+	block: number | null;
+}
+
 function message(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
@@ -51,6 +61,7 @@ class Session {
 	zoom = $state(ZOOM_DEFAULT);
 	scrollRequest = $state(0);
 	roll = $state<OpenBlock | null>(null);
+	hover = $state<Hover | null>(null);
 	drag: DragController;
 
 	private errorFrom: 'poll' | 'send' | null = null;
@@ -172,6 +183,20 @@ class Session {
 			return;
 		}
 		this.dispatch({ splitBlock: { track, block, atBeats: at } });
+	}
+
+	/**
+	 * Cut the block under the pointer at the hover line, the way the line shows
+	 * it. With the pointer off every block, cut the selected block at the
+	 * playhead instead.
+	 */
+	splitAtPointer(): void {
+		const hover = this.hover;
+		if (hover === null || hover.block === null) {
+			this.splitSelected();
+			return;
+		}
+		this.dispatch({ splitBlock: { track: hover.track, block: hover.block, atBeats: hover.beats } });
 	}
 
 	/** Copy the block under the cursor onto the beat right after it. */

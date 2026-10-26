@@ -40,7 +40,7 @@ impl LoopRegion {
 }
 
 /// A whole session.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Song {
     #[serde(default = "default_version")]

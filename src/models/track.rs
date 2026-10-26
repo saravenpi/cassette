@@ -130,19 +130,14 @@ impl Block {
     }
 
     /// Cut the block at `at_beats` on the timeline, keeping the left part and
-    /// returning the right one under `name`.
+    /// returning the right one unnamed for the lane to name.
     ///
     /// Returns `None`, changing nothing, unless both parts would be at least
     /// [`Self::MIN_LENGTH_BEATS`] long. The right part of an audio block reads
     /// its material from where the cut fell, `seconds_per_beat` turning beats
     /// into seconds; a MIDI block hands over the notes that start at or after
     /// the cut and shortens the ones that cross it.
-    pub fn split_off(
-        &mut self,
-        at_beats: f32,
-        seconds_per_beat: f32,
-        name: String,
-    ) -> Option<Block> {
+    pub fn split_off(&mut self, at_beats: f32, seconds_per_beat: f32) -> Option<Block> {
         let into = at_beats - self.start_beats;
         let rest = self.length_beats - into;
         if !(into >= Self::MIN_LENGTH_BEATS && rest >= Self::MIN_LENGTH_BEATS) {
@@ -163,7 +158,7 @@ impl Block {
             TrackKind::Midi => self.offset_seconds,
         };
         let split = Block {
-            name,
+            name: String::new(),
             kind: self.kind,
             start_beats: at_beats,
             length_beats: rest,
@@ -249,7 +244,7 @@ fn clamp_length(beats: f32) -> f32 {
 }
 
 /// A single track of the song.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Track {
     pub name: String,

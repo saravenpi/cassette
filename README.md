@@ -91,7 +91,9 @@ cargo clippy --all-targets
 | `P` | open the piano roll on the selected MIDI block |
 | `esc` | close the piano roll |
 | `backspace` / `del` in the roll | delete the selected note |
-| `B` / `ctrl` `E` (`cmd` on macOS) | split the selected block at the playhead |
+| `B` | split the block under the pointer at the hover line (the selected block at the playhead when the pointer is off every block) |
+| `ctrl` `E` (`cmd` on macOS) | split the selected block at the playhead |
+| `ctrl` `Z` / `ctrl` `shift` `Z` or `ctrl` `Y` (`cmd` on macOS) | undo / redo an edit |
 | `ctrl` `D` (`cmd` on macOS) | duplicate the selected block |
 | drag a block's left edge | trim its start; the end stays put |
 | `shift` + drag an audio block's right edge | stretch it (the rate changes, so pitch follows) |
@@ -101,6 +103,12 @@ collide: notes are checked first, and a key bound to both would make the command
 silently unreachable. `app/src/lib/keys.ts` refuses to load if that ever happens.
 
 The zoom keys are handled in the webview, because no engine event describes them.
+
+A dashed hover line follows the pointer across the lanes and marks the beat a
+split or a click lands on, with its `bar.beat.hundredths` position in the header
+corner; hold `alt` to free it from the grid. Undo covers every edit to the song
+(blocks, notes, the mixer, the voice and the tempo); a drag or a fader move is one
+step. Selection, the transport and the loop region are not undone.
 
 Everything is also clickable: the transport, the sidebar tabs, the track faders
 and their M/S buttons, and the blocks, which drag along and between lanes, resize

@@ -99,11 +99,11 @@ impl App {
         }
         let seconds_per_beat = self.seconds_per_beat();
         let lane = &mut self.song.tracks[track_index];
-        let name = lane.next_name();
-        let Some(right) = lane.blocks[block].split_off(at_beats, seconds_per_beat, name) else {
+        let Some(mut right) = lane.blocks[block].split_off(at_beats, seconds_per_beat) else {
             self.status = "split inside the block, away from its edges".into();
             return;
         };
+        right.name = lane.next_name();
         let right_name = right.name.clone();
         let index = lane.insert_block(right);
         self.cursor = Cursor {
@@ -727,7 +727,9 @@ mod tests {
     #[test]
     fn splitting_an_audio_block_keeps_the_right_half_in_step() {
         let mut app = headless_app();
-        app.song.tracks[2].insert_block(Block::new("a", TrackKind::Audio, 4.0, 8.0, "/tmp/a.wav"));
+        let mut stretched = Block::new("a", TrackKind::Audio, 4.0, 8.0, "/tmp/a.wav");
+        stretched.rate = 2.0;
+        app.song.tracks[2].insert_block(stretched);
         app.handle(Event::SplitBlock {
             track: 2,
             block: 0,
@@ -738,8 +740,9 @@ mod tests {
         assert_eq!((lane[0].start_beats, lane[0].length_beats), (4.0, 3.0));
         assert_eq!((lane[1].start_beats, lane[1].length_beats), (7.0, 5.0));
         assert_eq!(lane[0].offset_seconds, 0.0);
-        let expected = 3.0 * seconds_per_beat(&app);
+        let expected = 3.0 * seconds_per_beat(&app) * 2.0;
         assert!((lane[1].offset_seconds - expected).abs() < 1e-5);
+        assert_eq!(lane[1].rate, 2.0);
         assert_eq!(lane[1].source, "/tmp/a.wav");
         assert_ne!(lane[0].name, lane[1].name);
         assert_eq!(app.cursor, Cursor { track: 2, block: 1 });
@@ -816,7 +819,9 @@ mod tests {
     #[test]
     fn trimming_the_start_advances_the_offset_and_keeps_the_end() {
         let mut app = headless_app();
-        app.song.tracks[2].insert_block(Block::new("a", TrackKind::Audio, 4.0, 8.0, "/tmp/a.wav"));
+        let mut stretched = Block::new("a", TrackKind::Audio, 4.0, 8.0, "/tmp/a.wav");
+        stretched.rate = 2.0;
+        app.song.tracks[2].insert_block(stretched);
         app.handle(Event::TrimBlockStart {
             track: 2,
             block: 0,
@@ -824,7 +829,7 @@ mod tests {
         });
         let block = &app.song.tracks[2].blocks[0];
         assert_eq!((block.start_beats, block.end_beats()), (6.0, 12.0));
-        assert!((block.offset_seconds - 2.0 * seconds_per_beat(&app)).abs() < 1e-5);
+        assert!((block.offset_seconds - 2.0 * seconds_per_beat(&app) * 2.0).abs() < 1e-5);
 
         app.handle(Event::TrimBlockStart {
             track: 2,

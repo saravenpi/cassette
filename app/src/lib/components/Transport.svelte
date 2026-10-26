@@ -45,6 +45,25 @@
 		</button>
 	</div>
 
+	<div class="group" role="group" aria-label="History">
+		<button
+			aria-label="Undo"
+			title="Undo (Ctrl+Z)"
+			disabled={!(snapshot?.canUndo ?? false)}
+			onclick={() => session.dispatch('undo')}
+		>
+			Undo
+		</button>
+		<button
+			aria-label="Redo"
+			title="Redo (Ctrl+Shift+Z)"
+			disabled={!(snapshot?.canRedo ?? false)}
+			onclick={() => session.dispatch('redo')}
+		>
+			Redo
+		</button>
+	</div>
+
 	<div class="group" role="group" aria-label="Project">
 		<button onclick={() => session.dispatch({ exportAudio: { path: null } })}>Export</button>
 		<button onclick={() => session.dispatch({ exportProject: { path: null } })}>Save</button>
