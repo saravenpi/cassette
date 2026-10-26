@@ -520,6 +520,54 @@ A MIDI block holds notes (pitch, start, length, velocity) that the render core
 starts as the playhead crosses them, then a piano roll to edit them. The
 review below comes first: the fixes land before new features.
 
+### Plan (2026-10-26)
+
+Decisions, all reversible before work starts:
+
+- Storage: a flat `Vec<Note>` per MIDI block, in insertion order. Insertion
+  order keeps a note's index stable while a drag moves it; sorting happens only
+  when the mirror is built.
+- A `Note` is `pitch: u8`, `start_beats: f32` (relative to the block start),
+  `length_beats: f32`, `velocity: u8`. Defaults: velocity 100, length 1 beat,
+  grid 1/4 beat.
+- Project files keep `version: 1`. `Block.notes` is `#[serde(default)]`, so
+  v0.7.0 files load and old builds ignore the field. `sanitize` clamps notes.
+- The audio thread gets notes through a second mirror, one flat array per
+  track, with absolute beats (block start plus note start), clipped to the block
+  end and sorted. New `RtCommand::SetNotes` carries an `Arc<[MirroredNote]>` and
+  reuses the `retired` list in `AudioEngine`, so the audio thread never frees it.
+- Limits: `MAX_NOTES_PER_BLOCK = 512`, `MAX_NOTES = 2048` per track mirror.
+- Playback: a note starts when its start falls in the buffer window, with a gate
+  of `length_beats * frames_per_beat`. Same resolution as block starts (up to
+  one buffer early). A seek into the middle of a note does not enter it. A loop
+  wrap and a stop release every synth voice.
+- Not in scope: MIDI input recording, quantize commands, loop points, the
+  sample-message cleanup.
+
+Work packages. Step 0 runs alone and lands the shared contract. Steps A, B and C
+then run in parallel worktrees with disjoint files and merge into
+`feat/midi-notes`.
+
+| Step | Owner files | Deliverable |
+|------|-------------|-------------|
+| 0 contract | `src/models/note.rs` (new), `src/models/track.rs`, `src/models/mod.rs`, `src/events/types.rs`, `src/ui/view.rs`, `src/core/mod.rs`, `src/core/render.rs` (type and variant only), `src/core/engine.rs`, `app/src/lib/wire.ts` | `Note`, `Block.notes`, `NoteView`, `MirroredNote`, `RtCommand::SetNotes`, `AudioEngine::set_notes`, the five note `Event`s (`AddNote`, `MoveNote`, `ResizeNote`, `SetNoteVelocity`, `DeleteNote`) and their TS twins. Compiles, no behavior. |
+| A engine | `src/core/render.rs`, `src/core/synth.rs`, `tests/test_rt_no_alloc.rs`, `tests/test_engine.rs` | `RenderCore` stores the note mirror in fixed arrays and starts notes in `begin_span`. Wrap, seek and stop release voices. Tests: note fires at the right frame, gate length, loop wrap cuts a note, no allocation in the callback. |
+| B app | `src/app/notes.rs` (new), `src/app/mod.rs`, `src/app/timeline.rs`, `src/app/export.rs`, `src/models/track.rs` (`sanitize` only), `src/ui/view.rs` (snapshot fill) | Handlers for the five events with bounds and limit checks, `mirror_notes` and `push_notes` after every edit and in `repush_lanes`, export renders notes, project save and load round-trip, snapshot carries notes. Tests per handler, a v0.7.0 file loads, an exported WAV is non-silent at the note's time. |
+| C frontend | `app/src/lib/components/PianoRoll.svelte` (new), `app/src/lib/pianoRoll.ts` and `.test.ts` (new), `app/src/lib/components/Block.svelte`, `app/src/routes/+page.svelte`, `app/src/lib/session.svelte.ts`, `app/src/lib/keys.ts` | Piano roll pane under the timeline, opened by double-click or Enter on a MIDI block. Click adds, drag moves and resizes, wheel changes velocity, Delete removes. Clicking a key auditions through `noteOn` and `noteOff`. MIDI blocks draw a mini note preview. Pure geometry in `pianoRoll.ts` with tests. |
+
+Merge and gate (owner: this session, after A, B and C land):
+
+1. Merge A, then B, then C. Resolve conflicts in `render.rs` and `view.rs`.
+2. `cargo test`, `cargo clippy --all-targets -- -D warnings`, `cargo fmt --check`,
+   `cd app && bun run check && bun test`. All green.
+3. Update this file, `CHANGELOG.md` and `README.md`. Cut no release until the
+   user has listened to it.
+
+Risks: the 60 Hz snapshot now carries notes (512 per block, 64 blocks), so
+Step B measures the serialized size and trims to the selected block if it hurts.
+The piano roll cannot be exercised by an automated test beyond the geometry
+helpers, so it needs a hand pass in the running window.
+
 ## Review findings (2026-10-26, v0.7.0)
 
 Four parallel read-only reviews covered the engine, decoding and export, app

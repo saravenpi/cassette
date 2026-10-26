@@ -6,7 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::models::TrackKind;
+use crate::models::{Note, TrackKind};
 
 /// Session cursor: which block of which track is selected. A block index equal
 /// to the track's block count means "no block", the state a fresh track is in.
@@ -31,6 +31,8 @@ pub struct BlockView {
     pub source: String,
     /// Whether the cursor sits on this block.
     pub selected: bool,
+    /// Notes of a MIDI block, starts relative to the block.
+    pub notes: Vec<Note>,
 }
 
 /// A track, reduced to what the UI needs.
@@ -110,6 +112,7 @@ mod tests {
             length_beats: length,
             source: String::new(),
             selected: false,
+            notes: Vec::new(),
         }
     }
 

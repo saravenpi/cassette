@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::models::Instrument;
+use crate::models::{Instrument, Note};
 
 /// What a track carries.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -52,7 +52,7 @@ fn finite_or(value: f32, fallback: f32) -> f32 {
 
 /// A block placed on a track's lane.
 ///
-/// A MIDI block carries note data (none yet); an audio block points at a file
+/// A MIDI block carries notes; an audio block points at a file
 /// on disk. Both live at a position on the timeline and have a length in beats,
 /// so the lane can draw them and the engine can find the one under the playhead.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -66,6 +66,10 @@ pub struct Block {
     pub length_beats: f32,
     /// Path of the audio file this block plays. Empty for a MIDI block.
     pub source: String,
+    /// Notes of a MIDI block, in the order they were drawn. Empty for an audio
+    /// block.
+    #[serde(default)]
+    pub notes: Vec<Note>,
 }
 
 impl Block {
@@ -88,6 +92,7 @@ impl Block {
             start_beats: clamp_start(start_beats),
             length_beats: clamp_length(length_beats),
             source: source.into(),
+            notes: Vec::new(),
         }
     }
 
@@ -329,6 +334,7 @@ mod tests {
                 start_beats: start,
                 length_beats: -3.0,
                 source: String::new(),
+                notes: Vec::new(),
             });
         }
         let problems = track.sanitize(2).expect("finite track");

@@ -58,6 +58,43 @@ pub enum Event {
     AddBlock,
     /// Remove the block under the cursor.
     DeleteBlock,
+    /// Draw a note into a MIDI block. `start_beats` is relative to the block.
+    AddNote {
+        track: usize,
+        block: usize,
+        pitch: u8,
+        start_beats: f32,
+        length_beats: f32,
+        velocity: u8,
+    },
+    /// Move a note to a new pitch and start, relative to its block.
+    MoveNote {
+        track: usize,
+        block: usize,
+        note: usize,
+        pitch: u8,
+        start_beats: f32,
+    },
+    /// Drag a note's right edge.
+    ResizeNote {
+        track: usize,
+        block: usize,
+        note: usize,
+        length_beats: f32,
+    },
+    /// Change how hard a note is struck.
+    SetNoteVelocity {
+        track: usize,
+        block: usize,
+        note: usize,
+        velocity: u8,
+    },
+    /// Remove one note from one block.
+    DeleteNote {
+        track: usize,
+        block: usize,
+        note: usize,
+    },
     /// Drop an audio file onto a track, creating an audio block that plays it.
     ImportSample {
         track: usize,

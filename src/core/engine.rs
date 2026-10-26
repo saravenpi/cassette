@@ -15,7 +15,7 @@ use rtrb::{Consumer, Producer, RingBuffer};
 use crate::core::audio::{
     AudioBackend, BackendPreference, NullBackend, RenderFn, SharedState, select_backend,
 };
-use crate::core::render::{MirroredBlock, RenderCore, RtCommand};
+use crate::core::render::{MirroredBlock, MirroredNote, RenderCore, RtCommand};
 use crate::core::sample::{NO_SLOT, SAMPLE_RING_CAPACITY, SampleMsg};
 use crate::core::synth::sample_gain;
 use crate::core::{DEFAULT_SAMPLE_RATE, RT_COMMAND_CAPACITY};
@@ -55,6 +55,7 @@ pub struct AudioEngine {
     backend: Box<dyn AudioBackend>,
     producer: Mutex<Producer<RtCommand>>,
     retired: Mutex<Vec<Arc<[MirroredBlock]>>>,
+    retired_notes: Mutex<Vec<Arc<[MirroredNote]>>>,
     sample_producer: Option<Producer<SampleMsg>>,
     shared: Arc<SharedState>,
     sample_rate: u32,
@@ -118,6 +119,7 @@ impl AudioEngine {
             backend,
             producer: Mutex::new(producer),
             retired: Mutex::new(Vec::new()),
+            retired_notes: Mutex::new(Vec::new()),
             sample_producer: Some(sample_producer),
             shared,
             sample_rate,
@@ -186,6 +188,23 @@ impl AudioEngine {
         self.send(RtCommand::SetBlocks {
             track: track as u8,
             blocks,
+        })
+    }
+
+    /// Replace one track's note mirror on the audio thread. Returns `false` if
+    /// the command queue is full. Kept alive like [`AudioEngine::set_blocks`].
+    pub fn set_notes(&self, track: usize, notes: Vec<MirroredNote>) -> bool {
+        let notes: Arc<[MirroredNote]> = notes.into();
+        match self.retired_notes.lock() {
+            Ok(mut retired) => {
+                retired.retain(|held| Arc::strong_count(held) > 1);
+                retired.push(notes.clone());
+            }
+            Err(_) => return false,
+        }
+        self.send(RtCommand::SetNotes {
+            track: track as u8,
+            notes,
         })
     }
 

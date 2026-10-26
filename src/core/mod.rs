@@ -19,6 +19,8 @@ pub mod wav;
 pub const MAX_TRACKS: usize = 16;
 /// Hard ceiling on blocks per track, mirroring the audio-side mirror.
 pub const MAX_BLOCKS: usize = 64;
+/// Hard ceiling on notes in one track's audio-side note mirror.
+pub const MAX_NOTES: usize = 2048;
 /// Voices per track (polyphony).
 pub const MAX_VOICES: usize = 8;
 /// Sample rate used when no device suggests one.

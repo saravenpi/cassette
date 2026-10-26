@@ -168,6 +168,11 @@ impl App {
                 length_beats,
             } => self.resize_block(track, block, length_beats),
             Event::DeleteBlockAt { track, block } => self.delete_block_at(track, block),
+            Event::AddNote { .. }
+            | Event::MoveNote { .. }
+            | Event::ResizeNote { .. }
+            | Event::SetNoteVelocity { .. }
+            | Event::DeleteNote { .. } => {}
             Event::AddBlock => self.add_block(),
             Event::DeleteBlock => self.delete_block(),
             Event::ImportSample {
@@ -298,6 +303,7 @@ impl App {
                         length_beats: entry.length_beats,
                         source: entry.source.clone(),
                         selected: index == self.cursor.track && block == self.cursor.block,
+                        notes: entry.notes.clone(),
                     })
                     .collect(),
                 color_index: (index % COLOR_SLOTS) as u8,

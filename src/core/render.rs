@@ -61,9 +61,21 @@ const EMPTY_BLOCK: MirroredBlock = MirroredBlock {
     gain: 0.0,
 };
 
+/// One note, flattened for the audio thread: absolute beats on the timeline,
+/// already clipped to its block's end.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MirroredNote {
+    /// Start on the timeline, in beats.
+    pub start_beats: f32,
+    /// End on the timeline, in beats.
+    pub end_beats: f32,
+    pub pitch: u8,
+    pub velocity: u8,
+}
+
 /// Every message the control side can send into the audio thread.
 ///
-/// `SetBlocks` carries an `Arc` slice, built on the sending side. The sender
+/// `SetBlocks` and `SetNotes` carry an `Arc` slice, built on the sending side. The sender
 /// must keep a clone until the audio thread has taken the command, so the audio
 /// thread never drops the last reference. Every other variant is `Copy`.
 #[derive(Clone, Debug, PartialEq)]
@@ -82,6 +94,11 @@ pub enum RtCommand {
     SetBlocks {
         track: u8,
         blocks: Arc<[MirroredBlock]>,
+    },
+    /// Replace one track's note mirror outright. Notes are sorted by start.
+    SetNotes {
+        track: u8,
+        notes: Arc<[MirroredNote]>,
     },
     SetTrackCount {
         count: u8,
@@ -299,6 +316,7 @@ impl RenderCore {
             RtCommand::NoteOff { track, pitch } => self.synth.note_off(track as usize, pitch),
             RtCommand::AllNotesOff => self.synth.all_notes_off(),
             RtCommand::SetBlocks { track, blocks } => self.set_blocks(track as usize, &blocks),
+            RtCommand::SetNotes { .. } => {}
             RtCommand::SetTrackCount { count } => {
                 self.synth.set_track_count(count as usize);
                 self.block_lens = [0; MAX_TRACKS];

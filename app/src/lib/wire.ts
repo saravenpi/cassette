@@ -11,6 +11,14 @@ export interface Cursor {
 	track: number;
 }
 
+/** One note of a MIDI block; its start is relative to the block. */
+export interface NoteView {
+	pitch: number;
+	startBeats: number;
+	lengthBeats: number;
+	velocity: number;
+}
+
 /** One block on a track's lane, in beats from the top of the song. */
 export interface BlockView {
 	name: string;
@@ -19,6 +27,7 @@ export interface BlockView {
 	lengthBeats: number;
 	source: string;
 	selected: boolean;
+	notes: NoteView[];
 }
 
 /** A track: its voice, its mixer strip, and its blocks. */
@@ -98,6 +107,20 @@ export type EngineEvent =
 	| { placeBlock: { track: number; block: number; targetTrack: number; startBeats: number } }
 	| { resizeBlock: { track: number; block: number; lengthBeats: number } }
 	| { deleteBlockAt: { track: number; block: number } }
+	| {
+			addNote: {
+				track: number;
+				block: number;
+				pitch: number;
+				startBeats: number;
+				lengthBeats: number;
+				velocity: number;
+			};
+	  }
+	| { moveNote: { track: number; block: number; note: number; pitch: number; startBeats: number } }
+	| { resizeNote: { track: number; block: number; note: number; lengthBeats: number } }
+	| { setNoteVelocity: { track: number; block: number; note: number; velocity: number } }
+	| { deleteNote: { track: number; block: number; note: number } }
 	| { importSample: { track: number; path: string; startBeats: number } }
 	| { textInput: string }
 	| { volumeDelta: number }
