@@ -60,6 +60,32 @@ pub enum Event {
         track: usize,
         block: usize,
     },
+    /// Cut a block in two at an absolute beat. The right half keeps playing
+    /// the material from where the cut fell.
+    SplitBlock {
+        track: usize,
+        block: usize,
+        at_beats: f32,
+    },
+    /// Copy a block onto the beat right after it.
+    DuplicateBlock {
+        track: usize,
+        block: usize,
+    },
+    /// Drag a block's left edge: the end stays put and the material under the
+    /// new start keeps its place on the timeline.
+    TrimBlockStart {
+        track: usize,
+        block: usize,
+        start_beats: f32,
+    },
+    /// Drag a block's right edge so its material fills the new length, by
+    /// changing the playback rate.
+    StretchBlock {
+        track: usize,
+        block: usize,
+        length_beats: f32,
+    },
     /// Append an empty block to the selected track.
     AddBlock,
     /// Remove the block under the cursor.

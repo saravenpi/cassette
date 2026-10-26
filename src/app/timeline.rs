@@ -92,6 +92,26 @@ impl App {
         self.status = format!("block length {length:.2} beats");
     }
 
+    /// Cut a block in two at an absolute beat.
+    pub(crate) fn split_block(&mut self, _track: usize, _block: usize, _at_beats: f32) {
+        self.status = "split is not wired yet".into();
+    }
+
+    /// Copy a block onto the beat right after it.
+    pub(crate) fn duplicate_block(&mut self, _track: usize, _block: usize) {
+        self.status = "duplicate is not wired yet".into();
+    }
+
+    /// Move a block's left edge, keeping its end and its material in place.
+    pub(crate) fn trim_block_start(&mut self, _track: usize, _block: usize, _start_beats: f32) {
+        self.status = "trim is not wired yet".into();
+    }
+
+    /// Change a block's length by changing its playback rate.
+    pub(crate) fn stretch_block(&mut self, _track: usize, _block: usize, _length_beats: f32) {
+        self.status = "stretch is not wired yet".into();
+    }
+
     /// Remove one block from one track, wherever the cursor is.
     pub(crate) fn delete_block_at(&mut self, track: usize, block: usize) {
         let Some(track_index) = self.clamp_track(track) else {

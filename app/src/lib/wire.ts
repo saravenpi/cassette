@@ -28,6 +28,8 @@ export interface BlockView {
 	source: string;
 	selected: boolean;
 	notes: NoteView[];
+	offsetSeconds: number;
+	rate: number;
 }
 
 /** A track: its voice, its mixer strip, and its blocks. */
@@ -116,6 +118,10 @@ export type EngineEvent =
 	| { placeBlock: { track: number; block: number; targetTrack: number; startBeats: number } }
 	| { resizeBlock: { track: number; block: number; lengthBeats: number } }
 	| { deleteBlockAt: { track: number; block: number } }
+	| { splitBlock: { track: number; block: number; atBeats: number } }
+	| { duplicateBlock: { track: number; block: number } }
+	| { trimBlockStart: { track: number; block: number; startBeats: number } }
+	| { stretchBlock: { track: number; block: number; lengthBeats: number } }
 	| {
 			addNote: {
 				track: number;

@@ -180,6 +180,22 @@ impl App {
                 length_beats,
             } => self.resize_block(track, block, length_beats),
             Event::DeleteBlockAt { track, block } => self.delete_block_at(track, block),
+            Event::SplitBlock {
+                track,
+                block,
+                at_beats,
+            } => self.split_block(track, block, at_beats),
+            Event::DuplicateBlock { track, block } => self.duplicate_block(track, block),
+            Event::TrimBlockStart {
+                track,
+                block,
+                start_beats,
+            } => self.trim_block_start(track, block, start_beats),
+            Event::StretchBlock {
+                track,
+                block,
+                length_beats,
+            } => self.stretch_block(track, block, length_beats),
             Event::AddNote {
                 track,
                 block,
@@ -340,6 +356,8 @@ impl App {
                         source: entry.source.clone(),
                         selected: index == self.cursor.track && block == self.cursor.block,
                         notes: entry.notes.clone(),
+                        offset_seconds: entry.offset_seconds,
+                        rate: entry.rate,
                     })
                     .collect(),
                 color_index: (index % COLOR_SLOTS) as u8,

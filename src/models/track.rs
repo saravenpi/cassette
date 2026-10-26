@@ -70,6 +70,18 @@ pub struct Block {
     /// block.
     #[serde(default)]
     pub notes: Vec<Note>,
+    /// Where an audio block starts reading its file, in seconds of source
+    /// material. Zero for a MIDI block.
+    #[serde(default)]
+    pub offset_seconds: f32,
+    /// Playback speed of an audio block's material; 2.0 plays twice as fast
+    /// and an octave up. One for a MIDI block.
+    #[serde(default = "unit_rate")]
+    pub rate: f32,
+}
+
+fn unit_rate() -> f32 {
+    1.0
 }
 
 impl Block {
@@ -93,6 +105,8 @@ impl Block {
             length_beats: clamp_length(length_beats),
             source: source.into(),
             notes: Vec::new(),
+            offset_seconds: 0.0,
+            rate: 1.0,
         }
     }
 
@@ -375,6 +389,8 @@ mod tests {
                 length_beats: -3.0,
                 source: String::new(),
                 notes: Vec::new(),
+                offset_seconds: 0.0,
+                rate: 1.0,
             });
         }
         let problems = track.sanitize(2).expect("finite track");

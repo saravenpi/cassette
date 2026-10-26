@@ -35,6 +35,10 @@ pub struct BlockView {
     /// were drawn so an index names a note. Empty when the webview already holds
     /// this track's `notes_revision`.
     pub notes: Vec<Note>,
+    /// Seconds into an audio block's file where it starts reading.
+    pub offset_seconds: f32,
+    /// Playback speed of an audio block's material.
+    pub rate: f32,
 }
 
 /// A track, reduced to what the UI needs.
@@ -135,6 +139,8 @@ mod tests {
             source: String::new(),
             selected: false,
             notes: Vec::new(),
+            offset_seconds: 0.0,
+            rate: 1.0,
         }
     }
 
