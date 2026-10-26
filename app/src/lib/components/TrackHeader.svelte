@@ -5,7 +5,7 @@
 	 * frame by the session, so a drag never floods the engine.
 	 */
 
-	import { HEADER_WIDTH, ROW_HEIGHT } from '$lib/geometry';
+	import { HEADER_WIDTH, ROW_HEIGHT, rangePercent } from '$lib/geometry';
 	import { trackMenu } from '$lib/menu';
 	import { menu } from '$lib/menu.svelte';
 	import { trackColor } from '$lib/palette';
@@ -101,6 +101,7 @@
 			max="1"
 			step="0.01"
 			value={volume}
+			style="--filled: {rangePercent(volume, 0, 1)}"
 			aria-label="Volume of {track.name}"
 			onpointerdown={() => session.dispatch('checkpoint')}
 			oninput={(event) => onFader(event, 'volume')}
@@ -114,6 +115,7 @@
 			max="1"
 			step="0.02"
 			value={pan}
+			style="--filled: {rangePercent(pan, -1, 1)}"
 			aria-label="Pan of {track.name}"
 			onpointerdown={() => session.dispatch('checkpoint')}
 			oninput={(event) => onFader(event, 'pan')}
@@ -214,9 +216,6 @@
 	.fader {
 		flex: 1;
 		width: 0;
-		height: 14px;
-		margin: 0;
-		accent-color: var(--green);
 	}
 
 	.meter {

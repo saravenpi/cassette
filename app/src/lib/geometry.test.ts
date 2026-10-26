@@ -18,6 +18,7 @@ import {
 	position,
 	pruneHeights,
 	pxToBeats,
+	rangePercent,
 	snapBeats,
 	stretchLength,
 	trimSpan,
@@ -374,5 +375,18 @@ describe('wheel zoom', () => {
 	test('keeps the beat under the pointer in place', () => {
 		const left = anchoredScroll(320, 100, 32, 64);
 		expect((left + 100) / 64).toBe((320 + 100) / 32);
+	});
+});
+
+describe('rangePercent', () => {
+	test('places a value between its bounds', () => {
+		expect(rangePercent(0.5, 0, 1)).toBe('50%');
+		expect(rangePercent(0, -1, 1)).toBe('50%');
+	});
+
+	test('stays inside 0 to 100', () => {
+		expect(rangePercent(5, 0, 1)).toBe('100%');
+		expect(rangePercent(-5, 0, 1)).toBe('0%');
+		expect(rangePercent(1, 1, 1)).toBe('0%');
 	});
 });

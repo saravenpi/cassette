@@ -107,6 +107,13 @@ export function waveWindow(
 	return { x: offsetSeconds * perSecond, width: Math.max(played * perSecond, 0.001) };
 }
 
+/** Where `value` sits between `min` and `max`, as a CSS percentage for a slider's fill. */
+export function rangePercent(value: number, min: number, max: number): string {
+	const span = max - min;
+	const share = span > 0 ? (value - min) / span : 0;
+	return `${Math.min(100, Math.max(0, share * 100))}%`;
+}
+
 /** Keep a scale inside the zoom range. */
 export function clampZoom(pxPerBeat: number): number {
 	return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, pxPerBeat));

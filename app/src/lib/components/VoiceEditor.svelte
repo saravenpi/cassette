@@ -5,7 +5,7 @@
 	 * envelope drawn from the values the sliders show.
 	 */
 
-	import { envelopePoints } from '$lib/geometry';
+	import { envelopePoints, rangePercent } from '$lib/geometry';
 	import { session } from '$lib/session.svelte';
 	import type { Voice } from '$lib/session.svelte';
 	import type { TrackView } from '$lib/wire';
@@ -115,6 +115,7 @@
 				max={slider.max}
 				step={slider.step}
 				value={valueOf(slider.id)}
+				style="--filled: {rangePercent(valueOf(slider.id), slider.min, slider.max)}"
 				oninput={(event) => onSlider(slider.id, event.currentTarget.value)}
 				onpointerdown={() => (editing = true)}
 				onfocus={() => (editing = true)}
@@ -194,8 +195,5 @@
 
 	input[type='range'] {
 		width: 100%;
-		height: 14px;
-		margin: 0;
-		accent-color: var(--green);
 	}
 </style>
