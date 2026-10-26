@@ -16,6 +16,7 @@
 </script>
 
 <div class="pane">
+	<h2 class="eyebrow">Instruments</h2>
 	<p class="note">
 		This engine hosts no plugin format. There is no VST, VST3, AU or CLAP loader in the crate:
 		a track plays one of the built-in voices below, and picking one sends <code>setPreset</code>.
@@ -43,7 +44,7 @@
 
 		{#if selected !== null}
 			<p class="current">
-				{selected.name} plays <strong>{selected.preset}</strong> on a
+				{selected.name} plays <span class="strong">{selected.preset}</span> on a
 				{selected.waveform.toLowerCase()} oscillator. The waveform follows the preset; the
 				envelope is on the effects pane.
 			</p>
@@ -58,55 +59,75 @@
 		height: 100%;
 		min-height: 0;
 		overflow-y: auto;
-		padding: 8px 10px;
+		padding: 12px 14px;
+	}
+
+	.eyebrow {
+		margin: 0 0 10px;
+		font-size: 11px;
+		letter-spacing: 0.14em;
+		text-transform: uppercase;
+		color: var(--text-subtle);
 	}
 
 	.note {
-		margin: 0 0 10px;
-		font-size: 11px;
-		line-height: 1.45;
+		margin: 0 0 12px;
+		font-size: 12px;
+		line-height: 1.5;
 		color: var(--dim);
 	}
 
 	code {
-		font-family: ui-monospace, monospace;
-		font-size: 10px;
-		color: var(--text);
-		background: var(--panel-2);
-		padding: 0 3px;
-		border-radius: 0;
+		font-family: inherit;
+		font-size: 11px;
+		color: var(--olive);
 	}
 
 	.voices {
 		display: flex;
 		flex-direction: column;
-		gap: 2px;
 		margin: 0;
 		padding: 0;
 		list-style: none;
+		border-top: 1px solid var(--border-subtle);
+	}
+
+	.voices li {
+		border-bottom: 1px solid var(--border-subtle);
 	}
 
 	.voice {
+		justify-content: flex-start;
 		width: 100%;
+		height: 32px;
+		padding: 0 10px;
+		background: transparent;
+		color: var(--muted);
+		font-size: 12px;
+		letter-spacing: 0.02em;
+		text-transform: none;
 		text-align: left;
-		font-size: 11px;
-		padding: 3px 8px;
-		border-radius: 0;
+	}
+
+	.voice:hover:not(:disabled) {
+		filter: none;
+		background: var(--surface-hover);
+		color: var(--text);
 	}
 
 	.voice.on {
-		border-color: var(--head);
-		color: var(--head);
+		background: var(--green-soft);
+		color: var(--green);
 	}
 
 	.current {
-		margin: 10px 0 0;
-		font-size: 11px;
-		line-height: 1.45;
+		margin: 12px 0 0;
+		font-size: 12px;
+		line-height: 1.5;
 		color: var(--dim);
 	}
 
-	.current strong {
+	.strong {
 		color: var(--text);
 	}
 </style>

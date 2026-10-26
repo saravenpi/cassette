@@ -174,49 +174,55 @@
 	.menu {
 		position: fixed;
 		z-index: 100;
-		min-width: 168px;
-		padding: 3px 0;
+		min-width: 190px;
+		padding: 4px;
 		display: flex;
 		flex-direction: column;
-		background: var(--panel);
-		border: 1px solid var(--line);
-		border-radius: 0;
-		box-shadow: 0 6px 18px rgb(0 0 0 / 0.35);
-		font-size: 11px;
+		background: var(--surface);
+		box-shadow: var(--shadow);
+		font-size: 12px;
 		outline: none;
 	}
 
 	.item {
 		display: flex;
 		align-items: center;
+		justify-content: flex-start;
 		gap: 16px;
 		width: 100%;
-		padding: 4px 10px;
+		height: 30px;
+		padding: 0 10px;
 		border: 0;
-		border-radius: 0;
 		background: transparent;
 		color: var(--text);
-		font: inherit;
+		font-size: 12px;
+		letter-spacing: 0.02em;
+		text-transform: none;
 		text-align: left;
 		cursor: default;
+		transition: background 0.15s ease;
+	}
+
+	.item:hover:not([aria-disabled='true']) {
+		filter: none;
 	}
 
 	.item:focus {
 		outline: none;
-		background: color-mix(in srgb, var(--accent) 30%, transparent);
+		background: var(--surface-hover);
 	}
 
 	.item:focus-visible {
-		outline: 1px solid var(--accent);
-		outline-offset: -1px;
+		outline: 2px solid var(--green);
+		outline-offset: -2px;
 	}
 
 	.item[aria-disabled='true'] {
-		color: var(--dim);
+		opacity: 0.45;
 	}
 
-	.item.danger:not([aria-disabled='true']) {
-		color: var(--warn);
+	.item.danger {
+		color: var(--alert);
 	}
 
 	.label {
@@ -225,14 +231,18 @@
 	}
 
 	.shortcut {
+		padding: 1px 6px;
+		border: 1px solid var(--border);
 		font-size: 10px;
-		color: var(--dim);
+		letter-spacing: 0.04em;
+		color: var(--text-subtle);
 		white-space: nowrap;
+		font-variant-numeric: tabular-nums;
 	}
 
 	.separator {
 		height: 1px;
-		margin: 3px 0;
-		background: var(--line);
+		margin: 4px 0;
+		background: var(--border-subtle);
 	}
 </style>

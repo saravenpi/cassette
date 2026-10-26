@@ -15,6 +15,7 @@
 </script>
 
 <div class="pane">
+	<h2 class="eyebrow">Effects</h2>
 	<p class="note">
 		Insert effects are not implemented: no reverb, delay, filter or compressor is compiled into
 		the engine yet, so there are no controls for them here.
@@ -29,7 +30,7 @@
 		</p>
 	{:else}
 		<p class="note">
-			{selected.name} plays <strong>{selected.preset}</strong> on a
+			{selected.name} plays <span class="strong">{selected.preset}</span> on a
 			{selected.waveform.toLowerCase()} oscillator, so the waveform is fixed by the preset and
 			nothing here changes it.
 		</p>
@@ -44,17 +45,27 @@
 		height: 100%;
 		min-height: 0;
 		overflow-y: auto;
-		padding: 8px 10px;
+		padding: 12px 14px;
+	}
+
+	.eyebrow {
+		margin: 0 0 10px;
+		font-size: 11px;
+		letter-spacing: 0.14em;
+		text-transform: uppercase;
+		color: var(--text-subtle);
 	}
 
 	.note {
 		margin: 0 0 12px;
-		font-size: 11px;
-		line-height: 1.45;
+		padding-bottom: 12px;
+		border-bottom: 1px solid var(--border-subtle);
+		font-size: 12px;
+		line-height: 1.5;
 		color: var(--dim);
 	}
 
-	.note strong {
+	.strong {
 		color: var(--text);
 	}
 </style>

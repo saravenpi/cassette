@@ -11,7 +11,6 @@
 	import { onDestroy, onMount } from 'svelte';
 
 	import { beatsToPx, zoomBy } from '$lib/geometry';
-	import { trackColor } from '$lib/palette';
 	import {
 		DEFAULT_NOTE_BEATS,
 		DEFAULT_VELOCITY,
@@ -75,7 +74,6 @@
 	const gridWidth = $derived(Math.max(1, beatsToPx(blockBeats, zoom)));
 	const gridHeight = PITCH_COUNT * ROW_PX;
 	const beats = $derived(Array.from({ length: Math.floor(blockBeats) + 1 }, (_, beat) => beat));
-	const fill = $derived(trackColor(track?.colorIndex ?? 0));
 
 	const notes = $derived.by((): NoteView[] =>
 		(block?.notes ?? []).map((note, index) => {
@@ -239,7 +237,8 @@
 
 <section class="roll" aria-label="Piano roll">
 	<header class="bar">
-		<span class="title">{track?.name ?? ''} / {block?.name ?? ''}</span>
+		<span class="eyebrow">{track?.name ?? ''}</span>
+		<span class="title">{block?.name ?? ''}</span>
 		<span class="info" aria-live="polite">
 			{#if current !== null}
 				{noteName(current.pitch)} at beat {current.startBeats + 1}, length {current.lengthBeats},
@@ -248,13 +247,13 @@
 				{notes.length} {notes.length === 1 ? 'note' : 'notes'}
 			{/if}
 		</span>
-		<button class="small" aria-label="Zoom the piano roll out" onclick={() => (zoom = zoomBy(zoom, -1))}>
+		<button class="icon" aria-label="Zoom the piano roll out" onclick={() => (zoom = zoomBy(zoom, -1))}>
 			&minus;
 		</button>
-		<button class="small" aria-label="Zoom the piano roll in" onclick={() => (zoom = zoomBy(zoom, 1))}>
+		<button class="icon" aria-label="Zoom the piano roll in" onclick={() => (zoom = zoomBy(zoom, 1))}>
 			+
 		</button>
-		<button class="small" aria-label="Close piano roll" onclick={() => session.closeRoll()}>
+		<button class="icon" aria-label="Close piano roll" onclick={() => session.closeRoll()}>
 			&times;
 		</button>
 	</header>
@@ -289,7 +288,7 @@
 				aria-label="Notes of {block?.name ?? 'the block'}: click to add, drag to move, drag the right edge to resize, wheel for velocity, Delete to remove"
 				tabindex="0"
 				bind:this={grid}
-				style="width: {gridWidth}px; height: {gridHeight}px; --fill: {fill}"
+				style="width: {gridWidth}px; height: {gridHeight}px"
 				onpointerdown={onPointerDown}
 				onpointermove={onPointerMove}
 				onpointerup={onPointerUp}
@@ -342,27 +341,39 @@
 		height: 280px;
 		display: flex;
 		flex-direction: column;
-		border-top: 1px solid var(--line);
-		background: var(--panel);
+		border-top: 1px solid var(--border);
+		background: var(--bg);
 	}
 
 	.bar {
 		display: flex;
 		align-items: center;
-		gap: 4px;
-		padding: 4px 8px;
-		border-bottom: 1px solid var(--line);
+		gap: 10px;
+		height: 36px;
+		flex: none;
+		padding: 0 8px 0 12px;
+		border-bottom: 1px solid var(--border-subtle);
+		background: var(--surface);
+	}
+
+	.eyebrow {
 		font-size: 11px;
+		letter-spacing: 0.14em;
+		text-transform: uppercase;
+		color: var(--text-subtle);
+		white-space: nowrap;
 	}
 
 	.title {
+		font-size: 12px;
 		color: var(--text);
 		white-space: nowrap;
 	}
 
 	.info {
 		margin-right: auto;
-		padding-left: 8px;
+		padding-left: 6px;
+		font-size: 11px;
 		color: var(--dim);
 		font-variant-numeric: tabular-nums;
 		white-space: nowrap;
@@ -370,11 +381,20 @@
 		text-overflow: ellipsis;
 	}
 
-	.small {
-		padding: 0 6px;
-		font-size: 11px;
-		line-height: 16px;
-		height: 18px;
+	.icon {
+		width: 26px;
+		height: 26px;
+		padding: 0;
+		background: transparent;
+		color: var(--text-subtle);
+		font-size: 14px;
+		letter-spacing: 0;
+	}
+
+	.icon:hover:not(:disabled) {
+		filter: none;
+		background: var(--surface-hover);
+		color: var(--text);
 	}
 
 	.scroller {
@@ -396,35 +416,38 @@
 		flex: none;
 		display: flex;
 		flex-direction: column;
-		background: var(--panel);
-		border-right: 1px solid var(--line);
+		background: var(--surface);
+		border-right: 1px solid var(--border);
 	}
 
 	.key {
 		flex: none;
-		padding: 0 4px 0 0;
+		justify-content: flex-end;
+		padding: 0 6px 0 0;
 		border: 0;
-		border-bottom: 1px solid var(--line);
-		background: color-mix(in srgb, var(--text) 82%, var(--panel));
-		color: var(--bg);
-		font-size: 8px;
+		border-bottom: 1px solid var(--border-subtle);
+		background: var(--surface-hover);
+		color: var(--text-subtle);
+		font-size: 9px;
 		line-height: 1;
-		text-align: right;
-		cursor: pointer;
+		letter-spacing: 0.04em;
+		text-transform: none;
+		transition: none;
 	}
 
 	.key.black {
-		background: var(--panel-2);
-		color: var(--dim);
+		background: var(--surface);
 	}
 
-	.key:hover {
-		border-color: var(--line);
-		background: color-mix(in srgb, var(--accent) 40%, var(--panel));
+	.key:hover:not(:disabled) {
+		filter: none;
+		background: var(--green-soft);
+		color: var(--text);
 	}
 
 	.key.down {
-		background: var(--accent);
+		background: var(--green);
+		color: var(--on-green);
 	}
 
 	.grid {
@@ -461,33 +484,32 @@
 	}
 
 	.black-row {
-		fill: var(--panel);
+		fill: var(--surface);
+		fill-opacity: 0.6;
 	}
 
 	.lines line {
-		stroke: var(--line);
+		stroke: var(--grid-minor);
 		stroke-width: 1;
 	}
 
 	.lines line.bar {
-		stroke: var(--dim);
-		stroke-opacity: 0.5;
+		stroke: var(--grid-major);
 	}
 
 	.lines line.octave {
-		stroke: var(--dim);
-		stroke-opacity: 0.35;
+		stroke: var(--border);
 	}
 
 	.note {
 		position: absolute;
-		background: var(--fill);
-		border: 1px solid color-mix(in srgb, var(--fill) 60%, var(--bg));
+		background: var(--green);
+		box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--green) 55%, var(--bg));
 		pointer-events: none;
 	}
 
 	.note.selected {
-		border-color: var(--text);
-		box-shadow: inset 0 0 0 1px var(--text);
+		box-shadow: inset 0 0 0 1px var(--bg);
+		outline: 1px solid var(--text);
 	}
 </style>
