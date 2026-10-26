@@ -213,3 +213,37 @@ Renamed project to cassette, updated repository and directory, and created deskt
 - Sample audio file renamed to `cassette-mix.wav`.
 
 
+## [0.8.0] - 2026-10-26
+
+A review pass over the whole codebase. Audio-thread hazards, export and project loading are fixed; looping and the Load dialog now work.
+
+### Added
+
+- Looping: with loop on, the playhead wraps at the end of the last block. Loop is on by default.
+- Project files carry a `version` field and are validated on load: tempo, block start and length, volume, pan and block and track counts are clamped, and blocks are kept sorted.
+- A Tauri dialog for the Load button, so the chosen project file is the one loaded.
+- Keyboard import and load in the file browser (Enter), and keyboard resize of track rows.
+- Multi-file drops are placed end to end, using each block's real length.
+- A decode ceiling of 10 minutes, with truncation and early-stop reported in the status line.
+
+### Changed
+
+- Beat position and block scheduling are computed in `f64`, and tempo is no longer rounded to whole frames per beat, so non-integer tempos no longer drift.
+- The ffplay and TCP backends write on a separate thread through a bounded queue and drop audio instead of stalling the render thread.
+- File browser commands run off the UI thread. Symlinks inside the sample root are followed.
+- Project and WAV files are written atomically.
+- Seek and stop fade sample voices out instead of cutting them.
+
+### Fixed
+
+- Audio export ignored each sample's rate, so non-44.1 kHz files exported at the wrong speed and pitch.
+- `SampleMsg::End` could panic the audio thread on an out-of-range slot.
+- The block mirror and sample buffers could be freed on the audio thread.
+- Loading a project left the previous project's samples, held notes and rename prompt in place.
+- Mix and voice changes to two tracks in one frame dropped the first change.
+- The drag-drop listener leaked when the page unmounted early.
+- The window title bar could not be dragged on macOS.
+
+### Removed
+
+- Dead helpers used only by tests (`block_at`, `contains`, `is_audible`, `utils::math`).
