@@ -13,7 +13,7 @@ mod red_zone {
     use cassette::core::MAX_TRACKS;
     use cassette::core::render::{MirroredBlock, MirroredNote, RenderCore, RtCommand};
     use cassette::core::sample::{NO_SLOT, SampleMsg};
-    use cassette::models::Song;
+    use cassette::models::{Effect, EffectChain, EffectKind, Song};
     use std::sync::Arc;
 
     #[global_allocator]
@@ -211,5 +211,70 @@ mod red_zone {
         });
 
         assert!(core.position_frames() > 0, "the loop did run");
+    }
+
+    /// A chain with one of every kind, all switched on.
+    fn every_effect() -> EffectChain {
+        EffectChain::from_effects(&EffectKind::ALL.map(Effect::new))
+    }
+
+    #[test]
+    fn every_effect_on_a_track_allocates_nothing() {
+        let song = Song::new();
+        let mut core = RenderCore::new(&song, DEFAULT_SAMPLE_RATE);
+        core.apply(RtCommand::SetBlocks {
+            track: 0,
+            blocks: lane(),
+        });
+        let chain = every_effect();
+        let mut moved = chain;
+        moved.slots.reverse();
+        moved.slots[0].params[1] = 0.9;
+        let mut bypassed = moved;
+        bypassed.slots[2].enabled = false;
+        let mut out = vec![0.0f32; 1024 * 2];
+        let mut loudest = 0.0f32;
+
+        assert_no_alloc::assert_no_alloc(|| {
+            core.apply(RtCommand::SetEffects { track: 0, chain });
+            core.apply(RtCommand::Play);
+            core.apply(RtCommand::NoteOn {
+                track: 0,
+                pitch: 60,
+                velocity: 100,
+            });
+            for block in 0..64 {
+                if block == 16 {
+                    core.apply(RtCommand::SetEffects {
+                        track: 0,
+                        chain: moved,
+                    });
+                }
+                if block == 32 {
+                    core.apply(RtCommand::SetEffects {
+                        track: 0,
+                        chain: bypassed,
+                    });
+                    core.apply(RtCommand::NoteOff {
+                        track: 0,
+                        pitch: 60,
+                    });
+                }
+                loudest = loudest.max(core.process(&mut out)[0]);
+            }
+            core.apply(RtCommand::SetEffects {
+                track: 0,
+                chain: EffectChain::EMPTY,
+            });
+        });
+
+        assert!(
+            out.iter().all(|sample| sample.is_finite()),
+            "the chain stayed finite"
+        );
+        assert!(
+            loudest > 0.0,
+            "the note reached the meter through the chain"
+        );
     }
 }

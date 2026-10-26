@@ -6,9 +6,10 @@
 
 use rtrb::Consumer;
 
+use crate::core::effects::TrackEffects;
 use crate::core::sample::{MAX_SAMPLE_SLOTS, NO_SLOT, SampleMsg, SamplePool};
 use crate::core::{MAX_TRACKS, MAX_VOICES};
-use crate::models::{Instrument, Waveform};
+use crate::models::{EffectChain, Instrument, Waveform};
 use crate::utils::frequency::note_to_freq;
 
 const TWO_PI: f32 = std::f32::consts::TAU;
@@ -242,11 +243,11 @@ fn sample_at(player: &SamplePlayer, pool: &SamplePool) -> Option<f32> {
     Some(frames[at] + (frames[next] - frames[at]) * frac)
 }
 
-/// One track's voices and mixer state.
-#[derive(Clone, Copy, Debug)]
+/// One track's voices, insert chain and mixer state.
 struct TrackVoices {
     voices: [Voice; MAX_VOICES],
     sample: SamplePlayer,
+    effects: TrackEffects,
     instrument: Instrument,
     rates: EnvRates,
     volume: f32,
@@ -260,6 +261,7 @@ impl TrackVoices {
         Self {
             voices: [Voice::IDLE; MAX_VOICES],
             sample: SamplePlayer::IDLE,
+            effects: TrackEffects::new(sample_rate),
             instrument,
             rates: EnvRates::from(&instrument, sample_rate),
             volume: 0.8,
@@ -375,6 +377,7 @@ impl SynthEngine {
         for track in &mut self.tracks[count..self.track_count.max(count)] {
             track.voices = [Voice::IDLE; MAX_VOICES];
             track.sample = SamplePlayer::IDLE;
+            track.effects.set_chain(&EffectChain::EMPTY);
         }
         self.track_count = count;
         self.recompute_active_voices();
@@ -577,8 +580,19 @@ impl SynthEngine {
             .sum();
     }
 
-    /// Replace one track's insert chain.
-    pub fn set_effects(&mut self, _track: usize, _chain: &crate::models::EffectChain) {}
+    /// Replace one track's insert chain. Allocation-free.
+    pub fn set_effects(&mut self, track: usize, chain: &EffectChain) {
+        if let Some(t) = self.tracks.get_mut(track) {
+            t.effects.set_chain(chain);
+        }
+    }
+
+    /// Set the tempo every track's tempo-synced delay follows. Allocation-free.
+    pub fn set_tempo(&mut self, bpm: f32) {
+        for track in &mut self.tracks {
+            track.effects.set_tempo(bpm);
+        }
+    }
 
     /// Trigger a note. `gate` is the number of frames before release, or
     /// `HELD` to sustain until [`SynthEngine::note_off`].
@@ -669,13 +683,26 @@ impl SynthEngine {
         self.active_voices > 0
     }
 
+    /// Whether any track's delay or reverb tail may still be audible.
+    pub fn is_ringing(&self) -> bool {
+        self.tracks[..self.track_count]
+            .iter()
+            .any(|t| t.effects.is_ringing())
+    }
+
     /// Render one stereo frame, accumulating per-track peaks into `peaks`.
     ///
     /// Returns `(left, right)` already clamped to `[-1, 1]`. Each track's sample
     /// voice, when it has one, is summed into the track's mono mix after the
-    /// synth voices, so both reach the same meter and mixer.
+    /// synth voices. The mono mix runs through the track's insert chain as a
+    /// stereo pair, the meter reads the chain's output before the fader, and
+    /// then volume, instrument gain and balance pan apply.
+    ///
+    /// Muted and non-solo tracks still run their chain and discard the result,
+    /// so a tail keeps its state across a mute and a meter keeps moving.
+    /// Rendering continues past the last voice while any chain still rings.
     pub fn process_frame(&mut self, peaks: &mut [f32; MAX_TRACKS]) -> (f32, f32) {
-        if self.active_voices == 0 {
+        if self.active_voices == 0 && !self.is_ringing() {
             return (0.0, 0.0);
         }
 
@@ -732,7 +759,8 @@ impl SynthEngine {
                 }
             }
 
-            let magnitude = mono.abs();
+            let (l, r) = track.effects.process(mono, mono);
+            let magnitude = l.abs().max(r.abs());
             if magnitude > peaks[ti] {
                 peaks[ti] = magnitude;
             }
@@ -741,8 +769,8 @@ impl SynthEngine {
             if audible {
                 let gain = track.volume * instrument.gain;
                 let pan = track.pan;
-                sum_l += mono * gain * (0.5 * (1.0 - pan));
-                sum_r += mono * gain * (0.5 * (1.0 + pan));
+                sum_l += l * gain * (0.5 * (1.0 - pan));
+                sum_r += r * gain * (0.5 * (1.0 + pan));
             }
         }
 
@@ -758,7 +786,7 @@ impl SynthEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{Instrument, Waveform};
+    use crate::models::{Effect, EffectKind, Instrument, Waveform};
     use rtrb::RingBuffer;
     use std::sync::Arc;
 
@@ -1154,5 +1182,82 @@ mod tests {
         assert!(e.play_sample(0, EVENT, 0, SampleCue::START, 1.0, 1));
         assert!(e.release_sample(0, 1));
         assert!(!e.release_sample(0, 1), "already releasing");
+    }
+
+    fn chain(effects: &[Effect]) -> EffectChain {
+        EffectChain::from_effects(effects)
+    }
+
+    #[test]
+    fn an_empty_chain_mixes_exactly_as_the_plain_formula() {
+        let mut e = engine();
+        e.configure_track(0, Instrument::preset("Lead"), 0.7, 0.3, false, false);
+        e.set_effects(0, &EffectChain::EMPTY);
+        constant(&mut e, 0, 512, 0.5);
+        assert!(e.play_sample(0, EVENT, 0, SampleCue::START, 1.0, 0));
+        let gain = 0.7 * Instrument::preset("Lead").gain;
+        let pan = 0.3f32;
+        let expected_l = (0.5 * gain * (0.5 * (1.0 - pan)) * e.master).clamp(-1.0, 1.0);
+        let expected_r = (0.5 * gain * (0.5 * (1.0 + pan)) * e.master).clamp(-1.0, 1.0);
+        let mut peaks = [0.0; MAX_TRACKS];
+        for _ in 0..256 {
+            assert_eq!(e.process_frame(&mut peaks), (expected_l, expected_r));
+        }
+        assert_eq!(peaks[0], 0.5);
+    }
+
+    #[test]
+    fn the_meter_reads_after_the_chain_and_before_the_fader() {
+        let mut e = engine();
+        e.configure_track(0, Instrument::preset("Lead"), 0.1, 0.0, false, false);
+        let mut quiet = Effect::new(EffectKind::Saturator);
+        quiet.params = [0.0, -20.0, 1.0, 0.0, 0.0];
+        e.set_effects(0, &chain(&[quiet]));
+        constant(&mut e, 0, 4_096, 0.5);
+        assert!(e.play_sample(0, EVENT, 0, SampleCue::START, 1.0, 0));
+        let peaks = run(&mut e, 2_048);
+        let expected = 0.5f32.tanh() * 0.1;
+        assert!((peaks[0] - expected).abs() < 1e-3, "{}", peaks[0]);
+    }
+
+    #[test]
+    fn a_delay_tail_outlives_the_last_voice() {
+        let mut e = engine();
+        e.set_tempo(120.0);
+        let mut delay = Effect::new(EffectKind::Delay);
+        delay.params = [0.5, 0.0, 0.5, 0.0, 0.0];
+        e.set_effects(0, &chain(&[delay]));
+        constant(&mut e, 0, 64, 0.5);
+        assert!(e.play_sample(0, EVENT, 0, SampleCue::START, 1.0, 0));
+        let mut peaks = [0.0; MAX_TRACKS];
+        let mut echo = 0.0f32;
+        for frame in 0..30_000 {
+            let (l, _) = e.process_frame(&mut peaks);
+            if frame > 1_000 {
+                echo = echo.max(l.abs());
+            }
+        }
+        assert!(!e.is_active(), "the sample voice ended long ago");
+        assert!(echo > 0.01, "the echo still sounded: {echo}");
+        run(&mut e, 44_100);
+        assert!(!e.is_ringing(), "the tail ended");
+        assert_eq!(e.process_frame(&mut peaks), (0.0, 0.0));
+    }
+
+    #[test]
+    fn a_muted_track_keeps_running_its_chain() {
+        let mut e = engine();
+        e.configure_track(0, Instrument::preset("Lead"), 1.0, 0.0, true, false);
+        e.set_effects(0, &chain(&[Effect::new(EffectKind::Reverb)]));
+        constant(&mut e, 0, 64, 0.5);
+        assert!(e.play_sample(0, EVENT, 0, SampleCue::START, 1.0, 0));
+        run(&mut e, 2_000);
+        assert!(e.is_ringing());
+        e.configure_track(0, Instrument::preset("Lead"), 1.0, 0.0, false, false);
+        let mut peaks = [0.0; MAX_TRACKS];
+        let tail = (0..4_000)
+            .map(|_| e.process_frame(&mut peaks).0.abs())
+            .fold(0.0, f32::max);
+        assert!(tail > 1e-4, "the tail built up while muted: {tail}");
     }
 }

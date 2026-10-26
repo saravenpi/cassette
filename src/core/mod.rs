@@ -8,6 +8,7 @@
 //! pushed through a lock-free `rtrb` ring buffer.
 
 pub mod audio;
+pub mod effects;
 pub mod engine;
 pub mod meter;
 pub mod render;
