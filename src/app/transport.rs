@@ -5,6 +5,7 @@ use std::sync::atomic::Ordering;
 
 use super::App;
 use super::BEATS_PER_BAR;
+use super::notes::grid_name;
 use crate::core::render::RtCommand;
 use crate::models::{LoopRegion, MAX_NOTES_PER_BLOCK, Note, TrackKind};
 use crate::ui::view::Cursor;
@@ -12,6 +13,12 @@ use crate::utils::time::Tempo;
 
 /// Longest block name the prompt accepts, in characters.
 const MAX_NAME_LEN: usize = 32;
+/// Count-in lengths the transport menu offers, in bars.
+const COUNT_IN_BARS: [u8; 4] = [0, 1, 2, 4];
+/// Finest grid record quantize snaps to, in beats.
+const MIN_RECORD_GRID: f32 = 1.0 / 16.0;
+/// Coarsest grid record quantize snaps to, in beats.
+const MAX_RECORD_GRID: f32 = 4.0;
 
 /// A note waiting to be released.
 pub(crate) struct HeldNote {
@@ -66,7 +73,8 @@ impl App {
         self.status = "stopped".into();
     }
 
-    /// Arm or disarm MIDI recording. Arming while stopped starts the transport.
+    /// Arm or disarm MIDI recording. Arming while stopped starts the transport
+    /// from the marker, after the count-in when one is set.
     pub(crate) fn toggle_record(&mut self) {
         if self.recording {
             self.end_take();
@@ -74,17 +82,69 @@ impl App {
             return;
         }
         self.recording = true;
+        let mut status = format!("recording into track {}", self.cursor.track + 1);
         if !self.engine.is_playing() {
-            self.toggle_play();
+            if self.count_in_bars > 0 {
+                self.send(RtCommand::Seek {
+                    beats: self.marker_beats,
+                });
+                self.send(RtCommand::PlayAfterCountIn {
+                    beats: (f32::from(self.count_in_bars) * BEATS_PER_BAR) as u16,
+                });
+                status = format!("counting in {} bar(s), then {status}", self.count_in_bars);
+            } else {
+                self.toggle_play();
+            }
         }
-        self.status = format!("recording into track {}", self.cursor.track + 1);
+        self.status = status;
     }
 
-    pub(crate) fn toggle_metronome(&mut self) {}
+    /// Turn the metronome click on or off.
+    pub(crate) fn toggle_metronome(&mut self) {
+        self.metronome = !self.metronome;
+        self.send(RtCommand::SetMetronome { on: self.metronome });
+        self.status = format!("metronome {}", if self.metronome { "on" } else { "off" });
+    }
 
-    pub(crate) fn set_count_in(&mut self, _bars: u8) {}
+    /// Set how many bars a recording from stop counts in: 0, 1, 2 or 4.
+    pub(crate) fn set_count_in(&mut self, bars: u8) {
+        if !COUNT_IN_BARS.contains(&bars) {
+            self.status = "count-in must be 0, 1, 2 or 4 bars".into();
+            return;
+        }
+        self.count_in_bars = bars;
+        self.status = match bars {
+            0 => "count-in off".into(),
+            1 => "count-in 1 bar".into(),
+            _ => format!("count-in {bars} bars"),
+        };
+    }
 
-    pub(crate) fn set_record_quantize(&mut self, _grid_beats: f32) {}
+    /// Set the grid recorded notes snap to, or `0` to record them as played.
+    pub(crate) fn set_record_quantize(&mut self, grid_beats: f32) {
+        if grid_beats == 0.0 {
+            self.record_quantize_beats = 0.0;
+            self.status = "record quantize off".into();
+            return;
+        }
+        if !(MIN_RECORD_GRID..=MAX_RECORD_GRID).contains(&grid_beats) {
+            self.status = "record quantize must be off or 1/16 to 4 beats".into();
+            return;
+        }
+        self.record_quantize_beats = grid_beats;
+        self.status = format!("record quantize {}", grid_name(grid_beats));
+    }
+
+    /// Whether the metronome is still counting in before the transport starts.
+    fn counting_in(&self) -> bool {
+        self.engine.shared().count_in_frames.load(Ordering::Relaxed) > 0
+    }
+
+    /// Beat a note played now starts on in the take, or `None` when nothing is
+    /// recording or the count-in has not reached the downbeat.
+    fn take_start(&self, counting_in: bool) -> Option<f32> {
+        (self.recording && !counting_in).then(|| self.position_beats())
+    }
 
     /// Close the take: notes still held are written up to the playhead.
     fn end_take(&mut self) {
@@ -134,6 +194,7 @@ impl App {
                 .loop_region()
                 .map_or(start, |region| region.end_beats)
         };
+        let (start, end) = snap_take(start, end, self.record_quantize_beats);
         let lane = &self.song.tracks[track];
         let covering = lane.blocks.iter().position(|block| {
             block.kind == TrackKind::Midi && block.start_beats <= start && start < block.end_beats()
@@ -303,7 +364,7 @@ impl App {
             pitch,
             velocity,
         });
-        let recorded_from = self.recording.then(|| self.position_beats());
+        let recorded_from = self.take_start(self.counting_in());
         self.held.push(HeldNote {
             track,
             pitch,
@@ -337,6 +398,25 @@ impl App {
     pub(crate) fn frames_per_beat(&self) -> f64 {
         Tempo::new(self.song.bpm()).frames_per_beat(self.engine.sample_rate())
     }
+}
+
+/// Snap a played note's start to the nearest line of `grid` beats, keeping its
+/// length, and keep its end at least one grid step past the new start. A grid
+/// of `0` leaves the note as played.
+fn snap_take(start: f32, end: f32, grid: f32) -> (f32, f32) {
+    if grid <= 0.0 {
+        return (start, end);
+    }
+    let snapped = (start / grid).round() * grid;
+    let moved = snapped + (end - start);
+    (
+        snapped,
+        if moved > snapped {
+            moved
+        } else {
+            snapped + grid
+        },
+    )
 }
 
 #[cfg(test)]
@@ -403,6 +483,84 @@ mod tests {
         assert_eq!(blocks.len(), 1);
         assert_eq!(blocks[0].length_beats, 4.0);
         assert_eq!(blocks[0].notes.len(), 1);
+    }
+
+    #[test]
+    fn record_quantize_snaps_the_start_and_keeps_the_length() {
+        let mut app = headless_app();
+        app.handle(Event::SetRecordQuantize { grid_beats: 1.0 });
+        assert_eq!(app.ui_state().record_quantize_beats, 1.0);
+        assert_eq!(app.status, "record quantize 1/4");
+        app.recording = true;
+        app.record_note(0, 60, 100, 5.4, 6.9);
+        app.record_note(0, 62, 100, 6.6, 6.6);
+        let notes = &app.song.tracks[0].blocks[0].notes;
+        assert_eq!(notes[0].start_beats, 1.0);
+        assert!((notes[0].length_beats - 1.5).abs() < 1e-5);
+        assert_eq!(notes[1].start_beats, 3.0, "6.6 snaps to 7, one beat in");
+        assert_eq!(notes[1].length_beats, 1.0, "a zero-length note gets a step");
+        assert_eq!(snap_take(2.2, 3.0, 0.0), (2.2, 3.0));
+    }
+
+    #[test]
+    fn record_quantize_refuses_grids_out_of_range() {
+        let mut app = headless_app();
+        for grid_beats in [0.01, 8.0, f32::NAN, -1.0] {
+            app.handle(Event::SetRecordQuantize { grid_beats });
+            assert_eq!(app.record_quantize_beats, 0.0, "{grid_beats}");
+            assert!(app.status.contains("must be"), "{}", app.status);
+        }
+        app.handle(Event::SetRecordQuantize { grid_beats: 0.25 });
+        app.handle(Event::SetRecordQuantize { grid_beats: 0.0 });
+        assert_eq!(app.record_quantize_beats, 0.0);
+        assert_eq!(app.status, "record quantize off");
+    }
+
+    #[test]
+    fn the_count_in_takes_only_the_menu_lengths() {
+        let mut app = headless_app();
+        assert_eq!(app.ui_state().count_in_bars, 1, "one bar by default");
+        for bars in [0, 2, 4] {
+            app.handle(Event::SetCountIn { bars });
+            assert_eq!(app.count_in_bars, bars);
+        }
+        for bars in [3, 5, 255] {
+            app.handle(Event::SetCountIn { bars });
+            assert_eq!(app.count_in_bars, 4, "{bars} is refused");
+            assert!(app.status.contains("must be"), "{}", app.status);
+        }
+    }
+
+    #[test]
+    fn arming_from_stop_counts_in_and_notes_wait_for_the_downbeat() {
+        let mut app = headless_app();
+        assert_eq!(app.take_start(false), None, "not recording yet");
+        app.handle(Event::ToggleRecord);
+        assert!(app.recording);
+        assert!(
+            app.status.starts_with("counting in 1 bar"),
+            "{}",
+            app.status
+        );
+        assert_eq!(app.take_start(true), None, "played before the downbeat");
+        assert!(app.take_start(false).is_some());
+    }
+
+    #[test]
+    fn the_metronome_toggles_and_reaches_the_snapshot() {
+        let mut app = headless_app();
+        assert!(!app.ui_state().metronome);
+        app.handle(Event::ToggleMetronome);
+        assert!(app.ui_state().metronome);
+        assert_eq!(app.status, "metronome on");
+        app.handle(Event::CreateBlock {
+            track: 0,
+            start_beats: 0.0,
+            length_beats: 4.0,
+        });
+        app.handle(Event::Undo);
+        assert!(app.metronome, "an undo keeps the preference");
+        assert!(!app.history.can_undo(), "the toggle took no undo step");
     }
 
     #[test]

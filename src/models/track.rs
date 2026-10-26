@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::Effect;
+use super::{Effect, MAX_EFFECTS};
 
 use crate::models::{Instrument, MAX_NOTES_PER_BLOCK, Note};
 
@@ -435,7 +435,43 @@ impl Track {
                 self.name
             ));
         }
+        problems.extend(self.sanitize_effects());
         Ok(problems)
+    }
+
+    /// Keep the first effect of each kind, at most [`MAX_EFFECTS`] of them,
+    /// with every parameter inside its spec.
+    fn sanitize_effects(&mut self) -> Vec<String> {
+        let mut problems = Vec::new();
+        let count = self.effects.len();
+        let mut seen = Vec::with_capacity(MAX_EFFECTS);
+        self.effects.retain(|effect| {
+            let first = !seen.contains(&effect.kind) && seen.len() < MAX_EFFECTS;
+            if first {
+                seen.push(effect.kind);
+            }
+            first
+        });
+        if self.effects.len() < count {
+            problems.push(format!(
+                "track {:?}: dropped {} duplicate or extra effect(s)",
+                self.name,
+                count - self.effects.len()
+            ));
+        }
+        let clamped = self
+            .effects
+            .iter_mut()
+            .map(Effect::clamp_params)
+            .filter(|&changed| changed)
+            .count();
+        if clamped > 0 {
+            problems.push(format!(
+                "track {:?}: {clamped} effect(s) clamped to their ranges",
+                self.name
+            ));
+        }
+        problems
     }
 }
 
@@ -553,6 +589,31 @@ mod tests {
         assert_eq!(track.blocks[0].start_beats, 10.0);
         assert_eq!(track.blocks[0].length_beats, Block::MIN_LENGTH_BEATS);
         assert_eq!(problems.len(), 3);
+    }
+
+    #[test]
+    fn sanitize_drops_duplicate_effects_and_clamps_params() {
+        use crate::models::EffectKind;
+        let mut track = midi();
+        let mut reverb = Effect::new(EffectKind::Reverb);
+        reverb.params[2] = f32::NAN;
+        let mut delay = Effect::new(EffectKind::Delay);
+        delay.params[1] = 4.0;
+        track.effects = vec![
+            reverb,
+            Effect::new(EffectKind::Reverb),
+            delay,
+            Effect::new(EffectKind::Eq),
+        ];
+        let problems = track.sanitize(8).expect("a non-finite param is fixed");
+        let kinds: Vec<EffectKind> = track.effects.iter().map(|e| e.kind).collect();
+        assert_eq!(
+            kinds,
+            vec![EffectKind::Reverb, EffectKind::Delay, EffectKind::Eq]
+        );
+        assert_eq!(track.effects[0].params[2], 0.25);
+        assert_eq!(track.effects[1].params[1], 0.95);
+        assert_eq!(problems.len(), 2, "{problems:?}");
     }
 
     #[test]

@@ -39,6 +39,7 @@ enum Gesture {
     Pan(usize),
     Bpm,
     Take,
+    EffectParam(usize, usize, usize),
 }
 
 /// How an event takes part in the history.
@@ -106,7 +107,18 @@ fn kind(event: &Event, cursor_track: usize, recording: bool) -> Kind {
         | Event::RenameBlock
         | Event::ToggleMute
         | Event::ToggleSolo
-        | Event::SetPreset { .. } => Kind::Edit,
+        | Event::SetPreset { .. }
+        | Event::QuantizeBlock { .. }
+        | Event::AddEffect { .. }
+        | Event::RemoveEffect { .. }
+        | Event::MoveEffect { .. }
+        | Event::SetEffectEnabled { .. } => Kind::Edit,
+        Event::SetEffectParam {
+            track,
+            index,
+            param,
+            ..
+        } => Kind::Stream(Gesture::EffectParam(*track, *index, *param)),
         Event::PlaceBlock { .. } => Kind::Stream(Gesture::PlaceBlock),
         Event::ResizeBlock { .. } => Kind::Stream(Gesture::ResizeBlock),
         Event::TrimBlockStart { .. } => Kind::Stream(Gesture::TrimBlockStart),
@@ -200,11 +212,7 @@ impl App {
         if self.song.tracks.len() != replaced.song.tracks.len() {
             self.meters = MeterBank::new(self.song.tracks.len());
         }
-        if self.engine.resync(&self.song) {
-            self.repush_lanes();
-        } else {
-            self.resync_pending = true;
-        }
+        self.resync();
         replaced
     }
 }
@@ -248,6 +256,7 @@ mod tests {
     #[test]
     fn a_whole_take_is_one_undo_step() {
         let mut app = headless_app();
+        app.submit(Event::SetCountIn { bars: 0 });
         app.submit(Event::ToggleRecord);
         for pitch in [60, 64] {
             app.submit(Event::NoteOn {

@@ -4,7 +4,7 @@
 //! and pushed, the same way a block edit pushes the block mirror. Notes stay in
 //! the order they were drawn, so the index a drag holds keeps naming its note.
 
-use super::App;
+use super::{App, BEATS_PER_BAR};
 use crate::models::{Block, MAX_NOTES_PER_BLOCK, Note, TrackKind};
 use crate::ui::view::Cursor;
 
@@ -93,7 +93,29 @@ impl App {
         self.finish_note_edit(track, block, format!("note {} deleted", removed.pitch));
     }
 
-    pub(crate) fn quantize_block(&mut self, _track: usize, _block: usize, _grid_beats: f32) {}
+    /// Snap every note start in a MIDI block to the timeline grid of
+    /// `grid_beats`, keeping each length where the block has room for it.
+    pub(crate) fn quantize_block(&mut self, track: usize, block: usize, grid_beats: f32) {
+        if !(grid_beats.is_finite() && grid_beats >= Note::MIN_LENGTH_BEATS) {
+            self.status = format!(
+                "quantize needs a grid of at least {}",
+                grid_name(Note::MIN_LENGTH_BEATS)
+            );
+            return;
+        }
+        let Some(target) = self.midi_block(track, block) else {
+            return;
+        };
+        let (offset, limit) = (target.start_beats, target.length_beats);
+        for note in &mut target.notes {
+            note.start_beats =
+                ((offset + note.start_beats) / grid_beats).round() * grid_beats - offset;
+            note.clamp_to(limit);
+        }
+        let count = target.notes.len();
+        let status = format!("quantized {count} notes to {}", grid_name(grid_beats));
+        self.finish_note_edit(track, block, status);
+    }
 
     /// The MIDI block a note edit names, or `None` with the reason in the status.
     fn midi_block(&mut self, track: usize, block: usize) -> Option<&mut Block> {
@@ -133,6 +155,17 @@ impl App {
         self.cursor = Cursor { track, block };
         self.push_notes(track);
         self.status = status;
+    }
+}
+
+/// A grid in beats as a note fraction, `1.0` reading `1/4`, or in beats when
+/// it is no whole fraction of a bar.
+pub(super) fn grid_name(grid_beats: f32) -> String {
+    let denominator = BEATS_PER_BAR / grid_beats;
+    if denominator >= 1.0 && denominator.fract() == 0.0 {
+        format!("1/{denominator}")
+    } else {
+        format!("{grid_beats} beats")
     }
 }
 
@@ -290,6 +323,56 @@ mod tests {
         assert_eq!(notes(&app)[0].velocity, 127);
         app.handle(velocity(64));
         assert_eq!(notes(&app)[0].velocity, 64);
+    }
+
+    fn quantize(app: &mut App, track: usize, grid_beats: f32) {
+        app.handle(Event::QuantizeBlock {
+            track,
+            block: 0,
+            grid_beats,
+        });
+    }
+
+    #[test]
+    fn quantizing_snaps_starts_to_the_timeline_grid_and_keeps_lengths() {
+        let mut app = headless_app();
+        app.handle(Event::CreateBlock {
+            track: 0,
+            start_beats: 0.5,
+            length_beats: 4.0,
+        });
+        add(&mut app, 60, 0.2, 0.75, 100);
+        add(&mut app, 62, 1.9, 0.3, 100);
+        add(&mut app, 64, 3.6, 0.4, 100);
+        quantize(&mut app, 0, 1.0);
+        let starts: Vec<f32> = notes(&app).iter().map(|n| n.start_beats).collect();
+        assert_eq!(starts, vec![0.5, 1.5, 3.5], "absolute 1, 2 and 4");
+        let lengths: Vec<f32> = notes(&app).iter().map(|n| n.length_beats).collect();
+        assert_eq!(lengths, vec![0.75, 0.3, 0.4]);
+        assert_eq!(app.status, "quantized 3 notes to 1/4");
+        app.handle(Event::Undo);
+        assert_eq!(notes(&app)[0].start_beats, 0.2, "one undo step");
+    }
+
+    #[test]
+    fn quantizing_refuses_audio_blocks_and_bad_grids() {
+        let mut app = app_with_block();
+        add(&mut app, 60, 0.3, 1.0, 100);
+        for grid_beats in [0.0, 0.01, f32::NAN, f32::INFINITY] {
+            quantize(&mut app, 0, grid_beats);
+            assert!(app.status.contains("at least 1/64"), "{}", app.status);
+        }
+        assert_eq!(notes(&app)[0].start_beats, 0.3);
+        app.handle(Event::CreateBlock {
+            track: 2,
+            start_beats: 0.0,
+            length_beats: 4.0,
+        });
+        quantize(&mut app, 2, 1.0);
+        assert!(app.status.contains("MIDI"), "{}", app.status);
+        quantize(&mut app, 0, 0.5);
+        assert_eq!(app.status, "quantized 1 notes to 1/8");
+        assert_eq!(grid_name(3.0), "3 beats");
     }
 
     #[test]

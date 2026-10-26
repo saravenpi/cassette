@@ -47,6 +47,22 @@ pub struct ParamSpec {
     pub choices: &'static [&'static str],
 }
 
+impl ParamSpec {
+    /// Bring `value` inside the range, rounding a choice to a whole index. A
+    /// value that is not finite falls back to the default.
+    pub fn clamp(&self, value: f32) -> f32 {
+        if !value.is_finite() {
+            return self.default;
+        }
+        let value = value.clamp(self.min, self.max);
+        if self.unit == ParamUnit::Choice {
+            value.round()
+        } else {
+            value
+        }
+    }
+}
+
 const fn param(
     name: &'static str,
     min: f32,
@@ -191,6 +207,19 @@ impl Effect {
             params,
         }
     }
+
+    /// Bring every parameter inside its spec and zero the unused slots.
+    /// Returns whether anything changed.
+    pub fn clamp_params(&mut self) -> bool {
+        let spec = self.kind.spec();
+        let mut changed = false;
+        for (index, slot) in self.params.iter_mut().enumerate() {
+            let value = spec.get(index).map_or(0.0, |param| param.clamp(*slot));
+            changed |= value.to_bits() != slot.to_bits();
+            *slot = value;
+        }
+        changed
+    }
 }
 
 /// A track's chain as the audio thread receives it: fixed-size and `Copy`, so
@@ -247,6 +276,15 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn params_are_clamped_rounded_and_reset() {
+        let mut filter = Effect::new(EffectKind::Filter);
+        assert!(!filter.clamp_params(), "defaults are already in range");
+        filter.params = [1.6, 1e9, f32::NAN, 7.0, -3.0];
+        assert!(filter.clamp_params());
+        assert_eq!(filter.params, [2.0, 20_000.0, 0.2, 0.0, 0.0]);
     }
 
     #[test]

@@ -12,7 +12,7 @@ use crate::core::meter::MeterBank;
 use crate::core::render::{RenderCore, RtCommand};
 use crate::core::sample::SampleMsg;
 use crate::core::wav;
-use crate::models::Song;
+use crate::models::{EffectChain, Song};
 use crate::ui::view::Cursor;
 
 const EXPORT_SAMPLE_RATE: u32 = 44_100;
@@ -70,6 +70,10 @@ impl App {
         for track in 0..self.song.tracks.len() {
             core.set_blocks(track, self.mirror(track));
             core.set_notes(track, self.mirror_notes(track));
+            core.apply(RtCommand::SetEffects {
+                track: track as u8,
+                chain: EffectChain::from_effects(&self.song.tracks[track].effects),
+            });
         }
 
         core.apply(RtCommand::SetLooping { looping: false });
@@ -171,11 +175,7 @@ impl App {
             .filter(|source| self.load_sample_source(source).is_none())
             .collect();
 
-        if self.engine.resync(&self.song) {
-            self.repush_lanes();
-        } else {
-            self.resync_pending = true;
-        }
+        self.resync();
 
         let mut status = format!("loaded project from {}", path.display());
         if !problems.is_empty() {
@@ -531,6 +531,48 @@ mod tests {
         assert!(!fresh.status.contains("fixed"), "{}", fresh.status);
         assert_eq!(fresh.song.tracks[0].blocks[0].notes, saved);
         assert_eq!(fresh.mirror_notes(0)[0].start_beats, 4.5);
+    }
+
+    #[test]
+    fn an_effect_chain_survives_a_save_and_load() {
+        use crate::models::EffectKind;
+        let mut app = headless_app();
+        for kind in [EffectKind::Delay, EffectKind::Filter] {
+            app.submit(crate::events::Event::AddEffect {
+                track: 0,
+                kind,
+                index: None,
+            });
+        }
+        app.submit(crate::events::Event::SetEffectParam {
+            track: 0,
+            index: 1,
+            param: 0,
+            value: 2.0,
+        });
+        app.submit(crate::events::Event::SetEffectEnabled {
+            track: 0,
+            index: 0,
+            enabled: false,
+        });
+        let dir = TempDir::new();
+        app.export_project(dir.arg("p.json"));
+        app.export_audio(dir.arg("out.wav"));
+        assert!(app.status.contains("exported audio to"), "{}", app.status);
+
+        let mut fresh = headless_app();
+        fresh.load_project(dir.arg("p.json"));
+        assert!(!fresh.status.contains("fixed"), "{}", fresh.status);
+        assert_eq!(fresh.song.tracks[0].effects, app.song.tracks[0].effects);
+
+        let mut value = serde_json::to_value(&app.song).expect("to value");
+        value["tracks"][0]
+            .as_object_mut()
+            .expect("track")
+            .remove("effects");
+        let old = load_json(&value.to_string());
+        assert!(old.status.contains("loaded"), "{}", old.status);
+        assert!(old.song.tracks[0].effects.is_empty());
     }
 
     #[test]
