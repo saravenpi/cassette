@@ -91,6 +91,10 @@ cargo clippy --all-targets
 | `P` | open the piano roll on the selected MIDI block |
 | `esc` | close the piano roll |
 | `backspace` / `del` in the roll | delete the selected note |
+| `B` / `ctrl` `E` (`cmd` on macOS) | split the selected block at the playhead |
+| `ctrl` `D` (`cmd` on macOS) | duplicate the selected block |
+| drag a block's left edge | trim its start; the end stays put |
+| `shift` + drag an audio block's right edge | stretch it (the rate changes, so pitch follows) |
 
 Commands sit on keys the piano row does not use, so playing and editing never
 collide: notes are checked first, and a key bound to both would make the command

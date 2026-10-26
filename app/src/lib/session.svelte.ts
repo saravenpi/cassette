@@ -160,6 +160,28 @@ class Session {
 		if (cursor !== undefined) this.openRoll(cursor.track, cursor.block);
 	}
 
+	/** Cut the block under the cursor in two at the playhead. */
+	splitSelected(): void {
+		const snapshot = this.snapshot;
+		if (snapshot === null) return;
+		const { track, block } = snapshot.cursor;
+		const view = snapshot.tracks[track]?.blocks[block];
+		const at = snapshot.transportPositionBeats;
+		if (view === undefined || at <= view.startBeats || at >= view.startBeats + view.lengthBeats) {
+			this.report('move the playhead inside the selected block to split it');
+			return;
+		}
+		this.dispatch({ splitBlock: { track, block, atBeats: at } });
+	}
+
+	/** Copy the block under the cursor onto the beat right after it. */
+	duplicateSelected(): void {
+		const cursor = this.snapshot?.cursor;
+		if (cursor === undefined) return;
+		if (this.snapshot?.tracks[cursor.track]?.blocks[cursor.block] === undefined) return;
+		this.dispatch({ duplicateBlock: { track: cursor.track, block: cursor.block } });
+	}
+
 	/** Close the piano roll. */
 	closeRoll(): void {
 		this.roll = null;

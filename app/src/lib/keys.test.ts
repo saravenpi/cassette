@@ -1,4 +1,4 @@
-import { intentFor, isAppKey, localFor, pitchFor, repeats } from './keys';
+import { intentFor, isAppKey, localFor, noteFor, pitchFor, repeats } from './keys';
 import type { EngineEvent } from './wire';
 
 // bun test injects these as globals; @types/bun is not a dependency, so svelte-check
@@ -74,6 +74,10 @@ function press(code: string, character: string = code, repeat = false): Keyboard
 
 function held(event: KeyboardEvent): KeyboardEvent {
 	return { ...event, shiftKey: true } as KeyboardEvent;
+}
+
+function chord(event: KeyboardEvent, modifier: 'ctrlKey' | 'metaKey' = 'ctrlKey'): KeyboardEvent {
+	return { ...event, [modifier]: true } as KeyboardEvent;
 }
 
 describe('localFor', () => {
@@ -315,7 +319,7 @@ describe('isAppKey', () => {
 
 	test('returns false for an unbound letter such as KeyQ', () => {
 		expect(isAppKey(press('KeyQ', 'q'), false)).toBe(false);
-		expect(isAppKey(press('KeyB', 'b'), false)).toBe(false);
+		expect(isAppKey(press('KeyV', 'v'), false)).toBe(false);
 	});
 
 	test('returns true for the zoom, scroll and piano roll keys the interface owns', () => {
@@ -382,5 +386,36 @@ describe('keymap invariant', () => {
 			const isCommand = intentFor(press(code, character), false) !== null;
 			if (isCommand) expect(pitchFor(code, 0)).toBeNull();
 		}
+	});
+});
+
+describe('clip editing keys', () => {
+	test('splits at the playhead on B and on Ctrl or Cmd plus E', () => {
+		expect(localFor(press('KeyB', 'b'), false)).toBe('splitAtPlayhead');
+		expect(localFor(chord(press('KeyE', 'e')), false)).toBe('splitAtPlayhead');
+		expect(localFor(chord(press('KeyE', 'e'), 'metaKey'), false)).toBe('splitAtPlayhead');
+	});
+
+	test('duplicates on Ctrl or Cmd plus D', () => {
+		expect(localFor(chord(press('KeyD', 'd')), false)).toBe('duplicate');
+		expect(localFor(chord(press('KeyD', 'd'), 'metaKey'), false)).toBe('duplicate');
+	});
+
+	test('plays no note on a chord, and still plays the plain key', () => {
+		expect(noteFor(chord(press('KeyE', 'e')), 0)).toBeNull();
+		expect(noteFor(chord(press('KeyD', 'd')), 0)).toBeNull();
+		expect(noteFor(press('KeyE', 'e'), 0)).toBe(63);
+	});
+
+	test('leaves other chords to the webview', () => {
+		expect(intentFor(chord(press('KeyC', 'c')), false)).toBeNull();
+		expect(localFor(chord(press('KeyC', 'c')), false)).toBeNull();
+		expect(isAppKey(chord(press('KeyC', 'c')), false)).toBe(false);
+		expect(isAppKey(chord(press('KeyD', 'd')), false)).toBe(true);
+	});
+
+	test('types B into a name instead of splitting', () => {
+		expect(localFor(press('KeyB', 'b'), true)).toBeNull();
+		expect(intentFor(press('KeyB', 'b'), true)).toEqual({ textInput: 'b' });
 	});
 });

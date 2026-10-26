@@ -1,16 +1,20 @@
 /**
- * The two drags the timeline answers: moving a block along its lane or across
- * lanes, and dragging its right edge. The controller owns the optimistic geometry
- * the lane draws, sends at most one message per frame, and follows the block when
- * the engine re-sorts the lane under it.
+ * The drags the timeline answers: moving a block along its lane or across
+ * lanes, dragging its right edge to resize or, with Shift on an audio block, to
+ * stretch it, and dragging its left edge to trim its start. The controller
+ * owns the optimistic geometry the lane draws, sends at most one message per
+ * frame, and follows the block when the engine re-sorts the lane under it.
  */
 
-import { MIN_LENGTH_BEATS, pxToBeats, snapBeats } from './geometry';
+import { MIN_LENGTH_BEATS, pxToBeats, snapBeats, trimSpan } from './geometry';
 import type { BlockView, EngineEvent, UiState } from './wire';
+
+/** Which part of a block a drag moves. */
+export type DragKind = 'move' | 'resize' | 'trim' | 'stretch';
 
 /** A block being dragged, with the geometry drawn until the engine confirms. */
 export interface Drag {
-	kind: 'move' | 'resize';
+	kind: DragKind;
 	view: BlockView;
 	name: string;
 	track: number;
@@ -19,6 +23,7 @@ export interface Drag {
 	startBeats: number;
 	lengthBeats: number;
 	grab: number;
+	floorBeats: number;
 	released: boolean;
 	dirty: boolean;
 	releasedAt: number;
@@ -65,9 +70,14 @@ export class DragController {
 		this.begin('move', track, index, view, grab);
 	}
 
-	/** Start dragging a block's right edge. */
-	beginResize(track: number, index: number, view: BlockView): void {
-		this.begin('resize', track, index, view, 0);
+	/** Start dragging a block's right edge; `stretch` rescales an audio block's material. */
+	beginResize(track: number, index: number, view: BlockView, stretch = false): void {
+		this.begin(stretch && view.kind === 'audio' ? 'stretch' : 'resize', track, index, view, 0);
+	}
+
+	/** Start dragging a block's left edge, keeping its end where it is. */
+	beginTrim(track: number, index: number, view: BlockView): void {
+		this.begin('trim', track, index, view, 0);
 	}
 
 	/** Send the pending drag position, at most once per frame. */
@@ -75,18 +85,7 @@ export class DragController {
 		const drag = this.state;
 		if (drag === null || !drag.dirty) return;
 		drag.dirty = false;
-		const request: EngineEvent =
-			drag.kind === 'move'
-				? {
-						placeBlock: {
-							track: drag.track,
-							block: drag.index,
-							targetTrack: drag.targetTrack,
-							startBeats: drag.startBeats
-						}
-					}
-				: { resizeBlock: { track: drag.track, block: drag.index, lengthBeats: drag.lengthBeats } };
-		await this.context.send(request);
+		await this.context.send(request(drag));
 	}
 
 	/** Follow the block across frames, and drop the drag once the engine agrees. */
@@ -99,13 +98,12 @@ export class DragController {
 		const confirmed =
 			current !== undefined &&
 			current.name === drag.name &&
-			(drag.kind === 'move'
-				? Math.abs(current.startBeats - drag.startBeats) < SETTLE_EPSILON
-				: Math.abs(current.lengthBeats - drag.lengthBeats) < SETTLE_EPSILON);
+			Math.abs(current.startBeats - drag.startBeats) < SETTLE_EPSILON &&
+			Math.abs(current.lengthBeats - drag.lengthBeats) < SETTLE_EPSILON;
 		if (confirmed || performance.now() - drag.releasedAt > SETTLE_TIMEOUT_MS) this.state = null;
 	}
 
-	private begin(kind: 'move' | 'resize', track: number, index: number, view: BlockView, grab: number): void {
+	private begin(kind: DragKind, track: number, index: number, view: BlockView, grab: number): void {
 		this.state = {
 			kind,
 			view: { ...view, selected: true },
@@ -116,6 +114,7 @@ export class DragController {
 			startBeats: view.startBeats,
 			lengthBeats: view.lengthBeats,
 			grab,
+			floorBeats: this.floor(view),
 			released: false,
 			dirty: false,
 			releasedAt: 0
@@ -139,6 +138,15 @@ export class DragController {
 			if (startBeats === drag.startBeats && lane.track === drag.targetTrack) return;
 			drag.startBeats = startBeats;
 			drag.targetTrack = lane.track;
+		} else if (drag.kind === 'trim') {
+			const span = trimSpan(
+				snapBeats(lane.beats, event.altKey),
+				drag.startBeats + drag.lengthBeats,
+				drag.floorBeats
+			);
+			if (span.startBeats === drag.startBeats) return;
+			drag.startBeats = span.startBeats;
+			drag.lengthBeats = span.lengthBeats;
 		} else {
 			const end = snapBeats(lane.beats, event.altKey);
 			const lengthBeats = Math.max(MIN_LENGTH_BEATS, end - drag.startBeats);
@@ -147,6 +155,16 @@ export class DragController {
 		}
 		drag.dirty = true;
 	};
+
+	/**
+	 * The earliest beat a trim may pull a block's start back to: the top of the
+	 * song, or for an audio block the beat where its file begins.
+	 */
+	private floor(view: BlockView): number {
+		const bpm = this.context.snapshot()?.bpm ?? 0;
+		if (view.kind !== 'audio' || bpm <= 0 || view.rate <= 0) return 0;
+		return Math.max(0, view.startBeats - (view.offsetSeconds * bpm) / 60 / view.rate);
+	}
 
 	private onPointerUp = (): void => {
 		this.release();
@@ -201,5 +219,20 @@ export class DragController {
 			}
 		});
 		return best === null ? null : { track: lane, index: best };
+	}
+}
+
+/** The engine message that carries a drag's current geometry. */
+function request(drag: Drag): EngineEvent {
+	const at = { track: drag.track, block: drag.index };
+	switch (drag.kind) {
+		case 'move':
+			return { placeBlock: { ...at, targetTrack: drag.targetTrack, startBeats: drag.startBeats } };
+		case 'trim':
+			return { trimBlockStart: { ...at, startBeats: drag.startBeats } };
+		case 'stretch':
+			return { stretchBlock: { ...at, lengthBeats: drag.lengthBeats } };
+		default:
+			return { resizeBlock: { ...at, lengthBeats: drag.lengthBeats } };
 	}
 }

@@ -4,7 +4,7 @@
  * the window loses focus. Nothing here is bound to a component.
  */
 
-import { intentFor, isAppKey, localFor, pitchFor, repeats } from './keys';
+import { intentFor, isAppKey, localFor, noteFor, pitchFor, repeats } from './keys';
 import type { EngineEvent } from './wire';
 
 /** What the keymap needs from the session it drives. */
@@ -17,6 +17,8 @@ interface KeyboardHost {
 	requestScrollStart(): void;
 	openSelectedRoll(): void;
 	closeRoll(): void;
+	splitSelected(): void;
+	duplicateSelected(): void;
 }
 
 /** Velocity the on-screen keyboard plays at. */
@@ -42,7 +44,7 @@ export function attachKeyboard(host: KeyboardHost): () => void {
 	}
 
 	function onKeyDown(event: KeyboardEvent): void {
-		const pitch = host.renaming ? null : pitchFor(event.code, host.octave);
+		const pitch = host.renaming ? null : noteFor(event, host.octave);
 
 		if (pitch !== null) {
 			if (!event.repeat) noteOn(pitch);
@@ -58,6 +60,10 @@ export function attachKeyboard(host: KeyboardHost): () => void {
 				host.setZoom(1);
 			} else if (local === 'zoomOut') {
 				host.setZoom(-1);
+			} else if (local === 'splitAtPlayhead') {
+				if (!event.repeat) host.splitSelected();
+			} else if (local === 'duplicate') {
+				if (!event.repeat) host.duplicateSelected();
 			}
 
 			const intent = intentFor(event, host.renaming);
