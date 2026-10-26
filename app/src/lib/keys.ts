@@ -49,7 +49,14 @@ const COMMANDS: Record<string, EngineEvent> = {
 };
 
 /** An intent the interface answers itself, because no engine event describes it. */
-type LocalIntent = 'zoomIn' | 'zoomOut' | 'scrollStart' | 'openRoll' | 'closeRoll';
+type LocalIntent =
+	| 'zoomIn'
+	| 'zoomOut'
+	| 'scrollStart'
+	| 'openRoll'
+	| 'closeRoll'
+	| 'splitAtPlayhead'
+	| 'duplicate';
 
 /**
  * The minus and equals keys already nudge the volume, so the zoom pair sits on
@@ -61,8 +68,19 @@ const LOCAL: Record<string, LocalIntent> = {
 	Home: 'scrollStart',
 	KeyP: 'openRoll',
 	Escape: 'closeRoll',
+	KeyB: 'splitAtPlayhead',
 	NumpadAdd: 'zoomIn',
 	NumpadSubtract: 'zoomOut'
+};
+
+/**
+ * Ctrl (or Cmd on macOS) chords, in the shape Ableton uses for the same edits.
+ * Any other chord belongs to the webview and the OS, so it never plays a note
+ * or fires a plain command.
+ */
+const CHORDS: Record<string, LocalIntent> = {
+	KeyE: 'splitAtPlayhead',
+	KeyD: 'duplicate'
 };
 
 /** Intents that must fire once per press. Movement, nudging and typing may repeat. */
@@ -91,6 +109,16 @@ export function pitchFor(code: string, octave: number): number | null {
 	return Math.min(127, Math.max(0, 60 + octave * 12 + semitone));
 }
 
+/** Whether Ctrl or Cmd is held, which turns a key into a chord. */
+export function isChord(event: KeyboardEvent): boolean {
+	return event.ctrlKey === true || event.metaKey === true;
+}
+
+/** The MIDI pitch a keypress plays, or null for a chord or a key that is not a note. */
+export function noteFor(event: KeyboardEvent, octave: number): number | null {
+	return isChord(event) ? null : pitchFor(event.code, octave);
+}
+
 /** Whether holding the key down should fire this intent again. */
 export function repeats(intent: EngineEvent): boolean {
 	return typeof intent === 'string' ? !ONCE_PER_PRESS.has(intent) : true;
@@ -99,6 +127,7 @@ export function repeats(intent: EngineEvent): boolean {
 /** The interface-only intent a key carries, or null while nothing is being typed. */
 export function localFor(event: KeyboardEvent, renaming: boolean): LocalIntent | null {
 	if (renaming) return null;
+	if (isChord(event)) return CHORDS[event.code] ?? null;
 	if (event.shiftKey && event.code === 'Equal') return 'zoomIn';
 	if (event.shiftKey && event.code === 'Minus') return 'zoomOut';
 	return LOCAL[event.code] ?? null;
@@ -116,7 +145,7 @@ export function intentFor(event: KeyboardEvent, renaming: boolean): EngineEvent 
 		if (event.key.length === 1) return { textInput: event.key };
 		return null;
 	}
-	if (localFor(event, false) !== null) return null;
+	if (isChord(event) || localFor(event, false) !== null) return null;
 	return COMMANDS[event.code] ?? null;
 }
 
@@ -124,5 +153,6 @@ export function intentFor(event: KeyboardEvent, renaming: boolean): EngineEvent 
 export function isAppKey(event: KeyboardEvent, renaming: boolean): boolean {
 	if (renaming) return true;
 	if (localFor(event, false) !== null) return true;
+	if (isChord(event)) return false;
 	return event.code in COMMANDS || pitchFor(event.code, 0) !== null;
 }

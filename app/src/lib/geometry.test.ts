@@ -17,6 +17,7 @@ import {
 	pruneHeights,
 	pxToBeats,
 	snapBeats,
+	trimSpan,
 	waveformPoints,
 	zoomBy
 } from './geometry';
@@ -287,5 +288,19 @@ describe('row heights', () => {
 
 	test('prunes heights of removed tracks', () => {
 		expect(pruneHeights({ 0: 80, 2: 90, 5: 40 }, 3)).toEqual({ 0: 80, 2: 90 });
+	});
+});
+
+describe('trimSpan', () => {
+	test('moves the start and keeps the end', () => {
+		expect(trimSpan(2, 8, 0)).toEqual({ startBeats: 2, lengthBeats: 6 });
+	});
+
+	test('stops one shortest block before the end', () => {
+		expect(trimSpan(9, 8, 0)).toEqual({ startBeats: 7.75, lengthBeats: 0.25 });
+	});
+
+	test('never pulls the start back past the floor', () => {
+		expect(trimSpan(1, 8, 3)).toEqual({ startBeats: 3, lengthBeats: 5 });
 	});
 });

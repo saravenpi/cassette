@@ -34,6 +34,7 @@
 	const width = $derived(Math.max(beatsToPx(lengthBeats, session.zoom), MIN_BLOCK_PX));
 	const renaming = $derived(session.snapshot?.renaming === true && block.selected);
 	const range = $derived(previewRange(block.notes));
+	const stretched = $derived(block.kind === 'audio' && Math.abs(block.rate - 1) > 0.001);
 
 	$effect(() => {
 		const source = block.kind === 'audio' ? block.source : '';
@@ -71,7 +72,16 @@
 		const element = event.currentTarget;
 		if (element instanceof HTMLElement) element.setPointerCapture(event.pointerId);
 		session.dispatch({ selectBlock: { track, block: index } });
-		session.drag.beginResize(track, index, block);
+		session.drag.beginResize(track, index, block, event.shiftKey);
+	}
+
+	function onTrimPointerDown(event: PointerEvent): void {
+		if (event.button !== 0) return;
+		event.stopPropagation();
+		const element = event.currentTarget;
+		if (element instanceof HTMLElement) element.setPointerCapture(event.pointerId);
+		session.dispatch({ selectBlock: { track, block: index } });
+		session.drag.beginTrim(track, index, block);
 	}
 
 	function onDoubleClick(): void {
@@ -126,10 +136,21 @@
 		<span class="name">{block.name}</span>
 	{/if}
 
+	{#if stretched}
+		<span class="rate">&times;{block.rate.toFixed(2)}</span>
+	{/if}
+
+	<button
+		type="button"
+		class="handle start"
+		aria-label="Trim start of {block.name}"
+		onpointerdown={onTrimPointerDown}
+	></button>
+
 	<button
 		type="button"
 		class="handle"
-		aria-label="Resize {block.name}"
+		aria-label="Resize {block.name}, shift to stretch"
 		onpointerdown={onResizePointerDown}
 	></button>
 </div>
@@ -212,6 +233,22 @@
 		border-radius: 0;
 		background: transparent;
 		cursor: ew-resize;
+	}
+
+	.handle.start {
+		right: auto;
+		left: 0;
+	}
+
+	.rate {
+		position: absolute;
+		top: 1px;
+		right: 9px;
+		padding: 0 2px;
+		font-size: 9px;
+		font-variant-numeric: tabular-nums;
+		color: var(--text);
+		background: color-mix(in srgb, var(--panel) 70%, transparent);
 	}
 
 	.handle:hover {

@@ -48,6 +48,19 @@ export function snapBeats(beats: number, free = false): number {
 	return Math.max(0, snapped);
 }
 
+/**
+ * A left-edge trim: the new start held between `floor` and one shortest block
+ * before `end`, which does not move, and the length that leaves.
+ */
+export function trimSpan(
+	start: number,
+	end: number,
+	floor: number
+): { startBeats: number; lengthBeats: number } {
+	const startBeats = Math.min(Math.max(start, floor), end - MIN_LENGTH_BEATS);
+	return { startBeats, lengthBeats: end - startBeats };
+}
+
 /** Keep a scale inside the zoom range. */
 export function clampZoom(pxPerBeat: number): number {
 	return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, pxPerBeat));

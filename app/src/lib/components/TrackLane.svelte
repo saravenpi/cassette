@@ -46,13 +46,13 @@
 				});
 				return;
 			}
-			const resizing = drag !== null && drag.kind === 'resize' && home && drag.index === position;
+			const editing = drag !== null && drag.kind !== 'move' && home && drag.index === position;
 			out.push({
 				key: `block-${position}`,
 				block,
 				index: position,
-				startBeats: block.startBeats,
-				lengthBeats: resizing ? drag.lengthBeats : block.lengthBeats,
+				startBeats: editing ? drag.startBeats : block.startBeats,
+				lengthBeats: editing ? drag.lengthBeats : block.lengthBeats,
 				dragging: false
 			});
 		});
