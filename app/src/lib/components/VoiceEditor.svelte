@@ -89,6 +89,7 @@
 	}
 </script>
 
+<h3 class="eyebrow">Envelope</h3>
 <svg
 	class="envelope"
 	viewBox="0 0 {WIDTH} {HEIGHT}"
@@ -96,8 +97,13 @@
 	role="img"
 	aria-label="Attack, decay, sustain and release envelope"
 >
+	{#each [0.25, 0.5, 0.75] as level (level)}
+		<line class="guide" x1="0" x2={WIDTH} y1={HEIGHT * level} y2={HEIGHT * level} />
+	{/each}
 	<polyline points={envelope} />
 </svg>
+
+<h3 class="eyebrow">Voice</h3>
 
 <div class="sliders">
 	{#each SLIDERS as slider (slider.id)}
@@ -122,18 +128,35 @@
 </div>
 
 <style>
+	.eyebrow {
+		margin: 16px 0 8px;
+		font-size: 11px;
+		letter-spacing: 0.14em;
+		text-transform: uppercase;
+		color: var(--text-subtle);
+	}
+
+	.eyebrow:first-of-type {
+		margin-top: 4px;
+	}
+
 	.envelope {
 		display: block;
 		width: 100%;
-		height: 52px;
+		height: 64px;
 		background: var(--bg);
-		border: 1px solid var(--line);
-		border-radius: 0;
+		box-shadow: inset 0 0 0 1px var(--border-subtle);
+	}
+
+	.guide {
+		stroke: var(--grid-minor);
+		stroke-width: 1;
+		vector-effect: non-scaling-stroke;
 	}
 
 	.envelope polyline {
 		fill: none;
-		stroke: var(--head);
+		stroke: var(--green);
 		stroke-width: 1.5;
 		vector-effect: non-scaling-stroke;
 	}
@@ -141,25 +164,31 @@
 	.sliders {
 		display: flex;
 		flex-direction: column;
-		gap: 2px;
-		margin-top: 10px;
 	}
 
 	.slider {
 		display: grid;
-		grid-template-columns: 52px 1fr 44px;
+		grid-template-columns: 60px 1fr 48px;
 		align-items: center;
-		gap: 6px;
-		font-size: 10px;
+		gap: 10px;
+		height: 32px;
+		border-bottom: 1px solid var(--border-subtle);
+		font-size: 11px;
 	}
 
-	.label,
-	.value {
-		color: var(--dim);
+	.slider:first-child {
+		border-top: 1px solid var(--border-subtle);
+	}
+
+	.label {
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+		color: var(--text-subtle);
 	}
 
 	.value {
 		text-align: right;
+		color: var(--text);
 		font-variant-numeric: tabular-nums;
 	}
 
@@ -167,6 +196,6 @@
 		width: 100%;
 		height: 14px;
 		margin: 0;
-		accent-color: var(--accent);
+		accent-color: var(--green);
 	}
 </style>
