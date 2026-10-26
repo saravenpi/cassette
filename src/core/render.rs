@@ -8,7 +8,7 @@
 use crate::core::sample::{NO_SLOT, SampleMsg};
 use crate::core::synth::SynthEngine;
 use crate::core::{MAX_BLOCKS, MAX_NOTES, MAX_TRACKS};
-use crate::models::Song;
+use crate::models::{LoopRegion, Song};
 use crate::utils::time::Tempo;
 use std::sync::Arc;
 
@@ -132,6 +132,11 @@ pub enum RtCommand {
     SetLooping {
         looping: bool,
     },
+    /// Loop between two beats; an end at or before the start loops the song.
+    SetLoopRegion {
+        start_beats: f32,
+        end_beats: f32,
+    },
     SetTrackInstrument {
         track: u8,
         instrument: crate::models::Instrument,
@@ -152,6 +157,17 @@ pub enum RtCommand {
     },
     Play,
     Stop,
+}
+
+impl RtCommand {
+    /// The command that sets `region`, or loops the whole song for `None`.
+    pub fn loop_region(region: Option<LoopRegion>) -> Self {
+        let (start_beats, end_beats) = region.map_or((0.0, 0.0), |r| (r.start_beats, r.end_beats));
+        Self::SetLoopRegion {
+            start_beats,
+            end_beats,
+        }
+    }
 }
 
 /// The frame clock. It advances a position and lets the UI read back where the
@@ -271,6 +287,9 @@ pub struct RenderCore {
     note_lens: [usize; MAX_TRACKS],
     /// End of the last mirrored block, in beats; the loop wraps here.
     song_end_beats: f32,
+    /// Loop region in beats; the whole song while the end is not past the start.
+    loop_start_beats: f32,
+    loop_end_beats: f32,
 }
 
 impl RenderCore {
@@ -296,6 +315,8 @@ impl RenderCore {
             notes: vec![[EMPTY_NOTE; MAX_NOTES]; MAX_TRACKS].into_boxed_slice(),
             note_lens: [0; MAX_TRACKS],
             song_end_beats: 0.0,
+            loop_start_beats: song.loop_region().map_or(0.0, |r| r.start_beats),
+            loop_end_beats: song.loop_region().map_or(0.0, |r| r.end_beats),
         }
     }
 
@@ -364,6 +385,13 @@ impl RenderCore {
             }
             RtCommand::SetBpm { bpm } => self.transport.set_bpm(bpm),
             RtCommand::SetLooping { looping } => self.transport.set_looping(looping),
+            RtCommand::SetLoopRegion {
+                start_beats,
+                end_beats,
+            } => {
+                self.loop_start_beats = start_beats;
+                self.loop_end_beats = end_beats;
+            }
             RtCommand::SetTrackInstrument { track, instrument } => {
                 self.synth.set_track_instrument(track as usize, instrument)
             }
@@ -396,7 +424,7 @@ impl RenderCore {
         self.synth.set_sample_ring(consumer);
     }
 
-    /// Move everything waiting on the sample ring into the pool. Called once per
+    /// Apply everything waiting on the sample ring to the slots. Called once per
     /// callback, before commands, so a load is audible the moment it arrives.
     pub fn drain_samples(&mut self) {
         self.synth.drain_samples();
@@ -432,12 +460,23 @@ impl RenderCore {
         peaks
     }
 
-    /// Frame the loop wraps at, when looping is on and the song has a length.
+    /// The loop's start and end in beats: the region when one is set, else the
+    /// top of the song to the end of its last block.
+    fn loop_span(&self) -> (f32, f32) {
+        if self.loop_end_beats > self.loop_start_beats {
+            (self.loop_start_beats, self.loop_end_beats)
+        } else {
+            (0.0, self.song_end_beats)
+        }
+    }
+
+    /// Frame the loop wraps at, when looping is on and the loop has a length.
     fn loop_end_frames(&self) -> Option<u64> {
-        if !self.transport.is_looping() || self.song_end_beats <= 0.0 {
+        let end = self.loop_span().1;
+        if !self.transport.is_looping() || end <= 0.0 {
             return None;
         }
-        let frames = (f64::from(self.song_end_beats) * self.transport.frames_per_beat()).round();
+        let frames = (f64::from(end) * self.transport.frames_per_beat()).round();
         (frames >= 1.0).then_some(frames as u64)
     }
 
@@ -451,7 +490,7 @@ impl RenderCore {
         let mut span = wanted;
         if let Some(end) = self.loop_end_frames() {
             if self.transport.position_frames() >= end {
-                self.transport.seek_beats(0.0);
+                self.transport.seek_beats(self.loop_span().0);
                 self.synth.all_notes_off();
             }
             span = span.min(end.saturating_sub(self.transport.position_frames()).max(1) as usize);
@@ -642,15 +681,11 @@ mod tests {
 
     /// Fill slot 0 with `frames` frames of a constant value.
     fn load_slot(core: &mut RenderCore, frames: usize, value: f32) {
-        core.push_sample(SampleMsg::Begin {
+        core.push_sample(SampleMsg::Load {
             slot: 0,
-            frames: frames as u32,
+            frames: vec![value; frames].into(),
             rate: 44_100.0,
         });
-        for _ in 0..frames {
-            core.push_sample(SampleMsg::Frame(value));
-        }
-        core.push_sample(SampleMsg::End { slot: 0 });
     }
 
     #[test]
@@ -780,6 +815,41 @@ mod tests {
             !loud(&render(&mut core, 512)),
             "the gate ran out and the release finished"
         );
+    }
+
+    #[test]
+    fn a_loop_region_wraps_back_to_its_own_start() {
+        let song = Song::new();
+        let mut core = RenderCore::new(&song, DEFAULT_SAMPLE_RATE);
+        core.apply(RtCommand::SetLoopRegion {
+            start_beats: 2.0,
+            end_beats: 3.0,
+        });
+        core.apply(RtCommand::SetNotes {
+            track: 0,
+            notes: notes(&[(2.0, 2.5)]),
+        });
+        core.apply(RtCommand::Play);
+        render(&mut core, 22_050 * 3);
+        assert_eq!(
+            core.position_beats(),
+            3.0,
+            "the playhead reached the loop end"
+        );
+        assert!(
+            loud(&render(&mut core, 512)),
+            "the wrap lands on the region start and its note plays again"
+        );
+        let beats = core.position_beats();
+        assert!(
+            (2.0..2.1).contains(&beats),
+            "wrapped into the region: {beats}"
+        );
+        core.apply(RtCommand::SetLoopRegion {
+            start_beats: 0.0,
+            end_beats: 0.0,
+        });
+        assert_eq!(core.loop_span(), (0.0, 0.0), "cleared back to the song");
     }
 
     #[test]

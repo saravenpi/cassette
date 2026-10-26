@@ -285,12 +285,11 @@ control thread                       audio thread (red zone)
 file on disk
   │ core::wav::decode                reads and allocates
   ▼
-SampleMsg { Begin, Frame, End }
-  │ app::samples::push_load          into an rtrb ring
+SampleMsg::Load { slot, Arc<[f32]> }
+  │ app::samples::push_load          into an rtrb ring; the app keeps a clone
   ▼
                                      AudioThread::process pops the ring
-                                     and pushes each message into the pool,
-                                     whose slots were allocated at construction
+                                     and stores the handle in its slot
                                        │
 core::render::start_blocks             ▼
   play_sample(track, pitch, slot,    sample voice
@@ -317,9 +316,10 @@ core::render::start_blocks             ▼
 **The red-zone rule, where the sample path touches it.** `RenderCore::process`
 runs inside the audio callback and never allocates, takes a lock, performs I/O
 or panics. Everything on the sample path that does any of those things happens
-before the callback: the disk read, the decode and the `SamplePool` allocation
-are all on the control thread. The callback's share is to pop `SampleMsg` values
-off the ring, copy them into memory the pool already owns, and read it back. The
+before the callback: the disk read, the decode and the buffer allocation are all
+on the control thread. The callback's share is to pop `SampleMsg` values off the
+ring and swap the `Arc` handle into its slot; the control thread keeps a clone,
+so the callback never drops the last reference. The
 only route for audio frames into the audio thread is that ring; nothing hands
 the callback a slice, a `Vec` or a path. The contract is stated in
 `src/core/mod.rs` and enforced in debug builds by `tests/test_rt_no_alloc.rs`.

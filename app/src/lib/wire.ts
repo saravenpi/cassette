@@ -52,11 +52,18 @@ export interface TrackView {
 	blocks: BlockView[];
 }
 
+/** The stretch of the timeline the transport loops over, in beats. */
+export interface LoopRegion {
+	startBeats: number;
+	endBeats: number;
+}
+
 /** Everything worth drawing this frame. */
 export interface UiState {
 	bpm: number;
 	playing: boolean;
 	looping: boolean;
+	loopRegion: LoopRegion | null;
 	transportPositionBeats: number;
 	lengthBeats: number;
 	bars: number;
@@ -92,6 +99,7 @@ export type EngineEvent =
 	| 'stop'
 	| 'toggleLoop'
 	| { seek: { beats: number } }
+	| { setLoopRegion: { startBeats: number; endBeats: number } }
 	| 'addBlock'
 	| 'deleteBlock'
 	| 'cycleTrackKind'

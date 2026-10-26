@@ -166,24 +166,23 @@ mod red_zone {
         assert!(loudest > 0.0, "the mirrored notes played");
     }
 
-    /// Fill one slot with `frames` frames of a constant value.
-    fn load_slot(core: &mut RenderCore, slot: u8, frames: usize) {
-        core.push_sample(SampleMsg::Begin {
+    /// Fill one slot with `frames` frames of a constant value. The returned
+    /// clone is the sender's, so the audio side never frees the buffer.
+    fn load_slot(core: &mut RenderCore, slot: u8, frames: usize) -> Arc<[f32]> {
+        let held: Arc<[f32]> = vec![0.5; frames].into();
+        core.push_sample(SampleMsg::Load {
             slot,
-            frames: frames as u32,
+            frames: held.clone(),
             rate: 44_100.0,
         });
-        for _ in 0..frames {
-            core.push_sample(SampleMsg::Frame(0.5));
-        }
-        core.push_sample(SampleMsg::End { slot });
+        held
     }
 
     #[test]
     fn playing_a_mirrored_sample_allocates_nothing() {
         let song = Song::new();
         let mut core = RenderCore::new(&song, DEFAULT_SAMPLE_RATE);
-        load_slot(&mut core, 0, 4_096);
+        let _held = load_slot(&mut core, 0, 4_096);
         core.apply(RtCommand::SetBlocks {
             track: 0,
             blocks: Arc::from(vec![MirroredBlock {

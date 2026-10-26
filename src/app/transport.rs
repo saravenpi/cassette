@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 
 use super::App;
 use crate::core::render::RtCommand;
+use crate::models::LoopRegion;
 use crate::utils::time::Tempo;
 
 /// How long a played note rings when the keyboard cannot report releases.
@@ -46,6 +47,20 @@ impl App {
         let looping = !self.engine.shared().looping.load(Ordering::Relaxed);
         self.send(RtCommand::SetLooping { looping });
         self.status = format!("looping {}", if looping { "on" } else { "off" });
+    }
+
+    /// Set the loop region, or clear it when the span is too short to loop.
+    pub(crate) fn set_loop_region(&mut self, start_beats: f32, end_beats: f32) {
+        let region = LoopRegion::between(start_beats, end_beats);
+        self.song.set_loop_region(region);
+        self.send(RtCommand::loop_region(region));
+        self.status = match region {
+            Some(region) => format!(
+                "loop {:.2} to {:.2} beats",
+                region.start_beats, region.end_beats
+            ),
+            None => "loop over the whole song".into(),
+        };
     }
 
     /// Change the tempo.

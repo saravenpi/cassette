@@ -136,24 +136,18 @@ fn the_sample_producer_is_handed_out_once() {
     );
 }
 
-/// Push a one second, constant sample into slot 0 through the ring.
-fn push_sample(producer: &mut rtrb::Producer<SampleMsg>) {
-    const FRAMES: usize = 44_100;
+/// Push a one second, constant sample into slot 0 through the ring. The
+/// returned clone is the sender's, kept so the audio thread never frees it.
+fn push_sample(producer: &mut rtrb::Producer<SampleMsg>) -> std::sync::Arc<[f32]> {
+    let frames: std::sync::Arc<[f32]> = vec![0.5; 44_100].into();
     producer
-        .push(SampleMsg::Begin {
+        .push(SampleMsg::Load {
             slot: 0,
-            frames: FRAMES as u32,
+            frames: frames.clone(),
             rate: 44_100.0,
         })
-        .expect("room for the header");
-    for _ in 0..FRAMES {
-        producer
-            .push(SampleMsg::Frame(0.5))
-            .expect("room for frames");
-    }
-    producer
-        .push(SampleMsg::End { slot: 0 })
-        .expect("room for the tail");
+        .expect("room for the load");
+    frames
 }
 
 /// A block the playhead crosses straight away sounds, and its sample reaches
@@ -167,7 +161,7 @@ fn a_block_under_the_playhead_reaches_the_meter() {
     let song = Song::new();
     let mut engine = AudioEngine::start_silent(&song).expect("engine should start");
     let mut producer = engine.take_sample_producer().expect("a sample producer");
-    push_sample(&mut producer);
+    let _held = push_sample(&mut producer);
 
     assert!(engine.set_blocks(
         0,
@@ -198,7 +192,7 @@ fn a_block_later_in_the_song_stays_silent() {
     let song = Song::new();
     let mut engine = AudioEngine::start_silent(&song).expect("engine should start");
     let mut producer = engine.take_sample_producer().expect("a sample producer");
-    push_sample(&mut producer);
+    let _held = push_sample(&mut producer);
 
     assert!(engine.set_blocks(
         0,

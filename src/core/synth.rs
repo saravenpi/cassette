@@ -405,16 +405,16 @@ impl SynthEngine {
 
     /// Hand the engine the control thread's end of the sample ring.
     ///
-    /// [`SynthEngine::drain_samples`] then moves the messages into the pool.
+    /// [`SynthEngine::drain_samples`] then applies the messages to the slots.
     /// Without a consumer the ring is not read, and samples arrive only through
     /// [`SynthEngine::push_sample`].
     pub fn set_sample_ring(&mut self, consumer: Consumer<SampleMsg>) {
         self.sample_consumer = Some(consumer);
     }
 
-    /// Move everything waiting on the sample ring into the pool.
+    /// Apply everything waiting on the sample ring to the slots.
     ///
-    /// Allocation-free: the pool wrote its memory before the stream started.
+    /// Allocation-free: a load swaps in a handle the sender keeps a clone of.
     pub fn drain_samples(&mut self) {
         let SynthEngine {
             pool,
@@ -709,6 +709,7 @@ mod tests {
     use super::*;
     use crate::models::{Instrument, Waveform};
     use rtrb::RingBuffer;
+    use std::sync::Arc;
 
     /// Pitch the timeline triggers sample voices at, as `render.rs` does.
     const EVENT: u8 = 255;
@@ -730,15 +731,11 @@ mod tests {
     }
 
     fn load(e: &mut SynthEngine, slot: u8, frames: &[f32], rate: f32) {
-        e.push_sample(SampleMsg::Begin {
+        e.push_sample(SampleMsg::Load {
             slot,
-            frames: frames.len() as u32,
+            frames: Arc::from(frames),
             rate,
         });
-        for frame in frames {
-            e.push_sample(SampleMsg::Frame(*frame));
-        }
-        e.push_sample(SampleMsg::End { slot });
     }
 
     fn constant(e: &mut SynthEngine, slot: u8, count: usize, value: f32) {
@@ -837,21 +834,12 @@ mod tests {
         let (mut producer, consumer) = RingBuffer::<SampleMsg>::new(16);
         e.set_sample_ring(consumer);
         producer
-            .push(SampleMsg::Begin {
+            .push(SampleMsg::Load {
                 slot: 0,
-                frames: 2,
+                frames: Arc::from(&[0.5, 0.5][..]),
                 rate: 44_100.0,
             })
-            .expect("room for the header");
-        producer
-            .push(SampleMsg::Frame(0.5))
-            .expect("room for a frame");
-        producer
-            .push(SampleMsg::Frame(0.5))
-            .expect("room for a frame");
-        producer
-            .push(SampleMsg::End { slot: 0 })
-            .expect("room for the tail");
+            .expect("room for the load");
         e.drain_samples();
         assert_eq!(e.sample_slots_ready(), 1);
     }

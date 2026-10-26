@@ -1,10 +1,12 @@
 <script lang="ts">
 	/**
-	 * The bar and beat ruler. Click or drag to seek the transport.
+	 * The bar and beat ruler. Click or drag to seek the transport; shift-drag to
+	 * draw the loop region, and double-click the region to loop the whole song.
 	 */
 
 	import { RULER_HEIGHT, beatsToPx, labelStep, pxToBeats, snapBeats } from '$lib/geometry';
 	import { session } from '$lib/session.svelte';
+	import type { LoopRegion } from '$lib/wire';
 
 	interface Props {
 		pxPerBeat: number;
@@ -44,25 +46,54 @@
 		return out;
 	});
 
-	function seekFromPointer(event: PointerEvent): void {
+	let drawing = $state<LoopRegion | null>(null);
+
+	const region = $derived(drawing ?? session.snapshot?.loopRegion ?? null);
+
+	function beatsAt(event: PointerEvent): number | null {
 		const ruler = document.querySelector('.ruler');
-		if (!ruler) return;
+		if (!ruler) return null;
 		const rect = ruler.getBoundingClientRect();
 		const px = Math.max(0, event.clientX - rect.left);
-		const beats = Math.max(0, pxToBeats(px, pxPerBeat));
-		session.dispatch({ seek: { beats: snapBeats(beats) } });
+		return snapBeats(Math.max(0, pxToBeats(px, pxPerBeat)));
+	}
+
+	function seekFromPointer(event: PointerEvent): void {
+		const beats = beatsAt(event);
+		if (beats !== null) session.dispatch({ seek: { beats } });
+	}
+
+	function drawFromPointer(anchor: number, event: PointerEvent): void {
+		const beats = beatsAt(event);
+		if (beats === null) return;
+		drawing = { startBeats: Math.min(anchor, beats), endBeats: Math.max(anchor, beats) };
 	}
 
 	function onPointerDown(event: PointerEvent): void {
 		if (event.button !== 0) return;
-		seekFromPointer(event);
-		const onMove = (e: PointerEvent) => seekFromPointer(e);
+		const anchor = event.shiftKey ? beatsAt(event) : null;
+		const onMove =
+			anchor === null
+				? (e: PointerEvent) => seekFromPointer(e)
+				: (e: PointerEvent) => drawFromPointer(anchor, e);
 		const onUp = () => {
 			window.removeEventListener('pointermove', onMove);
 			window.removeEventListener('pointerup', onUp);
+			if (drawing !== null && drawing.endBeats > drawing.startBeats) {
+				session.dispatch({ setLoopRegion: { ...drawing } });
+			}
+			drawing = null;
 		};
+		if (anchor === null) seekFromPointer(event);
+		else drawing = { startBeats: anchor, endBeats: anchor };
 		window.addEventListener('pointermove', onMove);
 		window.addEventListener('pointerup', onUp);
+	}
+
+	function clearRegion(event: Event): void {
+		event.preventDefault();
+		event.stopPropagation();
+		session.dispatch({ setLoopRegion: { startBeats: 0, endBeats: 0 } });
 	}
 </script>
 
@@ -72,6 +103,19 @@
 	style="width: {width !== undefined ? `${width}px` : '100%'}; height: {RULER_HEIGHT}px"
 	onpointerdown={onPointerDown}
 >
+	{#if region !== null}
+		<button
+			type="button"
+			class="loop"
+			class:off={!session.snapshot?.looping}
+			aria-label="Loop region, beats {region.startBeats + 1} to {region.endBeats + 1}; double-click to loop the whole song"
+			style="left: {beatsToPx(region.startBeats, pxPerBeat)}px; width: {beatsToPx(region.endBeats - region.startBeats, pxPerBeat)}px"
+			ondblclick={clearRegion}
+			onkeydown={(event) => {
+				if (event.key === 'Delete' || event.key === 'Backspace') clearRegion(event);
+			}}
+		></button>
+	{/if}
 	{#each marks as mark (mark.key)}
 		<span class="mark" class:bar={mark.bar} style="left: {mark.left}px">
 			{#if mark.label !== null}<span class="label">{mark.label}</span>{/if}
@@ -86,6 +130,22 @@
 		background: var(--panel);
 		cursor: pointer;
 		user-select: none;
+	}
+
+	.loop {
+		position: absolute;
+		top: 0;
+		height: 6px;
+		padding: 0;
+		border: none;
+		border-radius: 0 0 3px 3px;
+		background: var(--accent);
+		opacity: 0.8;
+		cursor: pointer;
+	}
+
+	.loop.off {
+		opacity: 0.3;
 	}
 
 	.mark {

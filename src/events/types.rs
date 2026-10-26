@@ -16,6 +16,12 @@ pub enum Event {
         beats: f32,
     },
     ToggleLoop,
+    /// Loop between two beats, in either order. A span shorter than the shortest
+    /// block clears the region, so the whole song loops again.
+    SetLoopRegion {
+        start_beats: f32,
+        end_beats: f32,
+    },
     /// Move the track cursor.
     MoveTrack(i32),
     /// Move the block cursor within the selected track.

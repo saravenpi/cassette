@@ -155,6 +155,10 @@ impl App {
             Event::Stop => self.stop(),
             Event::Seek { beats } => self.seek(beats),
             Event::ToggleLoop => self.toggle_loop(),
+            Event::SetLoopRegion {
+                start_beats,
+                end_beats,
+            } => self.set_loop_region(start_beats, end_beats),
             Event::MoveTrack(delta) => self.move_track(delta),
             Event::MoveBlock(delta) => self.move_block(delta),
             Event::SelectTrack { track } => self.select_track(track),
@@ -349,6 +353,7 @@ impl App {
             bpm: self.song.bpm(),
             playing: self.engine.is_playing(),
             looping: shared.looping.load(Ordering::Relaxed),
+            loop_region: self.song.loop_region(),
             transport_position_beats: (position_frames as f64 / self.frames_per_beat()) as f32,
             length_beats,
             bars: (length_beats / BEATS_PER_BAR).ceil() as u32,

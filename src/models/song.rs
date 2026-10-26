@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::{MAX_BLOCKS, MAX_TRACKS};
 use crate::models::track::TrackKind;
-use crate::models::{Instrument, Track};
+use crate::models::{Block, Instrument, MAX_START_BEATS, Track};
 use crate::utils::time::Tempo;
 
 /// Project file format version this build writes and understands.
@@ -12,6 +12,31 @@ pub const PROJECT_VERSION: u32 = 1;
 
 fn default_version() -> u32 {
     PROJECT_VERSION
+}
+
+/// The stretch of the timeline the transport loops over, in beats.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoopRegion {
+    pub start_beats: f32,
+    pub end_beats: f32,
+}
+
+impl LoopRegion {
+    /// A region between two beats in either order, kept on the timeline. `None`
+    /// when the span is not finite or shorter than the shortest block, which is
+    /// what a click without a drag produces.
+    pub fn between(a: f32, b: f32) -> Option<Self> {
+        if !a.is_finite() || !b.is_finite() {
+            return None;
+        }
+        let start = a.min(b).clamp(0.0, MAX_START_BEATS);
+        let end = a.max(b).clamp(0.0, MAX_START_BEATS);
+        (end - start >= Block::MIN_LENGTH_BEATS).then_some(Self {
+            start_beats: start,
+            end_beats: end,
+        })
+    }
 }
 
 /// A whole session.
@@ -22,6 +47,9 @@ pub struct Song {
     version: u32,
     bpm: f32,
     pub tracks: Vec<Track>,
+    /// Where the transport loops; the whole song when `None`.
+    #[serde(default)]
+    loop_region: Option<LoopRegion>,
 }
 
 impl Default for Song {
@@ -44,6 +72,7 @@ impl Song {
                 audio("Audio 1"),
                 audio("Audio 2"),
             ],
+            loop_region: None,
         }
     }
 
@@ -55,6 +84,16 @@ impl Song {
     /// Set the tempo, clamped to a usable range.
     pub fn set_bpm(&mut self, bpm: f32) {
         self.bpm = bpm.clamp(20.0, 400.0);
+    }
+
+    /// Where the transport loops, or `None` for the whole song.
+    pub fn loop_region(&self) -> Option<LoopRegion> {
+        self.loop_region
+    }
+
+    /// Set or clear the loop region.
+    pub fn set_loop_region(&mut self, region: Option<LoopRegion>) {
+        self.loop_region = region;
     }
 
     /// Validate a song parsed from an untrusted file and bring it inside the
@@ -92,6 +131,13 @@ impl Song {
         for track in &mut self.tracks {
             problems.extend(track.sanitize(MAX_BLOCKS)?);
         }
+        if let Some(region) = self.loop_region {
+            let kept = LoopRegion::between(region.start_beats, region.end_beats);
+            if kept != Some(region) {
+                problems.push("loop region clamped or dropped".into());
+                self.loop_region = kept;
+            }
+        }
         self.version = PROJECT_VERSION;
         Ok(problems)
     }
@@ -110,6 +156,34 @@ impl Song {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_loop_region_is_ordered_kept_on_the_timeline_and_never_empty() {
+        let region = LoopRegion::between(8.0, 4.0).expect("a real span");
+        assert_eq!((region.start_beats, region.end_beats), (4.0, 8.0));
+        let clamped = LoopRegion::between(-2.0, 1.0).expect("a real span");
+        assert_eq!(clamped.start_beats, 0.0);
+        assert_eq!(LoopRegion::between(3.0, 3.1), None, "a click is not a loop");
+        assert_eq!(LoopRegion::between(f32::NAN, 4.0), None);
+    }
+
+    #[test]
+    fn a_hostile_loop_region_is_dropped_on_load() {
+        let mut song = Song::new();
+        song.loop_region = Some(LoopRegion {
+            start_beats: 9.0,
+            end_beats: 2.0,
+        });
+        let problems = song.sanitize().expect("a usable song");
+        assert_eq!(
+            song.loop_region(),
+            Some(LoopRegion {
+                start_beats: 2.0,
+                end_beats: 9.0
+            })
+        );
+        assert!(problems.iter().any(|p| p.contains("loop region")));
+    }
 
     #[test]
     fn a_new_song_has_two_midi_and_two_audio_tracks() {

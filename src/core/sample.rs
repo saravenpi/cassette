@@ -1,29 +1,21 @@
 //! Sample slots, written by the control thread and read by the audio thread.
 //!
-//! Decoding happens on the control thread; the frames then travel down an
-//! `rtrb` ring and are copied into a pool that was allocated before the stream
-//! started. Nothing here allocates on the audio side, so the red-zone contract
-//! holds: [`SamplePool::drain`] only writes into memory that already exists.
+//! Decoding happens on the control thread; the decoded frames then travel down
+//! an `rtrb` ring as an `Arc` slice the sender keeps a clone of. The audio side
+//! only swaps handles, so it never allocates and never frees a buffer, and the
+//! red-zone contract holds.
 
 use rtrb::Consumer;
 use std::sync::Arc;
 
 pub const MAX_SAMPLE_SLOTS: usize = 8;
-pub const MAX_SAMPLE_FRAMES: usize = 480_000;
-pub const SAMPLE_RING_CAPACITY: usize = MAX_SAMPLE_FRAMES + 16;
+/// Room on the ring for every slot to be freed and loaded several times over
+/// between two callbacks.
+pub const SAMPLE_RING_CAPACITY: usize = MAX_SAMPLE_SLOTS * 8;
 pub const NO_SLOT: u8 = u8::MAX;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum SampleMsg {
-    Begin {
-        slot: u8,
-        frames: u32,
-        rate: f32,
-    },
-    Frame(f32),
-    End {
-        slot: u8,
-    },
     Free {
         slot: u8,
     },
@@ -37,19 +29,9 @@ pub enum SampleMsg {
     },
 }
 
-#[derive(Clone, Copy, Debug)]
-struct Loading {
-    slot: u8,
-    total: u32,
-    written: u32,
-}
-
 pub struct SamplePool {
     slots: [Option<Arc<[f32]>>; MAX_SAMPLE_SLOTS],
-    data: Vec<f32>,
-    lengths: [u32; MAX_SAMPLE_SLOTS],
     rates: [f32; MAX_SAMPLE_SLOTS],
-    loading: Option<Loading>,
 }
 
 impl Default for SamplePool {
@@ -62,10 +44,7 @@ impl SamplePool {
     pub fn new() -> Self {
         Self {
             slots: std::array::from_fn(|_| None),
-            data: vec![0.0; MAX_SAMPLE_SLOTS * MAX_SAMPLE_FRAMES],
-            lengths: [0; MAX_SAMPLE_SLOTS],
             rates: [1.0; MAX_SAMPLE_SLOTS],
-            loading: None,
         }
     }
 
@@ -88,68 +67,23 @@ impl SamplePool {
                     self.rates[slot] = if rate > 0.0 { rate } else { 1.0 };
                 }
             }
-            SampleMsg::Begin { slot, frames, rate } => {
-                let slot = slot as usize;
-                if slot < MAX_SAMPLE_SLOTS {
-                    self.slots[slot] = None;
-                    self.loading = Some(Loading {
-                        slot: slot as u8,
-                        total: frames.min(MAX_SAMPLE_FRAMES as u32),
-                        written: 0,
-                    });
-                    self.lengths[slot] = 0;
-                    self.rates[slot] = if rate > 0.0 { rate } else { 1.0 };
-                }
-            }
-            SampleMsg::Frame(value) => {
-                let Some(loading) = self.loading.as_mut() else {
-                    return;
-                };
-                if loading.written >= loading.total {
-                    return;
-                }
-                let at = loading.slot as usize * MAX_SAMPLE_FRAMES + loading.written as usize;
-                if let Some(cell) = self.data.get_mut(at) {
-                    *cell = value;
-                    loading.written += 1;
-                }
-            }
-            SampleMsg::End { .. } => {
-                if let Some(loading) = self.loading.take()
-                    && let Some(length) = self.lengths.get_mut(loading.slot as usize)
-                {
-                    *length = loading.written;
-                }
-            }
             SampleMsg::Free { slot } => {
-                let slot = slot as usize;
-                if slot < MAX_SAMPLE_SLOTS {
-                    self.slots[slot] = None;
-                    self.lengths[slot] = 0;
+                if let Some(held) = self.slots.get_mut(slot as usize) {
+                    *held = None;
                 }
             }
         }
     }
 
     pub fn frames(&self, slot: u8) -> &[f32] {
-        let slot = slot as usize;
-        if slot >= MAX_SAMPLE_SLOTS {
-            return &[];
-        }
-        if let Some(frames) = &self.slots[slot] {
-            return frames;
-        }
-        let length = self.lengths[slot] as usize;
-        let start = slot * MAX_SAMPLE_FRAMES;
-        self.data.get(start..start + length).unwrap_or(&[])
+        self.slots
+            .get(slot as usize)
+            .and_then(Option::as_deref)
+            .unwrap_or(&[])
     }
 
     pub fn rate(&self, slot: u8) -> f32 {
-        let slot = slot as usize;
-        if slot >= MAX_SAMPLE_SLOTS {
-            return 0.0;
-        }
-        self.rates[slot]
+        self.rates.get(slot as usize).copied().unwrap_or(0.0)
     }
 
     pub fn is_ready(&self, slot: u8) -> bool {
@@ -163,7 +97,7 @@ mod tests {
     use rtrb::RingBuffer;
 
     fn load(pool: &mut SamplePool, messages: &[SampleMsg]) {
-        let (mut producer, mut consumer) = RingBuffer::<SampleMsg>::new(64);
+        let (mut producer, mut consumer) = RingBuffer::<SampleMsg>::new(SAMPLE_RING_CAPACITY);
         for message in messages {
             producer
                 .push(message.clone())
@@ -172,172 +106,61 @@ mod tests {
         pool.drain(&mut consumer);
     }
 
+    fn sample(slot: u8, frames: &[f32]) -> SampleMsg {
+        SampleMsg::Load {
+            slot,
+            frames: Arc::from(frames),
+            rate: 44_100.0,
+        }
+    }
+
     #[test]
     fn an_arc_load_becomes_readable() {
         let mut pool = SamplePool::new();
-        let frames: Arc<[f32]> = Arc::from(vec![0.1, 0.2, 0.3].into_boxed_slice());
-        load(
-            &mut pool,
-            &[SampleMsg::Load {
-                slot: 0,
-                frames: frames.clone(),
-                rate: 44_100.0,
-            }],
-        );
+        load(&mut pool, &[sample(0, &[0.1, 0.2, 0.3])]);
         assert!(pool.is_ready(0));
         assert_eq!(pool.frames(0), &[0.1, 0.2, 0.3]);
         assert_eq!(pool.rate(0), 44_100.0);
-    }
-
-    #[test]
-    fn a_completed_load_becomes_readable() {
-        let mut pool = SamplePool::new();
-        load(
-            &mut pool,
-            &[
-                SampleMsg::Begin {
-                    slot: 1,
-                    frames: 3,
-                    rate: 44_100.0,
-                },
-                SampleMsg::Frame(0.25),
-                SampleMsg::Frame(-0.5),
-                SampleMsg::Frame(0.75),
-                SampleMsg::End { slot: 1 },
-            ],
-        );
-        assert!(pool.is_ready(1));
-        assert_eq!(pool.frames(1), &[0.25, -0.5, 0.75]);
-        assert_eq!(pool.rate(1), 44_100.0);
-        assert!(!pool.is_ready(0), "another slot is untouched");
-    }
-
-    #[test]
-    fn a_load_in_progress_is_not_playable_yet() {
-        let mut pool = SamplePool::new();
-        load(
-            &mut pool,
-            &[
-                SampleMsg::Begin {
-                    slot: 0,
-                    frames: 4,
-                    rate: 48_000.0,
-                },
-                SampleMsg::Frame(1.0),
-            ],
-        );
-        assert!(
-            !pool.is_ready(0),
-            "half a sample must not be played as if it were whole"
-        );
-    }
-
-    #[test]
-    fn more_frames_than_promised_are_dropped() {
-        let mut pool = SamplePool::new();
-        load(
-            &mut pool,
-            &[
-                SampleMsg::Begin {
-                    slot: 2,
-                    frames: 1,
-                    rate: 44_100.0,
-                },
-                SampleMsg::Frame(0.5),
-                SampleMsg::Frame(0.9),
-                SampleMsg::End { slot: 2 },
-            ],
-        );
-        assert_eq!(pool.frames(2), &[0.5]);
+        assert!(!pool.is_ready(1), "another slot is untouched");
     }
 
     #[test]
     fn freeing_a_slot_empties_it() {
         let mut pool = SamplePool::new();
-        load(
-            &mut pool,
-            &[
-                SampleMsg::Begin {
-                    slot: 3,
-                    frames: 1,
-                    rate: 44_100.0,
-                },
-                SampleMsg::Frame(0.5),
-                SampleMsg::End { slot: 3 },
-                SampleMsg::Free { slot: 3 },
-            ],
-        );
+        load(&mut pool, &[sample(3, &[0.5]), SampleMsg::Free { slot: 3 }]);
         assert!(!pool.is_ready(3));
     }
 
     #[test]
-    fn an_end_with_a_stray_slot_is_ignored() {
+    fn stray_slots_are_ignored() {
         let mut pool = SamplePool::new();
         load(
             &mut pool,
-            &[
-                SampleMsg::Begin {
-                    slot: 1,
-                    frames: 2,
-                    rate: 44_100.0,
-                },
-                SampleMsg::Frame(0.5),
-                SampleMsg::End { slot: 250 },
-            ],
+            &[sample(250, &[0.5]), SampleMsg::Free { slot: 250 }],
         );
-        assert_eq!(pool.frames(1), &[0.5]);
-        load(&mut pool, &[SampleMsg::End { slot: 250 }]);
+        assert!(pool.frames(250).is_empty());
+        assert_eq!(pool.rate(250), 0.0);
     }
 
     #[test]
-    fn a_frame_with_no_load_is_ignored() {
+    fn a_rate_that_is_not_positive_falls_back_to_one() {
         let mut pool = SamplePool::new();
-        load(&mut pool, &[SampleMsg::Frame(1.0)]);
-        assert!(!pool.is_ready(0));
+        load(
+            &mut pool,
+            &[SampleMsg::Load {
+                slot: 1,
+                frames: Arc::from(&[0.5][..]),
+                rate: 0.0,
+            }],
+        );
+        assert_eq!(pool.rate(1), 1.0);
     }
 
     #[test]
     fn slots_do_not_overlap() {
         let mut pool = SamplePool::new();
-        for slot in 0..2u8 {
-            load(
-                &mut pool,
-                &[
-                    SampleMsg::Begin {
-                        slot,
-                        frames: 2,
-                        rate: 44_100.0,
-                    },
-                    SampleMsg::Frame(slot as f32),
-                    SampleMsg::Frame(slot as f32 + 0.5),
-                    SampleMsg::End { slot },
-                ],
-            );
-        }
+        load(&mut pool, &[sample(0, &[0.0, 0.5]), sample(1, &[1.0, 1.5])]);
         assert_eq!(pool.frames(0), &[0.0, 0.5]);
         assert_eq!(pool.frames(1), &[1.0, 1.5]);
-    }
-
-    #[test]
-    fn the_pool_holds_a_full_slot() {
-        let mut pool = SamplePool::new();
-        let (mut producer, mut consumer) = RingBuffer::<SampleMsg>::new(MAX_SAMPLE_FRAMES + 2);
-        producer
-            .push(SampleMsg::Begin {
-                slot: 0,
-                frames: MAX_SAMPLE_FRAMES as u32,
-                rate: 44_100.0,
-            })
-            .expect("room for the header");
-        for _ in 0..MAX_SAMPLE_FRAMES {
-            producer
-                .push(SampleMsg::Frame(0.1))
-                .expect("room for frames");
-        }
-        producer
-            .push(SampleMsg::End { slot: 0 })
-            .expect("room for the tail");
-        pool.drain(&mut consumer);
-        assert_eq!(pool.frames(0).len(), MAX_SAMPLE_FRAMES);
     }
 }

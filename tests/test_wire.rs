@@ -102,3 +102,27 @@ fn a_load_project_reads_camel_case_fields() {
         }
     );
 }
+
+#[test]
+fn a_loop_region_and_a_note_read_camel_case_fields() {
+    assert_eq!(
+        parse(r#"{"setLoopRegion":{"startBeats":4,"endBeats":8}}"#),
+        Event::SetLoopRegion {
+            start_beats: 4.0,
+            end_beats: 8.0,
+        }
+    );
+    assert_eq!(
+        parse(
+            r#"{"addNote":{"track":0,"block":1,"pitch":60,"startBeats":0.5,"lengthBeats":1,"velocity":100}}"#
+        ),
+        Event::AddNote {
+            track: 0,
+            block: 1,
+            pitch: 60,
+            start_beats: 0.5,
+            length_beats: 1.0,
+            velocity: 100,
+        }
+    );
+}

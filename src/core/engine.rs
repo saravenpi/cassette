@@ -23,7 +23,7 @@ use crate::models::Song;
 
 /// Everything the audio thread owns: the render core, the command consumer and
 /// the shared snapshot it publishes. The sample ring's consumer lives inside the
-/// render core, which drains it into the preallocated pool.
+/// render core, which drains it into the sample slots.
 struct AudioThread {
     core: RenderCore,
     consumer: Consumer<RtCommand>,
@@ -222,6 +222,7 @@ impl AudioEngine {
             count: song.tracks.len().min(crate::core::MAX_TRACKS) as u8,
         });
         ok &= self.send(RtCommand::SetBpm { bpm: song.bpm() });
+        ok &= self.send(RtCommand::loop_region(song.loop_region()));
         for (track_index, track) in song.tracks.iter().enumerate() {
             let track_id = track_index as u8;
             ok &= self.send(RtCommand::SetTrackInstrument {

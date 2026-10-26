@@ -376,6 +376,29 @@ mod tests {
         assert!(fresh.status.contains("loaded project from"));
     }
 
+    #[test]
+    fn a_loop_region_is_set_cleared_and_saved_with_the_project() {
+        let mut app = headless_app();
+        app.submit(crate::events::Event::SetLoopRegion {
+            start_beats: 8.0,
+            end_beats: 4.0,
+        });
+        let region = app.ui_state().loop_region.expect("a region is set");
+        assert_eq!((region.start_beats, region.end_beats), (4.0, 8.0));
+
+        let dir = TempDir::new();
+        app.export_project(dir.arg("p.json"));
+        let mut fresh = headless_app();
+        fresh.load_project(dir.arg("p.json"));
+        assert_eq!(fresh.song.loop_region(), Some(region));
+
+        fresh.submit(crate::events::Event::SetLoopRegion {
+            start_beats: 2.0,
+            end_beats: 2.0,
+        });
+        assert_eq!(fresh.ui_state().loop_region, None, "a click clears it");
+    }
+
     fn load_json(json: &str) -> App {
         let dir = TempDir::new();
         std::fs::write(dir.file("p.json"), json).expect("write project");

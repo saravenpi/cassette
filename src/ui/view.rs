@@ -6,7 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::models::{Note, TrackKind};
+use crate::models::{LoopRegion, Note, TrackKind};
 
 /// Session cursor: which block of which track is selected. A block index equal
 /// to the track's block count means "no block", the state a fresh track is in.
@@ -83,6 +83,8 @@ pub struct UiState {
     pub bpm: f32,
     pub playing: bool,
     pub looping: bool,
+    /// Where the transport loops, or `None` for the whole song.
+    pub loop_region: Option<LoopRegion>,
     /// Transport position in beats.
     pub transport_position_beats: f32,
     /// How far the ruler has to reach to hold every block, in beats.
@@ -164,6 +166,7 @@ mod tests {
             bpm: 120.0,
             playing: true,
             looping: true,
+            loop_region: None,
             transport_position_beats: 5.0,
             length_beats: 32.0,
             bars: 8,
