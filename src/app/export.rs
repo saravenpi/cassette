@@ -83,6 +83,7 @@ impl App {
             core.set_blocks(track, self.mirror(track));
         }
 
+        core.apply(RtCommand::SetLooping { looping: false });
         core.apply(RtCommand::Seek { beats: 0.0 });
         core.apply(RtCommand::Play);
 

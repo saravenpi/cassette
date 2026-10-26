@@ -1,4 +1,4 @@
-# zboub: roadmap
+# cassette: roadmap
 
 A session DAW inspired by Ableton Live. The audio engine is Rust and owns all
 timing and synthesis. The interface is a SvelteKit frontend in `app/` behind a
@@ -15,25 +15,25 @@ Tauri shell; keys and clicks both drive it.
 | Phase 3 | Interface and event plumbing | Done |
 | Phase 4 | Polish and features | Done |
 | Phase 5 | Session view and blocks | Superseded by Phase 6 (2026-09-24) |
-| Phase 6 | Timeline and the sample path | In progress |
+| Phase 6 | Timeline and the sample path | Done (v0.7.0, 2026-09-26) |
+| Phase 7 | Note data in MIDI blocks | Next |
 
 The engine crate builds with no webview and no audio headers, plays the
 polyphonic synth from the keyboard, and starts a sample when the playhead
-reaches its block. The published figures belong to the v0.2.0 tag: 81 tests
-(62 unit tests in the lib, 7 engine integration, 10 MIDI/OSC adapter, 2
-red-zone) and a clean `cargo clippy --all-targets`.
+reaches its block. The project is called cassette; it was zboub69 until v0.7.0.
 
-Build state, measured on 2026-09-24 while Phase 6 was landing: `cargo test` is
-green end to end (147 library unit tests, 11 engine integration, 10 MIDI/OSC
-adapter, 3 red-zone), `cargo fmt` and `cargo clippy --all-targets -- -D warnings`
-are clean, and `cd app && bun run check` and `cd app && bun test` (83 tests) are
-both clean. An earlier reading of the same day had `cargo test` stop on a stale
-`UiState` fixture in the `src/ui/view.rs` test module; that fixture is fixed and
-the unit tests run again.
+Build state, measured on 2026-10-26 at v0.7.0: `cargo test` is green end to end
+(154 library unit tests, 11 engine integration, 10 MIDI/OSC adapter, 3
+red-zone, 7 wire), `cargo clippy --all-targets -- -D warnings` and
+`cargo fmt --check` are clean, and `cd app && bun run check` and
+`cd app && bun test` (83 tests) are clean.
 
-The desktop app has rendered headlessly under Xvfb, but nobody has heard it
-produce sound on real audio hardware. Treat "it makes noise" as unverified until
-someone listens on a machine with a working output device.
+The desktop app has been run on real audio hardware: samples play from the
+timeline and the synth plays from the keyboard (verified by ear, 2026-10-26).
+
+The step sequencer, the step grid and the pattern model were removed in Phase 5:
+the session view replaced them. Phase 6 replaced the session view with a
+timeline. Sections below marked superseded describe what went away.
 
 The step sequencer, the step grid and the pattern model were removed in Phase 5:
 the session view replaced them. Phase 6 replaces the session view with a
@@ -208,11 +208,11 @@ working output device.
 
 ### 5.5 Audio-over-SSH front door (done, 2026-09-24)
 
-The desktop app now starts the streaming backend when `ZBOUB_STREAM_PORT` is set
+The desktop app now starts the streaming backend when `CASSETTE_STREAM_PORT` (the legacy `ZBOUB_STREAM_PORT` still works) is set
 to a `u16` greater than zero. Start it from `app/`:
 
 ```bash
-ZBOUB_STREAM_PORT=9999 bun run tauri dev
+CASSETTE_STREAM_PORT=9999 bun run tauri dev
 ```
 
 Unset, empty, unparseable or zero keeps the normal device backend, so the default
@@ -233,7 +233,7 @@ bun run test
 
 ---
 
-## Phase 6: Timeline and the sample path (in progress)
+## Phase 6: Timeline and the sample path (done)
 
 Phase 6 replaces the session view with a timeline: a left sidebar for samples,
 plugins and effects, and a main area with a beat ruler, one lane per track, and
@@ -269,9 +269,9 @@ with the playhead. The crossing test handles a loop wrap.
 
 What does not work:
 
-- There is no seek. `Stop` rewinds to frame 0 and that is the only position
-  move, so a song always plays from the top: no `SetPosition`, no scrub, no loop
-  range, no punch.
+- Seeking works since v0.4.0: a click or drag on the ruler sends `Event::Seek`,
+  which becomes `RtCommand::Seek`. `Stop` still rewinds to frame 0. There is no
+  loop range and no punch.
 - `looping` is a flag with nothing to act on. No loop points exist, so the
   `L` key and the Loop button only record a preference.
 - A block starts up to one buffer late, as above.
@@ -427,8 +427,6 @@ in `src/core/mod.rs` and enforced in debug builds by `tests/test_rt_no_alloc.rs`
 
 What does not work:
 
-- The decoder reads WAV only. `decode` on any other container reports an error,
-  and the file browser lists a non-`.wav` file as "not audio".
 - One sample voice per track. Two audio blocks that overlap on one lane cannot
   both sound: the later trigger replaces the earlier voice.
 
@@ -457,14 +455,14 @@ wrapper each in `app/src/lib/api.ts`:
 
 | Command | What it returns |
 |---------|-----------------|
-| `samples_root` | `$ZBOUB_SAMPLES_DIR`, else `~/Music` when it exists, else the home directory |
+| `samples_root` | `$CASSETTE_SAMPLES_DIR` (or legacy `$ZBOUB_SAMPLES_DIR`), else `~/Music` when it exists, else the home directory |
 | `list_samples` | One directory: directories first, then names, at most 2 000 entries |
 | `home_dir`, `parent_of` | The home directory and a path's parent, for the breadcrumbs |
-| `read_waveform` | Peak amplitudes of a `.wav`, for the thumbnail and the block |
+| `read_waveform` | Peak amplitudes of an audio file, for the thumbnail and the block |
 
 `list_samples` and `read_waveform` canonicalise the path they are given and
-refuse anything outside the sample root, so the browser cannot walk out of it. A
-`.wav` dragged onto a lane sends `ImportSample` with the beat under the pointer;
+refuse anything outside the sample root, so the browser cannot walk out of it. An
+audio file dragged onto a lane sends `ImportSample` with the beat under the pointer;
 double-clicking one imports it into the selected track at the end of its
 material.
 
@@ -494,9 +492,9 @@ Model and engine:
 - Note data inside a MIDI block. `Block` has no notes, no clip and no content
   field, so a MIDI lane is silent and the synth is still played live from the
   keyboard.
-- Reading and writing a song file. There is no save, no load and no project
-  format: a session lives in memory for the life of the process, and `Song`
-  implements no `Serialize`.
+- A richer project format. Save and load exist (JSON via `ExportProject` and
+  `LoadProject`) but store the structure, tempo, blocks and sample paths only;
+  there is no version field and no note data until Phase 7 adds it.
 - Scenes and follow actions. Nothing groups blocks into scenes, and nothing
   triggers the next block when one ends; a block's material simply stops when the
   voice runs out.
@@ -504,8 +502,8 @@ Model and engine:
   CLAP or LV2 loader is in the crate, and the VST pane says so.
 - Insert effects. The mixer is volume, pan, mute and solo. There is no effect
   slot on a track or on a block, and no signal path through one.
-- A seekable transport. `Stop` rewinds to frame 0 and that is the only position
-  move, so there is no starting at bar 17, no loop range and no punch.
+- A loop range and punch. Seeking works, but `looping` has no loop points to act
+  on.
 - Time-stretching. Nothing warps a sample to the project tempo: a sample at
   another rate plays pitch-shifted, which is repitch and Ableton Live's default.
   See 6.4.
@@ -514,11 +512,50 @@ Model and engine:
 
 Interface:
 
-- The window still has not been run against real audio hardware, so treat "it
-  makes noise" as unverified until someone listens on a machine with a working
-  output device.
-- Nobody has driven the window with a pointer since the rebuild: drag, resize,
-  drop and the sample import were not exercised in a running app.
+- A piano roll or any other editor for MIDI block content (Phase 7).
+- Pointer interactions (drag, resize, drop, import) were exercised by hand on
+  2026-10-26; none has an automated test beyond `geometry.test.ts`.
+
+---
+
+## Phase 7: Note data in MIDI blocks (next)
+
+A MIDI block holds notes (pitch, start, length, velocity) that the render core
+starts as the playhead crosses them, then a piano roll to edit them. The
+review below comes first: the fixes land before new features.
+
+## Review findings (2026-10-26, v0.7.0)
+
+Four parallel read-only reviews covered the engine, decoding and export, app
+logic and project loading, and the frontend and Tauri shell. `cargo test`,
+`clippy`, `fmt`, `svelte-check` and `bun test` were green. Findings are from
+reading the code. The ones marked verified were re-read by hand.
+
+Fixed on `fix/review-findings` (2026-10-26). Tests, clippy and fmt are green.
+Not yet checked by ear or in a running window:
+
+- Export now applies each sample's rate and no longer loops.
+- The Load button opens the Tauri dialog and sends the chosen path.
+- `SampleMsg::End` is bounds-checked, and the block mirror and sample `Arc`s are
+  no longer freed on the audio thread.
+- `load_project` validates the file (version field, clamps, limits, sorted
+  blocks) and resets the previous project's samples, notes and cursor.
+- Decoding stops at 10 minutes (`MAX_DECODED_FRAMES`) and reports truncation.
+- Looping wraps the playhead at the end of the last block, and it is on by
+  default.
+- The beat position is computed in `f64`; seek and stop fade sample voices out.
+- File browser commands run off the UI thread; keyboard import, stale-response
+  guard, drag-drop cleanup, keyed mix queue and window drag permission landed.
+
+Still open:
+
+- `frames_per_beat` is rounded to an integer and drifts at non-integer tempos.
+- The UI beat position in `src/app/mod.rs` still uses `f32`.
+- Multi-file drops are staggered by a fixed bar, not by real block length.
+- Loop points: the loop spans the whole song only.
+- Dead code used only by tests (`block_at`, `contains`, `is_audible`, `lerp`,
+  `subscriber_count`) and the `Begin`/`Frame`/`End` sample messages.
+- The ffplay and TCP backends write on the render thread and can stall it.
 
 ---
 
@@ -531,7 +568,7 @@ Interface:
 
 ## Dependencies
 
-The engine crate `zboub69` builds and tests with no GUI toolkit and no audio
+The engine crate `cassette` builds and tests with no GUI toolkit and no audio
 headers.
 
 | Crate | Role | Notes |
@@ -542,8 +579,9 @@ headers.
 | `serde` | Derives on the snapshot and the event vocabulary | |
 | `assert_no_alloc` | Red-zone verification | Debug/minimal builds |
 | `cpal` | Direct device audio | Optional, feature `cpal` |
+| `symphonia` | Decoding of MP3, FLAC, M4A, AAC, OGG, Opus, AIFF and WAV | Pinned to 0.5.4 |
 
-The Tauri shell `zboub69-app` in `app/src-tauri/` adds `tauri` and
+The Tauri shell `cassette-app` in `app/src-tauri/` adds `tauri` and
 `tauri-build` for the window, `serde_json` to move events and snapshots over
 IPC, plus `crossbeam` and `serde`. It enables the engine's `cpal` feature for
 real device output. `tauri`, `tauri-build` and `serde_json` are shell-only;
