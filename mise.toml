@@ -1,0 +1,74 @@
+[tools]
+rust = { version = "1.98.1", components = "clippy,rustfmt" }
+bun = "1.4.2"
+
+[tasks.deps]
+description = "Install the system libraries Tauri and the audio engine need"
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+case "$(uname -s)" in
+  Linux)
+    if command -v apt-get >/dev/null; then
+      sudo apt-get update
+      sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
+        libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev \
+        libasound2-dev libdbus-1-dev
+    elif command -v dnf >/dev/null; then
+      sudo dnf install -y webkit2gtk4.1-devel openssl-devel curl wget file \
+        libappindicator-gtk3-devel librsvg2-devel libxdo-devel alsa-lib-devel \
+        dbus-devel gcc gcc-c++ make
+    elif command -v pacman >/dev/null; then
+      sudo pacman -S --needed --noconfirm webkit2gtk-4.1 base-devel curl wget file \
+        openssl appmenu-gtk-module libappindicator-gtk3 librsvg xdotool alsa-lib
+    else
+      echo "unknown package manager: install Tauri's Linux prerequisites by hand" >&2
+      echo "https://v2.tauri.app/start/prerequisites/" >&2
+      exit 1
+    fi
+    ;;
+  Darwin)
+    xcode-select -p >/dev/null 2>&1 || xcode-select --install
+    ;;
+  *)
+    echo "install the Microsoft C++ Build Tools and WebView2:" >&2
+    echo "https://v2.tauri.app/start/prerequisites/" >&2
+    ;;
+esac
+'''
+run_windows = '''
+echo Install the Microsoft C++ Build Tools ("Desktop development with C++") and WebView2:
+echo https://v2.tauri.app/start/prerequisites/
+'''
+
+[tasks.install]
+description = "Install the frontend packages"
+dir = "app"
+run = "bun install --frozen-lockfile"
+
+[tasks.dev]
+description = "Open the desktop app with a hot-reloading frontend"
+depends = ["install"]
+dir = "app"
+run = "bun run tauri dev"
+
+[tasks.build]
+description = "Bundle the desktop app for this platform"
+depends = ["install"]
+dir = "app"
+run = "bun run tauri build"
+
+[tasks.test]
+description = "Run the engine and frontend tests"
+depends = ["install"]
+run = ["cargo test", "cd app && bun test"]
+
+[tasks.check]
+description = "Format, lint and type-check both halves"
+depends = ["install"]
+run = [
+  "cargo fmt --check",
+  "cargo clippy --all-targets -- -D warnings",
+  "cd app/src-tauri && cargo fmt --check && cargo clippy --locked -- -D warnings",
+  "cd app && bun run check",
+]

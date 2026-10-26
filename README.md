@@ -34,16 +34,23 @@ are clean.
 
 ## Run it
 
-You need Rust, [bun](https://bun.sh), and Tauri's Linux system dependencies:
+[mise](https://mise.jdx.dev) pins Rust and bun and wraps every step, on Linux,
+macOS and Windows:
 
 ```bash
-sudo apt update
-sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file \
-  libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev \
-  libasound2-dev libdbus-1-dev
+mise install           # Rust 1.98.1 with clippy and rustfmt, bun 1.4.2
+mise run deps          # Tauri's system libraries (apt, dnf, pacman or Xcode tools)
+mise run dev           # dev window, frontend hot-reloads
+mise run build         # bundle for this platform
+mise run test          # engine and frontend tests
+mise run check         # fmt, clippy and svelte-check
 ```
 
-Then:
+On Windows, `mise run deps` points at the Microsoft C++ Build Tools and WebView2
+instead of installing them. Vite runs on bun, so no Node.js install is needed.
+
+Without mise, install Rust, [bun](https://bun.sh) and the
+[Tauri prerequisites](https://v2.tauri.app/start/prerequisites/), then:
 
 ```bash
 cd app
