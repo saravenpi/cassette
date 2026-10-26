@@ -409,10 +409,9 @@ impl RenderCore {
 
     /// Render interleaved stereo `out`. Returns the per-track peaks observed.
     ///
-    /// Blocks are started *before* the buffer, so a sample whose block begins
-    /// inside this buffer sounds in it from the first frame instead of losing
-    /// its opening. The cost is that a block can start up to one buffer early,
-    /// which is the resolution the transport schedules at.
+    /// The buffer is rendered in stretches cut at every loop end, block edge and
+    /// note start, and each stretch starts its blocks and notes before rendering,
+    /// so they sound from the frame the timeline puts them on.
     pub fn process(&mut self, out: &mut [f32]) -> [f32; MAX_TRACKS] {
         let mut peaks = [0.0f32; MAX_TRACKS];
         let frames = out.len() / 2;
@@ -446,6 +445,8 @@ impl RenderCore {
     /// inside the next stretch, and return how many of `wanted` frames that
     /// stretch spans. A stretch never crosses the loop end, so the wrap lands on
     /// an exact frame, and a wrap releases every voice so no note rings across it.
+    /// A stretch also stops where the next block or note begins or a sample block
+    /// ends, so each starts on its own frame rather than at the top of a buffer.
     fn begin_span(&mut self, wanted: usize) -> usize {
         let mut span = wanted;
         if let Some(end) = self.loop_end_frames() {
@@ -456,26 +457,61 @@ impl RenderCore {
             span = span.min(end.saturating_sub(self.transport.position_frames()).max(1) as usize);
         }
         let from_beats = self.transport.position_beats_exact();
+        if let Some(next) = self.next_event_after(from_beats, self.transport.beats_after(span)) {
+            let frames = ((next - from_beats) * self.transport.frames_per_beat()).ceil();
+            span = span.min((frames as usize).max(1));
+        }
         let to_beats = self.transport.beats_after(span);
         self.start_blocks(from_beats, to_beats);
         self.start_notes(from_beats, to_beats);
         span
     }
 
+    /// The earliest block start, sample block end or note start strictly inside
+    /// `(from_beats, to_beats)`, where the stretch has to be cut.
+    fn next_event_after(&self, from_beats: f64, to_beats: f64) -> Option<f64> {
+        let inside = |beats: f32| {
+            let beats = f64::from(beats);
+            (beats > from_beats && beats < to_beats).then_some(beats)
+        };
+        let mut next: Option<f64> = None;
+        let mut keep = |beats: Option<f64>| {
+            if let Some(beats) = beats {
+                next = Some(next.map_or(beats, |held| held.min(beats)));
+            }
+        };
+        for track in 0..MAX_TRACKS {
+            for block in &self.blocks[track][..self.block_lens[track]] {
+                if block.slot != NO_SLOT {
+                    keep(inside(block.start_beats));
+                    keep(inside(block.end_beats));
+                }
+            }
+            let notes = &self.notes[track][..self.note_lens[track]];
+            let first = notes.partition_point(|note| f64::from(note.start_beats) <= from_beats);
+            keep(notes.get(first).and_then(|note| inside(note.start_beats)));
+        }
+        next
+    }
+
     /// Start every note whose start falls in the window this buffer covers,
     /// gated to its length. A note already under the playhead is not entered.
+    /// The mirror is sorted by start, so the window is found by binary search.
     fn start_notes(&mut self, from_beats: f64, to_beats: f64) {
         let frames_per_beat = self.transport.frames_per_beat();
         for track in 0..MAX_TRACKS {
-            for note in &self.notes[track][..self.note_lens[track]] {
-                if note.starts_in(from_beats, to_beats) {
-                    self.synth.note_on(
-                        track,
-                        note.pitch,
-                        note.velocity,
-                        note.gate_frames(frames_per_beat),
-                    );
-                }
+            let notes = &self.notes[track][..self.note_lens[track]];
+            let first = notes.partition_point(|note| f64::from(note.start_beats) < from_beats);
+            for note in notes[first..]
+                .iter()
+                .take_while(|note| note.starts_in(from_beats, to_beats))
+            {
+                self.synth.note_on(
+                    track,
+                    note.pitch,
+                    note.velocity,
+                    note.gate_frames(frames_per_beat),
+                );
             }
         }
     }
@@ -703,6 +739,25 @@ mod tests {
         core.apply(RtCommand::Play);
         let first_loud = (0..64).find(|_| loud(&render(&mut core, 512)));
         assert_eq!(first_loud, Some(22_050 / 512), "beat one is frame 22050");
+    }
+
+    #[test]
+    fn a_note_starts_on_its_own_frame_inside_a_buffer() {
+        let song = Song::new();
+        let mut core = RenderCore::new(&song, DEFAULT_SAMPLE_RATE);
+        core.apply(RtCommand::SetLooping { looping: false });
+        core.apply(RtCommand::SetNotes {
+            track: 0,
+            notes: notes(&[(1.0, 2.0)]),
+        });
+        core.apply(RtCommand::Play);
+        let out = render(&mut core, 22_050 + 512);
+        let first = out.iter().position(|s| s.abs() > 1e-6).map(|i| i / 2);
+        assert!(!loud(&out[..22_050 * 2]), "nothing before beat one");
+        assert!(
+            first.is_some_and(|frame| frame <= 22_052),
+            "the note opens on frame 22050, got {first:?}"
+        );
     }
 
     #[test]
