@@ -181,7 +181,7 @@ impl App {
     }
 
     /// Frames in one beat at the current tempo and the engine's rate.
-    pub(crate) fn frames_per_beat(&self) -> u64 {
+    pub(crate) fn frames_per_beat(&self) -> f64 {
         Tempo::new(self.song.bpm()).frames_per_beat(self.engine.sample_rate())
     }
 }

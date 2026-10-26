@@ -33,8 +33,8 @@ pub struct MirroredBlock {
 
 impl MirroredBlock {
     /// Whether the block covers `beats`.
-    pub fn covers(&self, beats: f32) -> bool {
-        beats >= self.start_beats && beats < self.end_beats
+    pub fn covers(&self, beats: f64) -> bool {
+        beats >= f64::from(self.start_beats) && beats < f64::from(self.end_beats)
     }
 
     /// Whether the block's start falls in the half-open window `[from, to)`.
@@ -42,13 +42,15 @@ impl MirroredBlock {
     /// Half-open so a block landing exactly on a buffer boundary starts in one
     /// buffer only, and `from` inclusive so the block at the very top of the
     /// song still fires on the first buffer.
-    pub fn starts_in(&self, from: f32, to: f32) -> bool {
-        self.start_beats >= from && self.start_beats < to
+    pub fn starts_in(&self, from: f64, to: f64) -> bool {
+        let start = f64::from(self.start_beats);
+        start >= from && start < to
     }
 
     /// Whether the block's end falls in the half-open window `[from, to)`.
-    pub fn ends_in(&self, from: f32, to: f32) -> bool {
-        self.end_beats >= from && self.end_beats < to
+    pub fn ends_in(&self, from: f64, to: f64) -> bool {
+        let end = f64::from(self.end_beats);
+        end >= from && end < to
     }
 }
 
@@ -118,8 +120,8 @@ pub enum RtCommand {
 pub struct Transport {
     bpm: f32,
     sample_rate: u32,
-    frames_per_beat: u64,
-    position_frames: u64,
+    frames_per_beat: f64,
+    position_frames: f64,
     playing: bool,
     looping: bool,
 }
@@ -132,7 +134,7 @@ impl Transport {
             bpm,
             sample_rate,
             frames_per_beat: Tempo::new(bpm).frames_per_beat(sample_rate),
-            position_frames: 0,
+            position_frames: 0.0,
             playing: false,
             looping: true,
         }
@@ -145,19 +147,19 @@ impl Transport {
 
     /// Change tempo, keeping the musical position so timing never drifts.
     pub fn set_bpm(&mut self, bpm: f32) {
-        let beats = self.position_beats();
+        let beats = self.position_beats_exact();
         self.bpm = bpm.clamp(20.0, 400.0);
         self.frames_per_beat = Tempo::new(self.bpm).frames_per_beat(self.sample_rate);
-        self.position_frames = (beats as f64 * self.frames_per_beat as f64).round() as u64;
+        self.position_frames = beats * self.frames_per_beat;
     }
 
-    pub fn frames_per_beat(&self) -> u64 {
+    /// Frames in one beat at the current tempo, fractional so tempo never rounds.
+    pub fn frames_per_beat(&self) -> f64 {
         self.frames_per_beat
     }
 
     pub fn seek_beats(&mut self, beats: f32) {
-        let safe = beats.max(0.0);
-        self.position_frames = (safe as f64 * self.frames_per_beat as f64).round() as u64;
+        self.position_frames = f64::from(beats.max(0.0)) * self.frames_per_beat;
     }
 
     pub fn play(&mut self) {
@@ -167,7 +169,7 @@ impl Transport {
     /// Stop and rewind.
     pub fn stop(&mut self) {
         self.playing = false;
-        self.position_frames = 0;
+        self.position_frames = 0.0;
     }
 
     /// Enable or disable looping.
@@ -187,23 +189,33 @@ impl Transport {
 
     /// Frames since the transport last started from the top.
     pub fn position_frames(&self) -> u64 {
-        self.position_frames
+        self.position_frames as u64
     }
 
     /// Position in beats.
     pub fn position_beats(&self) -> f32 {
+        self.position_beats_exact() as f32
+    }
+
+    /// Position in beats at full `f64` precision.
+    pub fn position_beats_exact(&self) -> f64 {
         self.frames_to_beats(self.position_frames)
     }
 
-    /// Convert a frame count to beats, in `f64` so long songs keep frame accuracy.
-    pub fn frames_to_beats(&self, frames: u64) -> f32 {
-        (frames as f64 / self.frames_per_beat as f64) as f32
+    /// Convert a frame count to beats in `f64`, so long songs keep frame accuracy.
+    pub fn frames_to_beats(&self, frames: f64) -> f64 {
+        frames / self.frames_per_beat
+    }
+
+    /// Position in beats after `frames` more frames.
+    pub fn beats_after(&self, frames: usize) -> f64 {
+        self.frames_to_beats(self.position_frames + frames as f64)
     }
 
     /// Advance exactly one frame.
     pub fn tick_frame(&mut self) {
         if self.playing {
-            self.position_frames += 1;
+            self.position_frames += 1.0;
         }
     }
 }
@@ -369,7 +381,7 @@ impl RenderCore {
         if !self.transport.is_looping() || self.song_end_beats <= 0.0 {
             return None;
         }
-        let frames = (self.song_end_beats as f64 * self.transport.frames_per_beat() as f64).round();
+        let frames = (f64::from(self.song_end_beats) * self.transport.frames_per_beat()).round();
         (frames >= 1.0).then_some(frames as u64)
     }
 
@@ -385,10 +397,8 @@ impl RenderCore {
             }
             span = span.min(end.saturating_sub(self.transport.position_frames()).max(1) as usize);
         }
-        let from_beats = self.transport.position_beats();
-        let to_beats = self
-            .transport
-            .frames_to_beats(self.transport.position_frames() + span as u64);
+        let from_beats = self.transport.position_beats_exact();
+        let to_beats = self.transport.beats_after(span);
         self.start_blocks(from_beats, to_beats);
         span
     }
@@ -399,8 +409,8 @@ impl RenderCore {
     /// A block already behind the playhead when its buffer arrives is entered at
     /// the offset the timeline implies, so its content stays in step rather than
     /// restarting from the top.
-    fn start_blocks(&mut self, from_beats: f32, to_beats: f32) {
-        let frames_per_beat = self.transport.frames_per_beat() as f32;
+    fn start_blocks(&mut self, from_beats: f64, to_beats: f64) {
+        let frames_per_beat = self.transport.frames_per_beat();
         for track in 0..MAX_TRACKS {
             for (index, block) in self.blocks[track][..self.block_lens[track]]
                 .iter()
@@ -418,7 +428,8 @@ impl RenderCore {
                 if !should_start {
                     continue;
                 }
-                let elapsed = (from_beats - block.start_beats).max(0.0) * frames_per_beat;
+                let elapsed =
+                    (from_beats - f64::from(block.start_beats)).max(0.0) * frames_per_beat;
                 let offset = elapsed as u32;
                 self.synth.play_sample(
                     track,
@@ -759,7 +770,7 @@ mod tests {
     #[test]
     fn transport_advances_one_beat_per_frames_per_beat() {
         let mut transport = Transport::new(120.0, DEFAULT_SAMPLE_RATE);
-        let frames_per_beat = transport.frames_per_beat();
+        let frames_per_beat = transport.frames_per_beat() as u64;
         transport.play();
         for _ in 0..frames_per_beat {
             transport.tick_frame();
@@ -831,10 +842,45 @@ mod tests {
     #[test]
     fn beats_keep_frame_accuracy_past_two_to_the_24_frames() {
         let transport = Transport::new(120.0, DEFAULT_SAMPLE_RATE);
-        let frames = (1u64 << 24) + 1;
+        let frames = ((1u64 << 24) + 1) as f64;
         let beats = transport.frames_to_beats(frames);
-        let expected = (frames as f64 / transport.frames_per_beat() as f64) as f32;
-        assert_eq!(beats, expected);
+        assert_eq!(beats, frames / transport.frames_per_beat());
+    }
+
+    #[test]
+    fn odd_tempo_lands_a_block_within_one_frame_after_ten_minutes() {
+        let mut transport = Transport::new(137.0, 44_100);
+        transport.play();
+        let target = 26_460_000u64;
+        for _ in 0..target - 1 {
+            transport.tick_frame();
+        }
+        let block = MirroredBlock {
+            start_beats: 1370.0,
+            end_beats: 1374.0,
+            slot: 0,
+            gain: 1.0,
+        };
+        let from = transport.position_beats_exact();
+        let to = transport.beats_after(2);
+        assert!(block.starts_in(from, to));
+        let exact = f64::from(block.start_beats) * transport.frames_per_beat();
+        assert!((exact - target as f64).abs() <= 1.0);
+    }
+
+    #[test]
+    fn repeated_tempo_changes_do_not_drift_the_position() {
+        let mut transport = Transport::new(137.0, 44_100);
+        transport.play();
+        for _ in 0..1_000_003 {
+            transport.tick_frame();
+        }
+        let before = transport.position_beats_exact();
+        for i in 0..10_000 {
+            transport.set_bpm(if i % 2 == 0 { 91.3 } else { 137.0 });
+        }
+        transport.set_bpm(137.0);
+        assert!((transport.position_beats_exact() - before).abs() < 1e-6);
     }
 
     #[test]

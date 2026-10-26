@@ -28,9 +28,10 @@ impl Tempo {
         60.0 / self.bpm
     }
 
-    /// Number of audio frames in one beat. Always at least one.
-    pub fn frames_per_beat(&self, sample_rate: u32) -> u64 {
-        (sample_rate as f32 * self.beat_duration()).round().max(1.0) as u64
+    /// Number of audio frames in one beat, fractional so odd tempos never drift.
+    /// Always at least one.
+    pub fn frames_per_beat(&self, sample_rate: u32) -> f64 {
+        (f64::from(sample_rate) * 60.0 / f64::from(self.bpm)).max(1.0)
     }
 }
 
@@ -42,7 +43,14 @@ mod tests {
     fn frames_per_beat_at_120bpm_44k() {
         let tempo = Tempo::new(120.0);
         // 120 BPM -> 0.5 s/beat -> 22050 frames @ 44.1 kHz.
-        assert_eq!(tempo.frames_per_beat(44_100), 22_050);
+        assert_eq!(tempo.frames_per_beat(44_100), 22_050.0);
+    }
+
+    #[test]
+    fn non_integer_beats_keep_their_fraction() {
+        let frames = Tempo::new(137.0).frames_per_beat(44_100);
+        assert!((frames - 44_100.0 * 60.0 / 137.0).abs() < 1e-9);
+        assert!(frames.fract() > 0.0);
     }
 
     #[test]

@@ -310,7 +310,7 @@ impl App {
             bpm: self.song.bpm(),
             playing: self.engine.is_playing(),
             looping: shared.looping.load(Ordering::Relaxed),
-            transport_position_beats: position_frames as f32 / self.frames_per_beat() as f32,
+            transport_position_beats: (position_frames as f64 / self.frames_per_beat()) as f32,
             length_beats,
             bars: (length_beats / BEATS_PER_BAR).ceil() as u32,
             beats_per_bar: BEATS_PER_BAR as u32,
