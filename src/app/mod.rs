@@ -5,10 +5,11 @@
 //! tick per frame. All timing and synthesis live in [`crate::core`].
 //!
 //! Work splits across sibling modules, each an `impl App` block: the timeline
-//! ([`timeline`]), track state ([`tracks`]), audio samples ([`samples`]) and the
-//! transport ([`transport`]).
+//! ([`timeline`]), notes inside MIDI blocks ([`notes`]), track state
+//! ([`tracks`]), audio samples ([`samples`]) and the transport ([`transport`]).
 
 mod export;
+mod notes;
 mod samples;
 mod timeline;
 mod tracks;
@@ -29,7 +30,7 @@ use crate::core::render::RtCommand;
 use crate::core::sample::SampleMsg;
 use crate::events::Event;
 use crate::events::bus::EventBus;
-use crate::models::{Instrument, Song};
+use crate::models::{Instrument, Song, TrackKind};
 use crate::ui::view::{BlockView, Cursor, TrackView, UiState};
 
 use tracks::VoiceEdit;
@@ -168,11 +169,34 @@ impl App {
                 length_beats,
             } => self.resize_block(track, block, length_beats),
             Event::DeleteBlockAt { track, block } => self.delete_block_at(track, block),
-            Event::AddNote { .. }
-            | Event::MoveNote { .. }
-            | Event::ResizeNote { .. }
-            | Event::SetNoteVelocity { .. }
-            | Event::DeleteNote { .. } => {}
+            Event::AddNote {
+                track,
+                block,
+                pitch,
+                start_beats,
+                length_beats,
+                velocity,
+            } => self.add_note(track, block, pitch, start_beats, length_beats, velocity),
+            Event::MoveNote {
+                track,
+                block,
+                note,
+                pitch,
+                start_beats,
+            } => self.move_note(track, block, note, pitch, start_beats),
+            Event::ResizeNote {
+                track,
+                block,
+                note,
+                length_beats,
+            } => self.resize_note(track, block, note, length_beats),
+            Event::SetNoteVelocity {
+                track,
+                block,
+                note,
+                velocity,
+            } => self.set_note_velocity(track, block, note, velocity),
+            Event::DeleteNote { track, block, note } => self.delete_note(track, block, note),
             Event::AddBlock => self.add_block(),
             Event::DeleteBlock => self.delete_block(),
             Event::ImportSample {
@@ -263,6 +287,9 @@ impl App {
     }
 
     /// Build an immutable snapshot for the webview.
+    ///
+    /// Only the selected track's MIDI blocks carry their notes: a full session
+    /// of 64 blocks of 512 notes serializes to over 2 MB, too much for a frame.
     pub fn ui_state(&self) -> UiState {
         let shared = self.engine.shared();
         let position_frames = shared.position_frames.load(Ordering::Relaxed);
@@ -303,7 +330,11 @@ impl App {
                         length_beats: entry.length_beats,
                         source: entry.source.clone(),
                         selected: index == self.cursor.track && block == self.cursor.block,
-                        notes: entry.notes.clone(),
+                        notes: if index == self.cursor.track && entry.kind == TrackKind::Midi {
+                            entry.notes.clone()
+                        } else {
+                            Vec::new()
+                        },
                     })
                     .collect(),
                 color_index: (index % COLOR_SLOTS) as u8,
@@ -421,5 +452,29 @@ mod tests {
         assert_eq!(state.tracks[0].waveform, "Square");
         assert_eq!(state.tracks[0].color_index, 0);
         assert_eq!(state.tracks[3].color_index, 3);
+    }
+
+    #[test]
+    fn only_the_selected_track_carries_notes_in_the_snapshot() {
+        let mut app = headless_app();
+        for track in [0, 1] {
+            app.submit(Event::CreateBlock {
+                track,
+                start_beats: 0.0,
+                length_beats: 4.0,
+            });
+            app.submit(Event::AddNote {
+                track,
+                block: 0,
+                pitch: 60,
+                start_beats: 0.0,
+                length_beats: 1.0,
+                velocity: 100,
+            });
+        }
+        let state = app.ui_state();
+        assert_eq!(state.cursor.track, 1);
+        assert!(state.tracks[0].blocks[0].notes.is_empty());
+        assert_eq!(state.tracks[1].blocks[0].notes.len(), 1);
     }
 }

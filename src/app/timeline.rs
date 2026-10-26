@@ -6,10 +6,10 @@
 //! path never looks at a [`Track`](crate::models::Track).
 
 use super::App;
-use crate::core::MAX_BLOCKS;
-use crate::core::render::MirroredBlock;
+use crate::core::render::{MirroredBlock, MirroredNote};
 use crate::core::sample::NO_SLOT;
 use crate::core::synth::sample_gain;
+use crate::core::{MAX_BLOCKS, MAX_NOTES};
 use crate::models::{Block, TrackKind};
 use crate::ui::view::Cursor;
 
@@ -153,22 +153,65 @@ impl App {
             .collect()
     }
 
-    /// Replace one lane's mirror on the audio side. Call it after any edit that
-    /// changes a lane.
+    /// Flatten one lane's notes for the audio thread: absolute beats, MIDI
+    /// blocks only, each note cut at its block's end and a note that starts at
+    /// or past the end dropped, sorted by start and capped at [`MAX_NOTES`].
+    pub(crate) fn mirror_notes(&self, track: usize) -> Vec<MirroredNote> {
+        let Some(source) = self.song.tracks.get(track) else {
+            return Vec::new();
+        };
+        let mut notes: Vec<MirroredNote> = source
+            .blocks
+            .iter()
+            .filter(|block| block.kind == TrackKind::Midi)
+            .flat_map(|block| {
+                block
+                    .notes
+                    .iter()
+                    .filter(|note| note.start_beats < block.length_beats)
+                    .map(|note| {
+                        let start_beats = block.start_beats + note.start_beats;
+                        MirroredNote {
+                            start_beats,
+                            end_beats: (start_beats + note.length_beats).min(block.end_beats()),
+                            pitch: note.pitch,
+                            velocity: note.velocity,
+                        }
+                    })
+            })
+            .collect();
+        notes.sort_by(|a, b| a.start_beats.total_cmp(&b.start_beats));
+        notes.truncate(MAX_NOTES);
+        notes
+    }
+
+    /// Replace one lane's mirror on the audio side, blocks and notes. Call it
+    /// after any edit that changes a lane: a moved block moves its notes too.
     pub(crate) fn push_mirror(&mut self, track: usize) {
         let blocks = self.mirror(track);
         if !self.engine.set_blocks(track, blocks) {
             self.resync_pending = true;
         }
+        self.push_notes(track);
+    }
+
+    /// Replace one lane's note mirror on the audio side. Call it after a note
+    /// edit, which leaves the blocks as they were.
+    pub(crate) fn push_notes(&mut self, track: usize) {
+        let notes = self.mirror_notes(track);
+        if !self.engine.set_notes(track, notes) {
+            self.resync_pending = true;
+        }
     }
 
     /// Push every lane's mirror, after a resync has replaced them with empty
-    /// ones. `AudioEngine::resync` can only see the song, so the sample slots
-    /// and the voice gains it cannot know have to come back from here.
+    /// ones. `AudioEngine::resync` can only see the song, so the sample slots,
+    /// the voice gains and the notes it cannot know have to come back from here.
     pub(crate) fn repush_lanes(&mut self) {
         for track in 0..self.song.tracks.len() {
             let blocks = self.mirror(track);
-            if !self.engine.set_blocks(track, blocks) {
+            let notes = self.mirror_notes(track);
+            if !self.engine.set_blocks(track, blocks) || !self.engine.set_notes(track, notes) {
                 self.resync_pending = true;
                 return;
             }
@@ -188,7 +231,7 @@ impl App {
 mod tests {
     use super::*;
     use crate::events::Event;
-    use crate::models::MAX_LENGTH_BEATS;
+    use crate::models::{MAX_LENGTH_BEATS, Note};
     use crate::ui::view::Cursor;
 
     fn headless_app() -> App {
@@ -469,5 +512,94 @@ mod tests {
             mirror[1].slot, NO_SLOT,
             "a source that is not loaded is not a slot to guess at"
         );
+    }
+
+    fn note(pitch: u8, start_beats: f32, length_beats: f32) -> Note {
+        Note {
+            pitch,
+            start_beats,
+            length_beats,
+            velocity: 90,
+        }
+    }
+
+    #[test]
+    fn the_note_mirror_is_absolute_sorted_and_clipped_to_each_block() {
+        let mut app = headless_app();
+        let mut late = Block::new("late", TrackKind::Midi, 16.0, 4.0, "");
+        late.notes = vec![note(72, 2.0, 1.0), note(71, 0.0, 1.0)];
+        let mut early = Block::new("early", TrackKind::Midi, 4.0, 2.0, "");
+        early.notes = vec![note(60, 1.5, 4.0), note(61, 2.0, 1.0), note(62, 0.5, 0.5)];
+        let mut audio = Block::new("audio", TrackKind::Audio, 0.0, 4.0, "/tmp/a.wav");
+        audio.notes = vec![note(50, 0.0, 1.0)];
+        for block in [late, early, audio] {
+            app.song.tracks[0].insert_block(block);
+        }
+        let mirror = app.mirror_notes(0);
+        let flat: Vec<(f32, f32, u8)> = mirror
+            .iter()
+            .map(|n| (n.start_beats, n.end_beats, n.pitch))
+            .collect();
+        assert_eq!(
+            flat,
+            vec![
+                (4.5, 5.0, 62),
+                (5.5, 6.0, 60),
+                (16.0, 17.0, 71),
+                (18.0, 19.0, 72)
+            ],
+            "the note at the block end and the audio block's note are dropped"
+        );
+        assert!(mirror.iter().all(|n| n.velocity == 90));
+    }
+
+    #[test]
+    fn the_note_mirror_stops_at_its_ceiling() {
+        let mut app = headless_app();
+        for index in 0..5 {
+            let mut block = Block::new("b", TrackKind::Midi, index as f32 * 8.0, 8.0, "");
+            block.notes = vec![note(60, 0.0, 1.0); crate::models::MAX_NOTES_PER_BLOCK];
+            app.song.tracks[0].insert_block(block);
+        }
+        assert_eq!(app.mirror_notes(0).len(), MAX_NOTES);
+    }
+
+    #[test]
+    fn moving_a_block_moves_its_notes_in_the_mirror() {
+        let mut app = headless_app();
+        app.handle(Event::CreateBlock {
+            track: 0,
+            start_beats: 0.0,
+            length_beats: 4.0,
+        });
+        app.handle(Event::AddNote {
+            track: 0,
+            block: 0,
+            pitch: 60,
+            start_beats: 1.0,
+            length_beats: 1.0,
+            velocity: 100,
+        });
+        assert_eq!(app.mirror_notes(0)[0].start_beats, 1.0);
+        app.handle(Event::PlaceBlock {
+            track: 0,
+            block: 0,
+            target_track: 1,
+            start_beats: 8.0,
+        });
+        assert!(app.mirror_notes(0).is_empty());
+        let moved = app.mirror_notes(1);
+        assert_eq!((moved[0].start_beats, moved[0].end_beats), (9.0, 10.0));
+        app.handle(Event::ResizeBlock {
+            track: 1,
+            block: 0,
+            length_beats: 1.0,
+        });
+        assert!(
+            app.mirror_notes(1).is_empty(),
+            "a shrunk block hides the notes past its end"
+        );
+        assert_eq!(app.song.tracks[1].blocks[0].notes.len(), 1);
+        assert!(!app.resync_pending);
     }
 }
