@@ -349,3 +349,19 @@ Loop points, frame-accurate note starts, and a review pass over v0.9.0.
 ### Fixed
 
 - Sliders drew the webview's rounded native thumb and track; they are now square, with a 2 px track that fills green up to the value and a square green thumb.
+
+## [Unreleased]
+
+### Added
+
+- MIDI recording: `F9` or the Rec button arms it and starts the transport. Played notes land in the MIDI block under the playhead, or in a new block that starts on the note's bar and grows bar by bar as the take continues. A take is one undo step, and a hardware MIDI keyboard records the same way.
+- A marker, like Ableton's insert marker: double-clicking an empty spot on a lane selects that track and puts the marker on the snapped beat. Play starts from the marker, `Stop` returns to it, and a second `Stop` goes back to the top.
+
+### Changed
+
+- Double-clicking an empty lane places the marker instead of creating a block; the lane's right-click menu still has "New block here".
+- The Rec button records notes. It used to bounce the project to a WAV, which `Export` already does.
+
+### Fixed
+
+- Keyboard notes went silent after half a second while the key was still held: a timeout left over from the terminal interface released every note after 500 ms.

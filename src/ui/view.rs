@@ -86,6 +86,8 @@ impl TrackView {
 pub struct UiState {
     pub bpm: f32,
     pub playing: bool,
+    /// Whether played notes are being written into the timeline.
+    pub recording: bool,
     pub looping: bool,
     /// Where the transport loops, or `None` for the whole song.
     pub loop_region: Option<LoopRegion>,
@@ -175,6 +177,7 @@ mod tests {
         UiState {
             bpm: 120.0,
             playing: true,
+            recording: false,
             looping: true,
             loop_region: None,
             transport_position_beats: 5.0,

@@ -45,7 +45,8 @@ const COMMANDS: Record<string, EngineEvent> = {
 	Comma: { bpmDelta: -1 },
 	Period: { bpmDelta: 1 },
 	KeyZ: { octaveDelta: -1 },
-	KeyX: { octaveDelta: 1 }
+	KeyX: { octaveDelta: 1 },
+	F9: 'toggleRecord'
 };
 
 /** An intent the interface answers itself, because no engine event describes it. */
@@ -96,6 +97,7 @@ const ONCE_PER_PRESS = new Set<string>([
 	'togglePlay',
 	'stop',
 	'toggleLoop',
+	'toggleRecord',
 	'addBlock',
 	'deleteBlock',
 	'cycleTrackKind',

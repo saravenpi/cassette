@@ -1,15 +1,15 @@
-//! The transport, the block-name prompt and the notes the keyboard is holding.
+//! The transport, the block-name prompt, the notes the keyboard is holding and
+//! the MIDI take they are recorded into.
 
 use std::sync::atomic::Ordering;
-use std::time::{Duration, Instant};
 
 use super::App;
+use super::BEATS_PER_BAR;
 use crate::core::render::RtCommand;
-use crate::models::LoopRegion;
+use crate::models::{LoopRegion, MAX_NOTES_PER_BLOCK, Note, TrackKind};
+use crate::ui::view::Cursor;
 use crate::utils::time::Tempo;
 
-/// How long a played note rings when the keyboard cannot report releases.
-const HELD_NOTE_MS: u64 = 500;
 /// Longest block name the prompt accepts, in characters.
 const MAX_NAME_LEN: usize = 32;
 
@@ -17,7 +17,17 @@ const MAX_NAME_LEN: usize = 32;
 pub(crate) struct HeldNote {
     track: u8,
     pitch: u8,
-    deadline: Instant,
+    velocity: u8,
+    /// Beat the note went down on, when a take is recording it.
+    recorded_from: Option<f32>,
+}
+
+/// The block a take grows, named by its lane and its start so a re-sort of the
+/// lane does not lose it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Take {
+    track: usize,
+    start_beats: f32,
 }
 
 impl App {
@@ -26,20 +36,153 @@ impl App {
         if self.engine.is_playing() {
             self.stop();
         } else {
+            self.send(RtCommand::Seek {
+                beats: self.marker_beats,
+            });
             self.send(RtCommand::Play);
             self.status = "playing".into();
         }
     }
 
+    /// Move the playhead and the marker that play starts from and stop returns to.
     pub(crate) fn seek(&mut self, beats: f32) {
-        self.send(RtCommand::Seek { beats });
-        self.status = format!("seek {:.2} beats", beats.max(0.0));
+        self.marker_beats = beats.max(0.0);
+        self.send(RtCommand::Seek {
+            beats: self.marker_beats,
+        });
+        self.status = format!("seek {:.2} beats", self.marker_beats);
     }
 
-    /// Stop and rewind.
+    /// Stop and return to the marker. Stopping while stopped returns to the top.
     pub(crate) fn stop(&mut self) {
+        self.end_take();
+        if !self.engine.is_playing() {
+            self.marker_beats = 0.0;
+        }
         self.send(RtCommand::Stop);
+        self.send(RtCommand::Seek {
+            beats: self.marker_beats,
+        });
         self.status = "stopped".into();
+    }
+
+    /// Arm or disarm MIDI recording. Arming while stopped starts the transport.
+    pub(crate) fn toggle_record(&mut self) {
+        if self.recording {
+            self.end_take();
+            self.status = "recording off".into();
+            return;
+        }
+        self.recording = true;
+        if !self.engine.is_playing() {
+            self.toggle_play();
+        }
+        self.status = format!("recording into track {}", self.cursor.track + 1);
+    }
+
+    /// Close the take: notes still held are written up to the playhead.
+    fn end_take(&mut self) {
+        if !self.recording {
+            return;
+        }
+        let now = self.position_beats();
+        for index in 0..self.held.len() {
+            if let Some(start) = self.held[index].recorded_from.take() {
+                let note = &self.held[index];
+                let (track, pitch, velocity) = (note.track as usize, note.pitch, note.velocity);
+                self.record_note(track, pitch, velocity, start, now);
+            }
+        }
+        self.recording = false;
+        self.take = None;
+    }
+
+    /// The transport position, in beats.
+    fn position_beats(&self) -> f32 {
+        (self.engine.position_frames() as f64 / self.frames_per_beat()) as f32
+    }
+
+    /// Write one played note into the take. It lands in the MIDI block under
+    /// its start, else in the block the take is growing, else in a new block
+    /// that starts on the note's bar. A note held across a loop wrap ends at the
+    /// loop end.
+    pub(crate) fn record_note(
+        &mut self,
+        track: usize,
+        pitch: u8,
+        velocity: u8,
+        start: f32,
+        end: f32,
+    ) {
+        let Some(kind) = self.song.tracks.get(track).map(|lane| lane.kind) else {
+            return;
+        };
+        if kind != TrackKind::Midi {
+            self.status = "recording needs a MIDI track".into();
+            return;
+        }
+        let end = if end > start {
+            end
+        } else {
+            self.song
+                .loop_region()
+                .map_or(start, |region| region.end_beats)
+        };
+        let lane = &self.song.tracks[track];
+        let covering = lane.blocks.iter().position(|block| {
+            block.kind == TrackKind::Midi && block.start_beats <= start && start < block.end_beats()
+        });
+        let growing = self
+            .take
+            .filter(|take| take.track == track)
+            .and_then(|take| {
+                lane.blocks.iter().position(|block| {
+                    block.kind == TrackKind::Midi
+                        && block.start_beats == take.start_beats
+                        && block.start_beats <= start
+                })
+            });
+        let index = match covering.or(growing) {
+            Some(index) => index,
+            None => {
+                if !self.has_room(track) {
+                    return;
+                }
+                let start_beats = (start / BEATS_PER_BAR).floor() * BEATS_PER_BAR;
+                self.take = Some(Take { track, start_beats });
+                self.song.tracks[track].add_block(start_beats, BEATS_PER_BAR)
+            }
+        };
+        let block = &mut self.song.tracks[track].blocks[index];
+        if block.notes.len() >= MAX_NOTES_PER_BLOCK {
+            self.status = format!("block is already at {MAX_NOTES_PER_BLOCK} notes");
+            return;
+        }
+        let growing = Take {
+            track,
+            start_beats: block.start_beats,
+        };
+        if self.take == Some(growing) {
+            let bars = ((end - block.start_beats) / BEATS_PER_BAR).ceil() * BEATS_PER_BAR;
+            if bars > block.length_beats {
+                block.set_length(bars);
+            }
+        }
+        let mut note = Note {
+            pitch,
+            start_beats: start - block.start_beats,
+            length_beats: (end - start).max(Note::MIN_LENGTH_BEATS),
+            velocity,
+        };
+        note.clamp_to(block.length_beats);
+        block.notes.push(note);
+        self.cursor = Cursor {
+            track,
+            block: index,
+        };
+        self.push_mirror(track);
+        self.push_notes(track);
+        self.status = format!("recorded note {pitch}");
     }
 
     /// Enable or disable looping.
@@ -154,10 +297,12 @@ impl App {
             pitch,
             velocity,
         });
+        let recorded_from = self.recording.then(|| self.position_beats());
         self.held.push(HeldNote {
             track,
             pitch,
-            deadline: Instant::now() + Duration::from_millis(HELD_NOTE_MS),
+            velocity,
+            recorded_from,
         });
     }
 
@@ -172,23 +317,10 @@ impl App {
                     track: note.track,
                     pitch,
                 });
-            } else {
-                index += 1;
-            }
-        }
-    }
-
-    /// Release notes the keyboard never reported a release for.
-    pub(crate) fn release_expired_notes(&mut self) {
-        let now = Instant::now();
-        let mut index = 0;
-        while index < self.held.len() {
-            if self.held[index].deadline <= now {
-                let note = self.held.swap_remove(index);
-                self.send(RtCommand::NoteOff {
-                    track: note.track,
-                    pitch: note.pitch,
-                });
+                if let Some(start) = note.recorded_from {
+                    let now = self.position_beats();
+                    self.record_note(note.track as usize, pitch, note.velocity, start, now);
+                }
             } else {
                 index += 1;
             }
@@ -226,15 +358,67 @@ mod tests {
     }
 
     #[test]
-    fn a_held_note_expires_on_its_own() {
+    fn a_held_note_rings_until_its_release() {
         let mut app = headless_app();
         app.handle(Event::NoteOn {
             pitch: 64,
             velocity: 90,
         });
-        app.held[0].deadline = Instant::now();
         app.tick();
-        assert!(app.held.is_empty());
+        assert_eq!(app.held.len(), 1, "a held key must not time out");
+    }
+
+    #[test]
+    fn a_take_opens_a_bar_block_and_grows_it() {
+        let mut app = headless_app();
+        app.recording = true;
+        app.record_note(0, 60, 100, 5.0, 6.0);
+        app.record_note(0, 62, 90, 9.5, 10.0);
+        let blocks = &app.song.tracks[0].blocks;
+        assert_eq!(blocks.len(), 1, "one take, one block");
+        assert_eq!(blocks[0].start_beats, 4.0);
+        assert_eq!(blocks[0].length_beats, 8.0);
+        assert_eq!(blocks[0].notes[0].start_beats, 1.0);
+        assert_eq!(blocks[0].notes[1].start_beats, 5.5);
+        assert_eq!(blocks[0].notes[1].velocity, 90);
+    }
+
+    #[test]
+    fn a_take_overdubs_into_the_block_under_it() {
+        let mut app = headless_app();
+        app.handle(Event::CreateBlock {
+            track: 0,
+            start_beats: 0.0,
+            length_beats: 4.0,
+        });
+        app.recording = true;
+        app.record_note(0, 60, 100, 1.0, 2.0);
+        let blocks = &app.song.tracks[0].blocks;
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].length_beats, 4.0);
+        assert_eq!(blocks[0].notes.len(), 1);
+    }
+
+    #[test]
+    fn a_take_refuses_an_audio_track() {
+        let mut app = headless_app();
+        app.recording = true;
+        app.record_note(2, 60, 100, 0.0, 1.0);
+        assert!(app.song.tracks[2].blocks.is_empty());
+        assert!(app.status.contains("MIDI"), "{}", app.status);
+    }
+
+    #[test]
+    fn stop_returns_to_the_marker_then_to_the_top() {
+        let mut app = headless_app();
+        app.handle(Event::Seek { beats: 8.0 });
+        app.handle(Event::Stop);
+        assert_eq!(
+            app.marker_beats, 0.0,
+            "a stop while stopped goes to the top"
+        );
+        app.handle(Event::Seek { beats: 8.0 });
+        assert_eq!(app.marker_beats, 8.0);
     }
 
     #[test]

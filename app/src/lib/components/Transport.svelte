@@ -1,6 +1,6 @@
 <script lang="ts">
 	/**
-	 * The transport bar: play, stop, loop, tempo, the position readout, the play
+	 * The transport bar: play, stop, loop, record, tempo, the position readout, the play
 	 * octave and the engine's note about which backend it settled on.
 	 */
 
@@ -34,8 +34,10 @@
 		</button>
 		<button
 			class="rec"
-			aria-label="Record project to file"
-			onclick={() => session.dispatch({ recordAudio: { path: null } })}
+			aria-label="Record notes"
+			title="Record the notes you play into the selected MIDI track (F9)"
+			aria-pressed={snapshot?.recording ?? false}
+			onclick={() => session.dispatch('toggleRecord')}
 		>
 			<span class="dot" aria-hidden="true"></span>
 			Rec
@@ -155,6 +157,11 @@
 	}
 
 	.rec:hover:not(:disabled) {
+		color: var(--alert);
+		background: var(--alert-soft);
+	}
+
+	.rec[aria-pressed='true'] {
 		color: var(--alert);
 		background: var(--alert-soft);
 	}

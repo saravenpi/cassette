@@ -38,6 +38,7 @@ enum Gesture {
     Volume(usize),
     Pan(usize),
     Bpm,
+    Take,
 }
 
 /// How an event takes part in the history.
@@ -85,8 +86,13 @@ impl History {
     }
 }
 
-fn kind(event: &Event, cursor_track: usize) -> Kind {
+fn kind(event: &Event, cursor_track: usize, recording: bool) -> Kind {
     match event {
+        Event::NoteOn { .. } | Event::NoteOff { .. } | Event::Stop | Event::ToggleRecord
+            if recording =>
+        {
+            Kind::Stream(Gesture::Take)
+        }
         Event::CreateBlock { .. }
         | Event::DeleteBlockAt { .. }
         | Event::SplitBlock { .. }
@@ -128,7 +134,7 @@ impl App {
             }
             return;
         }
-        let gesture = match kind(&event, self.cursor.track) {
+        let gesture = match kind(&event, self.cursor.track, self.recording) {
             Kind::Untracked => {
                 self.history.gesture = None;
                 return self.apply(event);
@@ -237,6 +243,24 @@ mod tests {
         app.submit(Event::Redo);
         assert_eq!(block_count(&app), 2);
         assert!(!app.history.can_redo());
+    }
+
+    #[test]
+    fn a_whole_take_is_one_undo_step() {
+        let mut app = headless_app();
+        app.submit(Event::ToggleRecord);
+        for pitch in [60, 64] {
+            app.submit(Event::NoteOn {
+                pitch,
+                velocity: 100,
+            });
+            app.submit(Event::NoteOff { pitch });
+        }
+        app.submit(Event::Stop);
+        assert_eq!(app.song.tracks[0].blocks[0].notes.len(), 2);
+        app.submit(Event::Undo);
+        assert_eq!(block_count(&app), 0);
+        assert!(!app.history.can_undo());
     }
 
     #[test]

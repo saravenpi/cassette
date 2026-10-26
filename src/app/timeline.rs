@@ -322,7 +322,7 @@ impl App {
     }
 
     /// Whether a track can take one more block, setting the status when not.
-    fn has_room(&mut self, track: usize) -> bool {
+    pub(crate) fn has_room(&mut self, track: usize) -> bool {
         if self.song.tracks[track].blocks.len() < MAX_BLOCKS {
             return true;
         }

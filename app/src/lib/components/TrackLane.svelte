@@ -1,12 +1,12 @@
 <script lang="ts">
 	/**
 	 * One track's lane: the bar, beat and snap grid behind it, the blocks on it,
-	 * and the double-click
-	 * that creates a MIDI block. A drop from the file browser finds this element by
-	 * its `data-lane-track` attribute.
+	 * and the double-click that selects the track and puts the marker on the snapped
+	 * beat, the way Ableton's insert marker works. A drop from the file browser
+	 * finds this element by its `data-lane-track` attribute.
 	 */
 
-	import { DEFAULT_LENGTH_BEATS, ROW_HEIGHT, gridStep, pxToBeats, snapBeats } from '$lib/geometry';
+	import { ROW_HEIGHT, gridStep, pxToBeats, snapBeats } from '$lib/geometry';
 	import { laneMenu } from '$lib/menu';
 	import { menu } from '$lib/menu.svelte';
 	import { session } from '$lib/session.svelte';
@@ -78,14 +78,12 @@
 	});
 
 	function onDoubleClick(event: MouseEvent): void {
-		if (track.kind !== 'midi') return;
 		if (event.target instanceof Element && event.target.closest('[data-block]') !== null) return;
 		const lane = event.currentTarget;
 		if (!(lane instanceof HTMLElement)) return;
 		const beats = pxToBeats(event.clientX - lane.getBoundingClientRect().left, session.zoom);
-		session.dispatch({
-			createBlock: { track: index, startBeats: snapBeats(beats, gridStep(session.zoom)), lengthBeats: DEFAULT_LENGTH_BEATS }
-		});
+		session.dispatch({ selectTrack: { track: index } });
+		session.dispatch({ seek: { beats: Math.max(0, snapBeats(beats, gridStep(session.zoom))) } });
 	}
 
 	function onContextMenu(event: MouseEvent): void {

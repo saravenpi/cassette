@@ -196,11 +196,7 @@ pub enum Event {
     ExportAudio {
         path: Option<String>,
     },
-    /// Record the project audio to a file.
-    RecordAudio {
-        path: Option<String>,
-    },
-    /// Toggle live recording.
+    /// Arm or disarm recording the played notes into the timeline.
     ToggleRecord,
     /// Export the project structure to a JSON file.
     ExportProject {

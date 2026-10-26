@@ -37,18 +37,6 @@ impl App {
         };
     }
 
-    /// Mix the project offline into a WAV file. This is a bounce of the song,
-    /// not a capture of live input or of the audio device.
-    pub(crate) fn record_audio(&mut self, target_path: Option<String>) {
-        let path = target_path
-            .map(PathBuf::from)
-            .unwrap_or_else(|| default_export_path("recording", "wav"));
-        self.status = match self.render_to(&path) {
-            Ok(_) => format!("rendered project offline to {}", path.display()),
-            Err(error) => format!("offline render failed: {error:#}"),
-        };
-    }
-
     fn render_to(&mut self, path: &Path) -> Result<bool> {
         let sample_rate = EXPORT_SAMPLE_RATE;
         let max_end_beats = self
@@ -344,7 +332,7 @@ mod tests {
         let mut app = headless_app();
         let dir = TempDir::new();
         std::fs::write(dir.file("blocker"), b"x").expect("write blocker");
-        app.record_audio(Some(
+        app.export_audio(Some(
             dir.file("blocker/out.wav").to_string_lossy().into_owned(),
         ));
         assert!(app.status.contains("failed"), "{}", app.status);

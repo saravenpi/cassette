@@ -114,6 +114,7 @@ The keymap lives in `app/src/lib/keys.ts`, in the webview. It maps a
 |-----|--------|
 | `space` | play / stop |
 | `L` | toggle looping |
+| `F9` | arm MIDI recording |
 | `up` `down` | move between tracks |
 | `left` `right` | move between blocks on the selected track |
 | `N` / `enter` | add a block to the selected track |

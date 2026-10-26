@@ -72,6 +72,8 @@ cargo clippy --all-targets
 |-----|--------|
 | `space` | play / stop |
 | `L` | toggle looping |
+| `F9` | arm MIDI recording into the selected MIDI track; starts the transport |
+| double-click an empty lane | select the track and put the marker there; play starts from it and stop returns to it |
 | `up` `down` | move between tracks |
 | `left` `right` | move between blocks on the selected track |
 | `N` / `enter` | add a block to the selected track |
@@ -115,7 +117,7 @@ step. Selection, the transport and the loop region are not undone.
 
 Everything is also clickable: the transport, the sidebar tabs, the track faders
 and their M/S buttons, and the blocks, which drag along and between lanes, resize
-from their right edge, and are created by double-clicking a MIDI lane.
+from their right edge, and are created from a lane's right-click menu.
 Double-clicking a MIDI block opens its piano roll under the timeline: click the
 grid to add a note, drag it to move it, drag its right edge to resize it, scroll
 over it to change its velocity (`shift` for single steps), and click a key on the

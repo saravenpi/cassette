@@ -37,7 +37,7 @@ use crate::ui::view::{BlockView, Cursor, TrackView, UiState};
 
 use history::History;
 use tracks::VoiceEdit;
-use transport::HeldNote;
+use transport::{HeldNote, Take};
 
 /// Beats in one bar, so the ruler and the grid agree.
 const BEATS_PER_BAR: f32 = 4.0;
@@ -55,6 +55,11 @@ pub struct App {
     cursor: Cursor,
     meters: MeterBank,
     held: Vec<HeldNote>,
+    /// Whether played notes are written into the timeline.
+    recording: bool,
+    take: Option<Take>,
+    /// Beat play starts from and stop returns to.
+    marker_beats: f32,
     octave: i32,
     /// Buffer of the block-name prompt, when one is open.
     rename: Option<String>,
@@ -110,6 +115,9 @@ impl App {
             cursor: Cursor::default(),
             meters,
             held: Vec::new(),
+            recording: false,
+            take: None,
+            marker_beats: 0.0,
             octave: 0,
             rename: None,
             status,
@@ -138,7 +146,7 @@ impl App {
     }
 
     /// Advance one frame: apply queued intent, resync if the engine refused a
-    /// command, expire held notes and read the meters. Call it at display rate.
+    /// command and read the meters. Call it at display rate.
     pub fn tick(&mut self) {
         self.drain();
         if self.resync_pending {
@@ -147,7 +155,6 @@ impl App {
                 self.repush_lanes();
             }
         }
-        self.release_expired_notes();
         let peaks = self.engine.shared().peaks();
         self.meters.update(&peaks);
     }
@@ -282,8 +289,7 @@ impl App {
                 self.status = format!("osc {address} = {value:.2}");
             }
             Event::ExportAudio { path } => self.export_audio(path),
-            Event::RecordAudio { path } => self.record_audio(path),
-            Event::ToggleRecord => self.record_audio(None),
+            Event::ToggleRecord => self.toggle_record(),
             Event::ExportProject { path } => self.export_project(path),
             Event::LoadProject { path } => self.load_project(path),
         }
@@ -377,6 +383,7 @@ impl App {
         UiState {
             bpm: self.song.bpm(),
             playing: self.engine.is_playing(),
+            recording: self.recording,
             looping: shared.looping.load(Ordering::Relaxed),
             loop_region: self.song.loop_region(),
             transport_position_beats: (position_frames as f64 / self.frames_per_beat()) as f32,

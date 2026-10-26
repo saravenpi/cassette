@@ -64,6 +64,7 @@ export interface LoopRegion {
 export interface UiState {
 	bpm: number;
 	playing: boolean;
+	recording: boolean;
 	looping: boolean;
 	loopRegion: LoopRegion | null;
 	transportPositionBeats: number;
@@ -167,7 +168,6 @@ export type EngineEvent =
 	| { noteOff: { pitch: number } }
 	| 'toggleRecord'
 	| { exportAudio: { path: string | null } }
-	| { recordAudio: { path: string | null } }
 	| { exportProject: { path: string | null } }
 	| { loadProject: { path: string | null } }
 	| 'undo'
