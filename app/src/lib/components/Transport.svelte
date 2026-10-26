@@ -100,6 +100,11 @@
 </header>
 
 <style>
+	button[aria-pressed='true'] {
+		background: var(--green);
+		color: var(--on-green);
+	}
+
 	header {
 		display: flex;
 		align-items: center;

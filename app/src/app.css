@@ -34,13 +34,6 @@
 	--dim: #8a8a8a;
 	--shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
 
-	--panel: var(--surface);
-	--panel-2: var(--surface-hover);
-	--line: var(--border);
-	--accent: var(--green);
-	--head: var(--olive);
-	--warn: var(--alert);
-
 	font-family: 'Undefined', ui-monospace, monospace;
 	font-size: 13px;
 	font-weight: normal;
@@ -119,8 +112,7 @@ button:disabled {
 	cursor: not-allowed;
 }
 
-button.primary,
-button[aria-pressed='true'] {
+button.primary {
 	background: var(--green);
 	color: var(--on-green);
 }
