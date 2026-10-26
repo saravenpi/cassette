@@ -53,7 +53,7 @@ impl App {
                 self.status = "the audio thread takes no samples".into();
                 return;
             }
-            if !push_load(self.producer.as_mut(), slot, &sample) {
+            let Some(frames) = push_load(self.producer.as_mut(), slot, &sample) else {
                 if let Some(producer) = self.producer.as_mut() {
                     let _ = producer.push(SampleMsg::Free { slot });
                 }
@@ -61,9 +61,8 @@ impl App {
                     "{path} dropped: another load is still in flight, try again in a moment"
                 );
                 return;
-            }
-            self.loaded_samples
-                .insert(slot, std::sync::Arc::from(sample.frames.as_slice()));
+            };
+            self.loaded_samples.insert(slot, frames);
         }
         self.samples.insert(path.clone(), slot);
         self.send(crate::core::render::RtCommand::SetSampleRate {
@@ -113,14 +112,17 @@ impl App {
         }
         let sample = wav::decode(Path::new(path), usize::MAX).ok()?;
         let slot = self.slot_for(path)?;
-        if let Some(producer) = self.producer.as_mut()
-            && !push_load(Some(producer), slot, &sample)
-        {
-            let _ = producer.push(SampleMsg::Free { slot });
-            return None;
-        }
-        self.loaded_samples
-            .insert(slot, std::sync::Arc::from(sample.frames.as_slice()));
+        let frames = match self.producer.as_mut() {
+            Some(producer) => match push_load(Some(&mut *producer), slot, &sample) {
+                Some(frames) => frames,
+                None => {
+                    let _ = producer.push(SampleMsg::Free { slot });
+                    return None;
+                }
+            },
+            None => std::sync::Arc::from(sample.frames.as_slice()),
+        };
+        self.loaded_samples.insert(slot, frames);
         self.samples.insert(path.to_string(), slot);
         self.send(crate::core::render::RtCommand::SetSampleRate {
             slot,
@@ -130,18 +132,21 @@ impl App {
     }
 }
 
-fn push_load(producer: Option<&mut Producer<SampleMsg>>, slot: u8, sample: &Sample) -> bool {
-    let Some(producer) = producer else {
-        return false;
-    };
+fn push_load(
+    producer: Option<&mut Producer<SampleMsg>>,
+    slot: u8,
+    sample: &Sample,
+) -> Option<std::sync::Arc<[f32]>> {
+    let producer = producer?;
     let frames: std::sync::Arc<[f32]> = std::sync::Arc::from(sample.frames.as_slice());
     producer
         .push(SampleMsg::Load {
             slot,
-            frames,
+            frames: frames.clone(),
             rate: sample.sample_rate as f32,
         })
-        .is_ok()
+        .ok()?;
+    Some(frames)
 }
 
 /// Reduce mono frames to `buckets` peak values in `0..=1`, for drawing an audio

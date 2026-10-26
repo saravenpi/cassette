@@ -14,13 +14,14 @@ mod red_zone {
     use cassette::core::render::{MirroredBlock, RenderCore, RtCommand};
     use cassette::core::sample::{NO_SLOT, SampleMsg};
     use cassette::models::Song;
+    use std::sync::Arc;
 
     #[global_allocator]
     static GLOBAL_ALLOC: assert_no_alloc::AllocDisabler = assert_no_alloc::AllocDisabler;
 
     /// One MIDI lane's worth of mirror, built before the guard goes up.
-    fn lane() -> Vec<MirroredBlock> {
-        vec![
+    fn lane() -> Arc<[MirroredBlock]> {
+        Arc::from(vec![
             MirroredBlock {
                 start_beats: 0.0,
                 end_beats: 4.0,
@@ -33,7 +34,7 @@ mod red_zone {
                 slot: NO_SLOT,
                 gain: 0.0,
             },
-        ]
+        ])
     }
 
     #[test]
@@ -71,7 +72,6 @@ mod red_zone {
     fn applying_commands_allocates_nothing() {
         let song = Song::new();
         let mut core = RenderCore::new(&song, DEFAULT_SAMPLE_RATE);
-        // A mirror is moved in, never built inside the guard.
         let blocks = lane();
 
         assert_no_alloc::assert_no_alloc(|| {
@@ -81,7 +81,10 @@ mod red_zone {
                 slot: 0,
                 rate: 44_100.0,
             });
-            core.apply(RtCommand::SetBlocks { track: 0, blocks });
+            core.apply(RtCommand::SetBlocks {
+                track: 0,
+                blocks: blocks.clone(),
+            });
             core.apply(RtCommand::NoteOn {
                 track: 0,
                 pitch: 64,
@@ -95,6 +98,39 @@ mod red_zone {
         });
 
         assert_eq!(core.block_count(0), 2);
+    }
+
+    #[test]
+    fn replacing_a_non_empty_mirror_allocates_and_frees_nothing() {
+        let song = Song::new();
+        let mut core = RenderCore::new(&song, DEFAULT_SAMPLE_RATE);
+        core.apply(RtCommand::SetBlocks {
+            track: 0,
+            blocks: lane(),
+        });
+        let keep = lane();
+        let replacement: Arc<[MirroredBlock]> = Arc::from(vec![MirroredBlock {
+            start_beats: 16.0,
+            end_beats: 20.0,
+            slot: NO_SLOT,
+            gain: 0.0,
+        }]);
+        let command = RtCommand::SetBlocks {
+            track: 0,
+            blocks: replacement.clone(),
+        };
+
+        assert_no_alloc::assert_no_alloc(|| {
+            core.apply(command);
+            core.apply(RtCommand::SetBlocks {
+                track: 0,
+                blocks: keep.clone(),
+            });
+            core.apply(RtCommand::Seek { beats: 1.0 });
+        });
+
+        assert_eq!(core.block_count(0), 2);
+        assert_eq!(replacement.len(), 1);
     }
 
     /// Fill one slot with `frames` frames of a constant value.
@@ -117,12 +153,12 @@ mod red_zone {
         load_slot(&mut core, 0, 4_096);
         core.apply(RtCommand::SetBlocks {
             track: 0,
-            blocks: vec![MirroredBlock {
+            blocks: Arc::from(vec![MirroredBlock {
                 start_beats: 0.0,
                 end_beats: 4.0,
                 slot: 0,
                 gain: 0.5,
-            }],
+            }]),
         });
         core.apply(RtCommand::Play);
 

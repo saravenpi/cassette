@@ -590,7 +590,7 @@ impl SynthEngine {
         }
     }
 
-    /// Release every synth voice and stop every sample voice.
+    /// Release every synth voice and fade out every sample voice.
     pub fn all_notes_off(&mut self) {
         for track in &mut self.tracks[..self.track_count] {
             for voice in &mut track.voices {
@@ -598,9 +598,19 @@ impl SynthEngine {
                     voice.gate_left = 0;
                 }
             }
-            track.sample = SamplePlayer::IDLE;
         }
+        self.release_all_samples();
         self.recompute_active_voices();
+    }
+
+    /// Begin the release fade on every playing sample voice.
+    pub fn release_all_samples(&mut self) {
+        for track in &mut self.tracks[..self.track_count] {
+            let player = &mut track.sample;
+            if player.playing() && player.level_step >= 0.0 {
+                player.level_step = -1.0 / RELEASE_FADE_FRAMES as f32;
+            }
+        }
     }
 
     /// Whether any voice is currently producing sound.
@@ -968,6 +978,8 @@ mod tests {
         constant(&mut e, 0, 512, 0.5);
         assert!(e.play_sample(0, EVENT, 0, 0, 1.0, 0));
         e.all_notes_off();
+        assert!(e.is_active(), "the voice fades rather than cutting");
+        run(&mut e, RELEASE_FADE_FRAMES as usize + 2);
         assert!(!e.is_active());
         let mut peaks = [0.0; MAX_TRACKS];
         assert_eq!(e.process_frame(&mut peaks), (0.0, 0.0));

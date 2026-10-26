@@ -27,6 +27,9 @@ pub enum SampleMsg {
     Free {
         slot: u8,
     },
+    /// Hand over a decoded sample. The sender must keep its own clone of
+    /// `frames` for as long as the slot is in use, so the audio thread never
+    /// drops the last reference.
     Load {
         slot: u8,
         frames: Arc<[f32]>,
@@ -111,10 +114,11 @@ impl SamplePool {
                     loading.written += 1;
                 }
             }
-            SampleMsg::End { slot } => {
-                let slot = slot as usize;
-                if let Some(loading) = self.loading.take() {
-                    self.lengths[slot] = loading.written;
+            SampleMsg::End { .. } => {
+                if let Some(loading) = self.loading.take()
+                    && let Some(length) = self.lengths.get_mut(loading.slot as usize)
+                {
+                    *length = loading.written;
                 }
             }
             SampleMsg::Free { slot } => {
@@ -264,6 +268,25 @@ mod tests {
             ],
         );
         assert!(!pool.is_ready(3));
+    }
+
+    #[test]
+    fn an_end_with_a_stray_slot_is_ignored() {
+        let mut pool = SamplePool::new();
+        load(
+            &mut pool,
+            &[
+                SampleMsg::Begin {
+                    slot: 1,
+                    frames: 2,
+                    rate: 44_100.0,
+                },
+                SampleMsg::Frame(0.5),
+                SampleMsg::End { slot: 250 },
+            ],
+        );
+        assert_eq!(pool.frames(1), &[0.5]);
+        load(&mut pool, &[SampleMsg::End { slot: 250 }]);
     }
 
     #[test]
