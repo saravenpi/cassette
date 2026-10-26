@@ -59,6 +59,12 @@ pub struct App {
     /// Whether played notes are written into the timeline.
     recording: bool,
     take: Option<Take>,
+    /// Whether the metronome clicks while the transport plays.
+    metronome: bool,
+    /// Bars counted in before a recording that starts from stop.
+    count_in_bars: u8,
+    /// Grid recorded note starts snap to, in beats; `0` records them as played.
+    record_quantize_beats: f32,
     /// Beat play starts from and stop returns to.
     marker_beats: f32,
     octave: i32,
@@ -118,6 +124,9 @@ impl App {
             held: Vec::new(),
             recording: false,
             take: None,
+            metronome: false,
+            count_in_bars: 1,
+            record_quantize_beats: 0.0,
             marker_beats: 0.0,
             octave: 0,
             rename: None,
@@ -151,10 +160,7 @@ impl App {
     pub fn tick(&mut self) {
         self.drain();
         if self.resync_pending {
-            self.resync_pending = !self.engine.resync(&self.song);
-            if !self.resync_pending {
-                self.repush_lanes();
-            }
+            self.resync();
         }
         let peaks = self.engine.shared().peaks();
         self.meters.update(&peaks);
@@ -326,6 +332,21 @@ impl App {
         }
     }
 
+    /// Re-send the whole session after a load, an undo or a refused command:
+    /// the song, the lanes the engine cannot rebuild, every effect chain and
+    /// the metronome. A refusal leaves the resync pending for the next tick.
+    fn resync(&mut self) {
+        self.resync_pending = !self.engine.resync(&self.song);
+        if self.resync_pending {
+            return;
+        }
+        self.repush_lanes();
+        for track in 0..self.song.tracks.len() {
+            self.push_effects(track);
+        }
+        self.send(RtCommand::SetMetronome { on: self.metronome });
+    }
+
     /// Push a whole mixer strip for one track.
     fn send_mix(&mut self, track: usize, volume: f32, pan: f32, muted: bool, solo: bool) {
         self.send(RtCommand::SetTrackMix {
@@ -417,10 +438,11 @@ impl App {
             bpm: self.song.bpm(),
             playing: self.engine.is_playing(),
             recording: self.recording,
-            metronome: false,
-            count_in_bars: 0,
-            count_in_beats_left: 0.0,
-            record_quantize_beats: 0.0,
+            metronome: self.metronome,
+            count_in_bars: self.count_in_bars,
+            count_in_beats_left: (shared.count_in_frames.load(Ordering::Relaxed) as f64
+                / self.frames_per_beat()) as f32,
+            record_quantize_beats: self.record_quantize_beats,
             looping: shared.looping.load(Ordering::Relaxed),
             loop_region: self.song.loop_region(),
             transport_position_beats: (position_frames as f64 / self.frames_per_beat()) as f32,
