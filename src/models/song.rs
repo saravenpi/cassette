@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 use crate::core::{MAX_BLOCKS, MAX_TRACKS};
 use crate::models::track::TrackKind;
 use crate::models::{Instrument, Track};
-use crate::utils::math::clamp;
 use crate::utils::time::Tempo;
 
 /// Project file format version this build writes and understands.
@@ -55,7 +54,7 @@ impl Song {
 
     /// Set the tempo, clamped to a usable range.
     pub fn set_bpm(&mut self, bpm: f32) {
-        self.bpm = clamp(bpm, 20.0, 400.0);
+        self.bpm = bpm.clamp(20.0, 400.0);
     }
 
     /// Validate a song parsed from an untrusted file and bring it inside the
@@ -123,7 +122,6 @@ mod tests {
             .count();
         assert_eq!(midi, 2);
         assert!(song.tracks.iter().all(|t| t.blocks.is_empty()));
-        assert_eq!(song.block_count(), 0);
     }
 
     #[test]

@@ -3,7 +3,6 @@
 use serde::{Deserialize, Serialize};
 
 use crate::models::Instrument;
-use crate::utils::math::clamp;
 
 /// What a track carries.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -97,11 +96,6 @@ impl Block {
         self.start_beats + self.length_beats
     }
 
-    /// Whether the block covers `beats`.
-    pub fn contains(&self, beats: f32) -> bool {
-        beats >= self.start_beats && beats < self.end_beats()
-    }
-
     /// Move the block, keeping it on or after the top of the song.
     pub fn set_start(&mut self, beats: f32) {
         self.start_beats = clamp_start(beats);
@@ -114,15 +108,11 @@ impl Block {
 }
 
 fn clamp_start(beats: f32) -> f32 {
-    clamp(finite_or(beats, 0.0), 0.0, MAX_START_BEATS)
+    finite_or(beats, 0.0).clamp(0.0, MAX_START_BEATS)
 }
 
 fn clamp_length(beats: f32) -> f32 {
-    clamp(
-        finite_or(beats, Block::DEFAULT_LENGTH_BEATS),
-        Block::MIN_LENGTH_BEATS,
-        MAX_LENGTH_BEATS,
-    )
+    finite_or(beats, Block::DEFAULT_LENGTH_BEATS).clamp(Block::MIN_LENGTH_BEATS, MAX_LENGTH_BEATS)
 }
 
 /// A single track of the song.
@@ -181,11 +171,6 @@ impl Track {
         self.insert_block(Block::new(name, self.kind, start_beats, length_beats, ""))
     }
 
-    /// The index of the block covering `beats`, if any.
-    pub fn block_at(&self, beats: f32) -> Option<usize> {
-        self.blocks.iter().position(|block| block.contains(beats))
-    }
-
     /// Position a new block can take without landing on an existing one: the end
     /// of the last block, or the top of the song when the lane is empty.
     pub fn free_start(&self) -> f32 {
@@ -221,13 +206,13 @@ impl Track {
         }
         let mut problems = Vec::new();
         let before = (self.volume, self.pan, *instrument);
-        self.volume = clamp(self.volume, 0.0, 1.0);
-        self.pan = clamp(self.pan, -1.0, 1.0);
-        instrument.gain = clamp(instrument.gain, 0.0, 1.0);
-        instrument.sustain = clamp(instrument.sustain, 0.0, 1.0);
-        instrument.attack = clamp(instrument.attack, 0.0, 10.0);
-        instrument.decay = clamp(instrument.decay, 0.0, 10.0);
-        instrument.release = clamp(instrument.release, 0.0, 10.0);
+        self.volume = self.volume.clamp(0.0, 1.0);
+        self.pan = self.pan.clamp(-1.0, 1.0);
+        instrument.gain = instrument.gain.clamp(0.0, 1.0);
+        instrument.sustain = instrument.sustain.clamp(0.0, 1.0);
+        instrument.attack = instrument.attack.clamp(0.0, 10.0);
+        instrument.decay = instrument.decay.clamp(0.0, 10.0);
+        instrument.release = instrument.release.clamp(0.0, 10.0);
         instrument.octave = instrument.octave.clamp(-4, 4);
         if before != (self.volume, self.pan, *instrument) {
             problems.push(format!("track {:?}: mixer values clamped", self.name));
@@ -259,11 +244,6 @@ impl Track {
         }
         Ok(problems)
     }
-
-    /// Whether this track produces sound given the global solo state.
-    pub fn is_audible(&self, any_solo: bool) -> bool {
-        !self.muted && (!any_solo || self.solo)
-    }
 }
 
 #[cfg(test)]
@@ -291,25 +271,6 @@ mod tests {
         assert_eq!(index, 0, "an earlier block takes the earlier slot");
         assert_eq!(track.blocks[0].start_beats, 4.0);
         assert_eq!(track.blocks[1].start_beats, 16.0);
-    }
-
-    #[test]
-    fn a_block_covers_its_span_and_not_its_end() {
-        let block = Block::new("a", TrackKind::Midi, 2.0, 4.0, "");
-        assert!(block.contains(2.0));
-        assert!(block.contains(5.9));
-        assert!(!block.contains(6.0), "the end belongs to the next block");
-        assert!(!block.contains(1.9));
-    }
-
-    #[test]
-    fn the_track_finds_the_block_under_a_position() {
-        let mut track = midi();
-        track.add_block(0.0, 4.0);
-        track.add_block(8.0, 4.0);
-        assert_eq!(track.block_at(1.0), Some(0));
-        assert_eq!(track.block_at(9.0), Some(1));
-        assert_eq!(track.block_at(6.0), None);
     }
 
     #[test]
@@ -384,17 +345,5 @@ mod tests {
         let mut track = midi();
         track.volume = f32::NAN;
         assert!(track.sanitize(8).is_err());
-    }
-
-    #[test]
-    fn solo_logic() {
-        let mut track = midi();
-        assert!(track.is_audible(false));
-        track.muted = true;
-        assert!(!track.is_audible(false));
-        track.muted = false;
-        assert!(!track.is_audible(true));
-        track.solo = true;
-        assert!(track.is_audible(true));
     }
 }

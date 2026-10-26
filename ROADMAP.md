@@ -285,17 +285,14 @@ length_beats, source }` in `src/models/track.rs`. Its geometry is real:
   is 512.0.
 - `Block::new` clamps the start to 0 or later and the length to at least
   `MIN_LENGTH_BEATS`; `set_start` and `set_length` keep those bounds.
-- `contains(beats)` is half-open: the start belongs to the block, the end does
-  not. `end_beats` is `start_beats + length_beats`.
+- `end_beats` is `start_beats + length_beats`.
 - `Track::blocks` is a `Vec<Block>` kept in start order. `insert_block` finds the
   slot with `partition_point` and returns the index, `add_block(start_beats,
   length_beats)` creates a block of the track's kind and names it with the
-  block count, `block_at(beats)` returns the first block containing a position,
-  and `free_start()` is the ceiling of the last block's end, or 0 on an empty
+  block count, and `free_start()` is the ceiling of the last block's end, or 0 on an empty
   lane, which is where a new block lands.
-- Nothing prevents two blocks from overlapping. `block_at` returns the earliest
-  one in start order, and the audio side starts both when the playhead crosses
-  them.
+- Nothing prevents two blocks from overlapping. The audio side starts both when
+  the playhead crosses them.
 - A track holds at most `MAX_BLOCKS`, which is 64.
 
 `src/app/timeline.rs` owns the edits, and each one pushes the lane it changed:
@@ -330,8 +327,7 @@ audio tracks.
 
 A block carries its own `kind`, so either kind can sit on either lane. The audio
 side tells them apart by slot: `MirroredBlock.slot == NO_SLOT` means the block
-holds no sample, and `start_blocks` skips it. `Track::is_audible(any_solo)`
-applies the mute and solo rules.
+holds no sample, and `start_blocks` skips it.
 
 `CycleTrackKind` flips a track between the two, taking the kind's default preset
 with it and keeping the blocks. Dropping a sample flips a MIDI track to audio,
@@ -553,8 +549,7 @@ Still open:
 - The UI beat position in `src/app/mod.rs` still uses `f32`.
 - Multi-file drops are staggered by a fixed bar, not by real block length.
 - Loop points: the loop spans the whole song only.
-- Dead code used only by tests (`block_at`, `contains`, `is_audible`, `lerp`,
-  `subscriber_count`) and the `Begin`/`Frame`/`End` sample messages.
+- The `Begin`/`Frame`/`End` sample messages are used only by tests.
 - The ffplay and TCP backends write on the render thread and can stall it.
 
 ---

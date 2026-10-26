@@ -66,11 +66,6 @@ impl MeterBank {
         }
     }
 
-    /// Number of meters in use.
-    pub fn count(&self) -> usize {
-        self.count
-    }
-
     /// Feed a snapshot of per-track peaks.
     pub fn update(&mut self, peaks: &[f32; MAX_TRACKS]) {
         for (meter, peak) in self.meters.iter_mut().zip(peaks.iter()).take(self.count) {
@@ -121,7 +116,6 @@ mod tests {
         let mut peaks = [0.0f32; MAX_TRACKS];
         peaks[1] = 0.5;
         bank.update(&peaks);
-        assert_eq!(bank.count(), 4);
         assert!(bank.level(1) > 0.0);
         assert_eq!(bank.level(4), 0.0);
     }
