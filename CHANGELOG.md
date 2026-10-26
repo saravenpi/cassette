@@ -286,3 +286,14 @@ Loop points, frame-accurate note starts, and a review pass over v0.9.0.
 ### Removed
 
 - The `Begin`, `Frame` and `End` sample messages and the 15 MB pool they filled. Only tests used them; a sample now arrives whole, as an `Arc`.
+
+## [0.10.1] - 2026-10-26
+
+### Added
+
+- `mise.toml`: pinned Rust and bun, plus `deps`, `install`, `dev`, `build`, `test` and `check` tasks for Linux, macOS and Windows.
+
+### Fixed
+
+- `tauri dev` failed on Node older than 20.19: Vite now runs on bun, so Node is not needed.
+- `tauri dev` refused to start because `@tauri-apps/api` 2.11 did not match the 2.12 Rust crate; the JS packages are now 2.12.
