@@ -1,7 +1,5 @@
 //! Tempo and time conversion.
 
-use crate::utils::math::clamp;
-
 /// The single authority for converting between musical time and samples.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Tempo {
@@ -19,7 +17,7 @@ impl Tempo {
     /// Create a tempo, clamped to a musically sane range.
     pub fn new(bpm: f32) -> Self {
         Self {
-            bpm: clamp(bpm, 20.0, 400.0),
+            bpm: bpm.clamp(20.0, 400.0),
         }
     }
 

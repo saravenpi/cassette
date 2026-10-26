@@ -62,11 +62,6 @@ pub struct TrackView {
 }
 
 impl TrackView {
-    /// How many blocks the track holds.
-    pub fn block_count(&self) -> usize {
-        self.blocks.len()
-    }
-
     /// End of the track's last block, in beats.
     pub fn end_beats(&self) -> f32 {
         self.blocks
@@ -101,13 +96,6 @@ pub struct UiState {
     /// Why the engine chose its backend.
     pub backend_note: String,
     pub sample_rate: u32,
-}
-
-impl UiState {
-    /// The track under the cursor, if any.
-    pub fn selected(&self) -> Option<&TrackView> {
-        self.tracks.get(self.cursor.track)
-    }
 }
 
 #[cfg(test)]
@@ -175,15 +163,9 @@ mod tests {
     }
 
     #[test]
-    fn selected_track_follows_the_cursor() {
-        assert_eq!(state().selected().map(|t| t.name.as_str()), Some("Midi 1"));
-    }
-
-    #[test]
     fn a_track_reports_where_its_material_ends() {
         let track = state().tracks[0].clone();
         assert_eq!(track.end_beats(), 8.0);
-        assert_eq!(track.block_count(), 1);
         assert_eq!(state().tracks[1].end_beats(), 0.0);
     }
 

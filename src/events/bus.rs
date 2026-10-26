@@ -33,11 +33,6 @@ impl EventBus {
         receiver
     }
 
-    /// Number of live subscribers.
-    pub fn subscriber_count(&self) -> usize {
-        self.subscribers.len()
-    }
-
     /// Broadcast an event. Returns the number of subscribers that received it.
     pub fn send(&self, event: Event) -> usize {
         let mut delivered = 0;
@@ -76,7 +71,6 @@ mod tests {
         let mut bus = EventBus::new();
         let a = bus.subscribe();
         let b = bus.subscribe();
-        assert_eq!(bus.subscriber_count(), 2);
 
         assert_eq!(bus.send(Event::TogglePlay), 2);
         assert_eq!(a.try_recv().unwrap(), Event::TogglePlay);

@@ -47,7 +47,6 @@ src/                         # the engine crate: cassette
 │   └── instrument.rs        # Waveform + ADSR presets
 │
 └── utils/                   # Pure helpers
-    ├── math.rs
     ├── time.rs              # Tempo → frames
     └── frequency.rs         # MIDI note → Hz
 
@@ -252,9 +251,7 @@ lane on it. `src/models/track.rs` holds the geometry:
 - `Block` carries `name`, `kind`, `start_beats`, `length_beats` and `source`.
   `MIN_LENGTH_BEATS` is 0.25, `DEFAULT_LENGTH_BEATS` is 4.0 and
   `MAX_LENGTH_BEATS` is 512.0; `set_start` and `set_length` clamp to those.
-- `contains(beats)` is half-open, so the start belongs to a block and the end
-  does not. Two blocks may overlap; `block_at` returns the earliest one in start
-  order.
+- Two blocks may overlap.
 - `Track::blocks` is a `Vec<Block>` kept in start order by `insert_block`, and
   `free_start()` is where a new block lands without touching an existing one.
 

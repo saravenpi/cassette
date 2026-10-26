@@ -33,12 +33,6 @@ impl Waveform {
             Waveform::Noise => "Noise",
         }
     }
-
-    /// Next waveform in [`Waveform::ALL`], wrapping around.
-    pub fn next(self) -> Self {
-        let idx = Self::ALL.iter().position(|w| *w == self).unwrap_or(0);
-        Self::ALL[(idx + 1) % Self::ALL.len()]
-    }
 }
 
 /// A subtractive-synthesis instrument: one oscillator plus an ADSR envelope.
@@ -118,14 +112,5 @@ mod tests {
     #[test]
     fn unknown_preset_falls_back_to_lead() {
         assert_eq!(Instrument::preset("nope"), Instrument::preset("Lead"));
-    }
-
-    #[test]
-    fn waveform_cycles_through_all_variants() {
-        let mut w = Waveform::Sine;
-        for _ in 0..Waveform::ALL.len() {
-            w = w.next();
-        }
-        assert_eq!(w, Waveform::Sine);
     }
 }
