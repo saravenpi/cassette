@@ -27,10 +27,13 @@ export interface Voice {
 /**
  * The MIDI block the piano roll edits, with what identifies it across re-sorts.
  * `serial` changes only when a block is opened, so the pane can tell a fresh
- * open from the same block moving.
+ * open from the same block moving. `seated` turns true once a snapshot shows
+ * the cursor on the block's track: the engine sends notes for that track only,
+ * so the roll closes when the cursor leaves it afterwards.
  */
 export interface OpenBlock {
 	serial: number;
+	seated: boolean;
 	track: number;
 	block: number;
 	name: string;
@@ -139,7 +142,14 @@ class Session {
 		const view = this.snapshot?.tracks[track]?.blocks[block];
 		if (view === undefined || view.kind !== 'midi') return;
 		this.opened += 1;
-		this.roll = { serial: this.opened, track, block, name: view.name, startBeats: view.startBeats };
+		this.roll = {
+			serial: this.opened,
+			seated: this.snapshot?.cursor.track === track,
+			track,
+			block,
+			name: view.name,
+			startBeats: view.startBeats
+		};
 	}
 
 	/** Open the piano roll on the block under the cursor. */
@@ -242,11 +252,23 @@ class Session {
 		for (const event of queued) await this.send(event);
 	}
 
-	/** Keep the piano roll on its block as the lane re-sorts, and close it once the block is gone. */
+	/**
+	 * Keep the piano roll on its block as the lane re-sorts, and close it once the
+	 * block is gone or the cursor has left its track.
+	 */
 	private followRoll(): void {
-		const roll = this.roll;
+		let roll = this.roll;
 		const snapshot = this.snapshot;
 		if (roll === null || snapshot === null) return;
+		const onTrack = snapshot.cursor.track === roll.track;
+		if (roll.seated && !onTrack) {
+			this.roll = null;
+			return;
+		}
+		if (!roll.seated && onTrack) {
+			roll = { ...roll, seated: true };
+			this.roll = roll;
+		}
 		const blocks = snapshot.tracks[roll.track]?.blocks ?? [];
 		const index = locateBlock(blocks, roll.block, roll.name, roll.startBeats);
 		if (index === null) {
