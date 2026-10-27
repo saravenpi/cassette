@@ -207,6 +207,9 @@ pub enum RtCommand {
     SetTrackCount {
         count: u8,
     },
+    DeleteTrack {
+        track: u8,
+    },
     SetBpm {
         bpm: f32,
     },
@@ -531,6 +534,23 @@ impl RenderCore {
                 self.block_lens = [0; MAX_TRACKS];
                 self.note_lens = [0; MAX_TRACKS];
                 self.song_end_beats = 0.0;
+            }
+            RtCommand::DeleteTrack { track } => {
+                let track = track as usize;
+                let count = self.synth.track_count();
+                if track < count && count > 1 {
+                    for i in track..(count - 1) {
+                        self.blocks[i] = self.blocks[i + 1];
+                        self.block_lens[i] = self.block_lens[i + 1];
+                        self.notes[i] = self.notes[i + 1];
+                        self.note_lens[i] = self.note_lens[i + 1];
+                    }
+                    let last = count - 1;
+                    self.block_lens[last] = 0;
+                    self.note_lens[last] = 0;
+                    self.refresh_song_end();
+                    self.synth.delete_track(track);
+                }
             }
             RtCommand::SetBpm { bpm } => self.set_tempo(bpm),
             RtCommand::SetLooping { looping } => self.transport.set_looping(looping),
@@ -1012,6 +1032,26 @@ mod tests {
         });
         assert_eq!(core.block_count(0), 0);
         assert_eq!(core.note_count(0), 0);
+    }
+
+    #[test]
+    fn deleting_a_track_shifts_surviving_mirrors_and_shrinks_the_core() {
+        let song = Song::new();
+        let mut core = RenderCore::new(&song, DEFAULT_SAMPLE_RATE);
+        core.apply(RtCommand::SetBlocks {
+            track: 1,
+            blocks: blocks(&[(2.0, 6.0)]),
+        });
+        core.apply(RtCommand::SetNotes {
+            track: 1,
+            notes: notes(&[(2.0, 3.0)]),
+        });
+        core.apply(RtCommand::DeleteTrack { track: 0 });
+        assert_eq!(core.block_count(0), 1);
+        assert_eq!(core.note_count(0), 1);
+        assert_eq!(core.block(0, 0).map(|b| b.start_beats), Some(2.0));
+        assert_eq!(core.block_count(1), 0);
+        assert_eq!(core.note_count(1), 0);
     }
 
     #[test]

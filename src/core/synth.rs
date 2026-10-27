@@ -544,6 +544,29 @@ impl SynthEngine {
         self.recompute_active_voices();
     }
 
+    pub fn delete_track(&mut self, track: usize) {
+        if track >= self.track_count || self.track_count <= 1 {
+            return;
+        }
+        self.tracks[track]
+            .effects
+            .set_chain_with_return(&EffectChain::EMPTY, self.return_producer.as_mut());
+        self.tracks[track].voices = [Voice::IDLE; MAX_VOICES];
+        self.tracks[track].sample = SamplePlayer::IDLE;
+
+        for i in track..(self.track_count - 1) {
+            self.tracks.swap(i, i + 1);
+            self.last_frame_outputs[i] = self.last_frame_outputs[i + 1];
+            self.current_frame_outputs[i] = self.current_frame_outputs[i + 1];
+        }
+        let last = self.track_count - 1;
+        self.last_frame_outputs[last] = (0.0, 0.0);
+        self.current_frame_outputs[last] = (0.0, 0.0);
+        self.track_count -= 1;
+        self.update_solo();
+        self.recompute_active_voices();
+    }
+
     /// Replace a track's instrument and mixer settings.
     pub fn configure_track(
         &mut self,

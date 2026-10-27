@@ -358,3 +358,44 @@ fn resync_pushes_a_song_with_effects() {
     let engine = AudioEngine::start_silent(&song).expect("engine should start");
     assert!(engine.resync(&song));
 }
+
+#[test]
+fn delete_track_preserves_playback_on_surviving_tracks() {
+    let song = Song::new();
+    let engine = AudioEngine::start_silent(&song).expect("engine should start");
+    assert!(engine.set_blocks(
+        1,
+        vec![MirroredBlock {
+            start_beats: 0.0,
+            end_beats: 16.0,
+            slot: NO_SLOT,
+            gain: 0.0,
+            offset_seconds: 0.0,
+            rate: 1.0,
+        }],
+    ));
+    assert!(engine.set_notes(
+        1,
+        vec![MirroredNote {
+            start_beats: 0.0,
+            end_beats: 16.0,
+            pitch: 60,
+            velocity: 100,
+        }],
+    ));
+    engine.send(RtCommand::Play);
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let mut peak = 0.0f32;
+    while peak <= 0.01 && Instant::now() < deadline {
+        sleep(Duration::from_millis(10));
+        peak = engine.shared().peaks()[1];
+    }
+    assert!(peak > 0.01, "track 1 should sound");
+    assert!(engine.delete_track(0));
+    sleep(Duration::from_millis(50));
+    let peak_after = engine.shared().peaks()[0];
+    assert!(
+        peak_after > 0.01,
+        "track 0 (shifted from track 1) should still sound, was {peak_after}"
+    );
+}

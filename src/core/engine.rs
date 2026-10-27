@@ -312,6 +312,19 @@ impl AudioEngine {
         })
     }
 
+    pub fn delete_track(&self, track: usize) -> bool {
+        if track >= MAX_TRACKS {
+            return false;
+        }
+        if let Ok(mut effects) = self.effects.lock() {
+            for i in track..(MAX_TRACKS - 1) {
+                effects.last_chains[i] = effects.last_chains[i + 1];
+            }
+            effects.last_chains[MAX_TRACKS - 1] = EffectChain::EMPTY;
+        }
+        self.send(RtCommand::DeleteTrack { track: track as u8 })
+    }
+
     /// Re-send the entire song to the audio thread. Recovery path when the
     /// command queue has overflowed, and used after bulk edits.
     ///

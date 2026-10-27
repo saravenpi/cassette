@@ -78,11 +78,17 @@ impl App {
         self.clamp_block();
         self.garbage_collect_samples();
         self.remap_sidechains(TrackShift::Deleted(track));
-        self.engine.resync(&self.song);
-        self.resync();
+        if !self.engine.delete_track(track) {
+            self.resync_pending = true;
+        }
+        for i in track..(MAX_TRACKS - 1) {
+            self.note_revisions[i] = self.note_revisions[i + 1];
+        }
+        self.note_revisions[MAX_TRACKS - 1] = 0;
         self.meters = MeterBank::new(self.song.tracks.len());
         for t in 0..self.song.tracks.len() {
             self.touch_notes(t);
+            self.push_effects(t);
         }
         self.status = format!("deleted track {}", removed.name);
     }
@@ -608,5 +614,49 @@ mod tests {
 
         app.handle(Event::Undo);
         assert_eq!(app.song.tracks[0].instrument.cutoff, 20_000.0);
+    }
+
+    #[test]
+    fn deleting_an_empty_track_while_playing_preserves_playback() {
+        let mut app = headless_app();
+        app.handle(Event::CreateBlock {
+            track: 1,
+            start_beats: 0.0,
+            length_beats: 16.0,
+        });
+        app.handle(Event::AddNote {
+            track: 1,
+            block: 0,
+            pitch: 60,
+            start_beats: 0.0,
+            length_beats: 16.0,
+            velocity: 100,
+        });
+        app.handle(Event::TogglePlay);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        let mut peak = 0.0f32;
+        while peak <= 0.01 && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            peak = app.engine.shared().peaks()[1];
+        }
+        assert!(peak > 0.01, "track 1 should be sounding");
+        app.handle(Event::DeleteTrack { track: 0 });
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        let peak_after = app.engine.shared().peaks()[0];
+        assert!(
+            peak_after > 0.01,
+            "track 0 (shifted from track 1) should still be sounding after deleting track 0, was {peak_after}"
+        );
+
+        app.handle(Event::AddTrack {
+            kind: crate::models::TrackKind::Midi,
+        });
+        app.handle(Event::DeleteTrack { track: 1 });
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        let peak_after_later = app.engine.shared().peaks()[0];
+        assert!(
+            peak_after_later > 0.01,
+            "track 0 should still be sounding after deleting later track 1, was {peak_after_later}"
+        );
     }
 }

@@ -310,4 +310,22 @@ mod red_zone {
             "the note reached the meter through the chain"
         );
     }
+
+    #[test]
+    fn deleting_a_track_allocates_nothing() {
+        let song = Song::new();
+        let mut core = RenderCore::new(&song, DEFAULT_SAMPLE_RATE);
+        core.apply(RtCommand::SetBlocks {
+            track: 0,
+            blocks: lane(),
+        });
+        core.apply(RtCommand::SetBlocks {
+            track: 1,
+            blocks: lane(),
+        });
+
+        assert_no_alloc::assert_no_alloc(|| {
+            core.apply(RtCommand::DeleteTrack { track: 0 });
+        });
+    }
 }
