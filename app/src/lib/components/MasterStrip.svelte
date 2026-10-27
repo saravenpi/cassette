@@ -195,7 +195,7 @@
 	.badge {
 		font-size: 8px;
 		padding: 1px 4px;
-		border-radius: 2px;
+		border-radius: 0;
 		align-self: flex-start;
 		background: var(--border);
 		color: var(--silver);
@@ -229,7 +229,7 @@
 		gap: 4px;
 		background: var(--bg);
 		border: 1px solid var(--border);
-		border-radius: 2px;
+		border-radius: 0;
 		padding: 2px 4px;
 		font-size: 10px;
 		color: var(--silver);
@@ -292,7 +292,7 @@
 		height: 100%;
 		background: var(--bg);
 		border: 1px solid var(--border);
-		border-radius: 2px;
+		border-radius: 0;
 		position: relative;
 		overflow: hidden;
 		display: flex;
@@ -302,6 +302,7 @@
 
 	.v-meter-fill {
 		width: 100%;
+		border-radius: 0;
 		background: linear-gradient(to top, var(--green) 0%, var(--green) 75%, #eab308 85%, var(--alert) 100%);
 		transition: height 0.05s ease;
 	}
@@ -334,6 +335,14 @@
 		height: 100%;
 		background: transparent;
 		cursor: pointer;
+	}
+
+	.v-fader::-webkit-slider-thumb {
+		border-radius: 0;
+	}
+
+	.v-fader::-moz-range-thumb {
+		border-radius: 0;
 	}
 
 	.db-readout {

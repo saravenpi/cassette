@@ -1,6 +1,7 @@
 import { isTauri } from '@tauri-apps/api/core';
 import { check, type DownloadEvent, type Update } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
+import pkg from '../../package.json';
 
 export type UpdaterState =
 	| 'idle'
@@ -13,7 +14,7 @@ export type UpdaterState =
 
 export class UpdaterStore {
 	state = $state<UpdaterState>('idle');
-	currentVersion = $state<string>('0.16.3');
+	currentVersion = $state<string>(pkg.version);
 	availableVersion = $state<string | null>(null);
 	downloadProgress = $state<number>(0);
 	errorMessage = $state<string | null>(null);

@@ -1,6 +1,6 @@
 {
   "name": "cassette-website",
-  "version": "0.16.3",
+  "version": "0.17.1",
   "private": true,
   "type": "module",
   "scripts": {

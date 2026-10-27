@@ -343,7 +343,7 @@
 	.kind-chip {
 		font-size: 9px;
 		padding: 1px 4px;
-		border-radius: 2px;
+		border-radius: 0;
 		align-self: flex-start;
 		background: var(--border-subtle);
 		color: var(--muted);
@@ -382,7 +382,7 @@
 		gap: 4px;
 		background: var(--bg);
 		border: 1px solid var(--border-subtle);
-		border-radius: 2px;
+		border-radius: 0;
 		padding: 2px 4px;
 		font-size: 10px;
 		color: var(--silver);
@@ -442,7 +442,7 @@
 		appearance: none;
 		height: 4px;
 		background: var(--bg);
-		border-radius: 2px;
+		border-radius: 0;
 		outline: none;
 		cursor: pointer;
 		width: 100%;
@@ -453,7 +453,16 @@
 		appearance: none;
 		width: 10px;
 		height: 10px;
-		border-radius: 50%;
+		border-radius: 0;
+		background: var(--silver);
+		cursor: pointer;
+	}
+
+	.pan-slider::-moz-range-thumb {
+		width: 10px;
+		height: 10px;
+		border-radius: 0;
+		border: none;
 		background: var(--silver);
 		cursor: pointer;
 	}
@@ -482,7 +491,7 @@
 		height: 100%;
 		background: var(--bg);
 		border: 1px solid var(--border-subtle);
-		border-radius: 2px;
+		border-radius: 0;
 		position: relative;
 		overflow: hidden;
 		display: flex;
@@ -492,6 +501,7 @@
 
 	.v-meter-fill {
 		width: 100%;
+		border-radius: 0;
 		background: linear-gradient(to top, var(--green) 0%, var(--green) 75%, #eab308 85%, var(--alert) 100%);
 		transition: height 0.05s ease;
 	}
@@ -526,6 +536,14 @@
 		cursor: pointer;
 	}
 
+	.v-fader::-webkit-slider-thumb {
+		border-radius: 0;
+	}
+
+	.v-fader::-moz-range-thumb {
+		border-radius: 0;
+	}
+
 	.db-readout {
 		font-size: 10px;
 		color: var(--muted);
@@ -547,7 +565,7 @@
 		height: 24px;
 		background: var(--bg);
 		border: 1px solid var(--border-subtle);
-		border-radius: 2px;
+		border-radius: 0;
 		color: var(--muted);
 		font-size: 11px;
 		cursor: pointer;

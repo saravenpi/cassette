@@ -16,6 +16,7 @@ if (typeof (globalThis as Record<string, unknown>).$state === 'undefined') {
 
 const { SettingsStore } = await import('./settings.svelte');
 const { UpdaterStore } = await import('./updater.svelte');
+const pkg = (await import('../../package.json')).default;
 
 beforeEach(() => {
 	globalThis.localStorage?.clear?.();
@@ -68,7 +69,7 @@ describe('UpdaterStore', () => {
 	test('initializes with idle state and current version', () => {
 		const store = new UpdaterStore();
 		expect(store.state).toBe('idle');
-		expect(store.currentVersion).toBe('0.16.3');
+		expect(store.currentVersion).toBe(pkg.version);
 		expect(store.availableVersion).toBe(null);
 		expect(store.downloadProgress).toBe(0);
 		expect(store.errorMessage).toBe(null);

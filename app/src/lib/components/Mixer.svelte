@@ -103,7 +103,7 @@
 		height: 28px;
 		background: var(--surface);
 		border: 1px dashed var(--border);
-		border-radius: 3px;
+		border-radius: 0;
 		color: var(--dim);
 		font-size: 10px;
 		cursor: pointer;

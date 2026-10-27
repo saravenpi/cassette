@@ -509,3 +509,10 @@ Loop points, frame-accurate note starts, and a review pass over v0.9.0.
 ### Fixed
 
 - Piano roll Space key: pressing Spacebar in the MIDI editor now toggles playback instead of scrolling the view.
+
+## [0.17.1] - 2026-10-27
+
+### Fixed
+
+- Tauri updater ACL permissions: grant updater and process permissions in desktop capability configuration to allow update checks, downloads, and app restarts.
+- Mixer view retro geometry: remove border rounding from pan slider knobs, vertical level meters, and channel strip chips to match the square Kono theme.
