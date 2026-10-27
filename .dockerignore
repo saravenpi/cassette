@@ -1,0 +1,8 @@
+target/
+app/node_modules/
+app/.svelte-kit/
+app/dist/
+website/node_modules/
+website/.svelte-kit/
+website/build/
+.git/
