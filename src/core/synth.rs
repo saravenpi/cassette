@@ -63,8 +63,15 @@ struct Voice {
     stage: Stage,
     note: u8,
     velocity: f32,
-    phase: f32,
-    phase_inc: f32,
+    base_inc: f32,
+    phases: [f32; 7],
+    phase_incs: [f32; 7],
+    sub_phase: f32,
+    mod_phase: f32,
+    pitch_shift: f32,
+    pitch_decay_coeff: f32,
+    s1: f32,
+    s2: f32,
     env: f32,
     gate_left: u32,
 }
@@ -76,8 +83,15 @@ impl Voice {
         stage: Stage::Idle,
         note: 0,
         velocity: 0.0,
-        phase: 0.0,
-        phase_inc: 0.0,
+        base_inc: 0.0,
+        phases: [0.0; 7],
+        phase_incs: [0.0; 7],
+        sub_phase: 0.0,
+        mod_phase: 0.0,
+        pitch_shift: 0.0,
+        pitch_decay_coeff: 1.0,
+        s1: 0.0,
+        s2: 0.0,
         env: 0.0,
         gate_left: 0,
     };
@@ -88,13 +102,41 @@ impl Voice {
 
     fn start(&mut self, pitch: u8, velocity: u8, instrument: &Instrument, sr: f32, gate: u32) {
         let freq = note_to_freq(pitch as f32 + instrument.octave as f32 * 12.0);
+        let base_inc = (freq / sr).clamp(0.0, 0.49);
         self.stage = Stage::Attack;
         self.note = pitch;
         self.velocity = velocity as f32 / 127.0;
-        self.phase = 0.0;
-        self.phase_inc = (freq / sr).clamp(0.0, 0.49);
+        self.base_inc = base_inc;
         self.env = 0.0;
         self.gate_left = gate;
+        self.s1 = 0.0;
+        self.s2 = 0.0;
+        self.sub_phase = 0.0;
+        self.mod_phase = 0.0;
+
+        let unison = instrument.unison.clamp(1, 7) as usize;
+        let detune = instrument.detune.clamp(0.0, 100.0);
+        if unison <= 1 || detune <= 0.0 {
+            self.phases[0] = 0.0;
+            self.phase_incs[0] = base_inc;
+        } else {
+            for i in 0..unison {
+                let t = -0.5 + (i as f32) / (unison - 1) as f32;
+                let cents = t * detune;
+                let ratio = 2.0f32.powf(cents / 1200.0);
+                self.phase_incs[i] = (base_inc * ratio).clamp(0.0, 0.49);
+                self.phases[i] = (i as f32) / (unison as f32);
+            }
+        }
+
+        if instrument.pitch_env > 0.0 {
+            self.pitch_shift = instrument.pitch_env.clamp(0.0, 48.0);
+            let decay_sec = instrument.pitch_decay.clamp(0.001, 10.0);
+            self.pitch_decay_coeff = (-1.0 / (sr * decay_sec)).exp();
+        } else {
+            self.pitch_shift = 0.0;
+            self.pitch_decay_coeff = 1.0;
+        }
     }
 
     fn retune(&mut self, instrument: &Instrument, sr: f32) {
@@ -102,21 +144,33 @@ impl Voice {
             return;
         }
         let freq = note_to_freq(self.note as f32 + instrument.octave as f32 * 12.0);
-        self.phase_inc = (freq / sr).clamp(0.0, 0.49);
+        let base_inc = (freq / sr).clamp(0.0, 0.49);
+        self.base_inc = base_inc;
+        let unison = instrument.unison.clamp(1, 7) as usize;
+        let detune = instrument.detune.clamp(0.0, 100.0);
+        if unison <= 1 || detune <= 0.0 {
+            self.phase_incs[0] = base_inc;
+        } else {
+            for i in 0..unison {
+                let t = -0.5 + (i as f32) / (unison - 1) as f32;
+                let cents = t * detune;
+                let ratio = 2.0f32.powf(cents / 1200.0);
+                self.phase_incs[i] = (base_inc * ratio).clamp(0.0, 0.49);
+            }
+        }
     }
 
-    /// Advance one sample. Returns the sample and whether the voice just ended.
     fn next_sample(
         &mut self,
         instrument: &Instrument,
         rates: &EnvRates,
+        sr: f32,
         rng: &mut u32,
     ) -> (f32, bool) {
         if self.is_idle() {
             return (0.0, false);
         }
 
-        // Gate countdown drives the release stage.
         if self.gate_left != HELD {
             if self.gate_left == 0 {
                 if self.stage != Stage::Release {
@@ -151,17 +205,108 @@ impl Voice {
             Stage::Idle => {}
         }
 
-        self.phase += self.phase_inc;
-        if self.phase >= 1.0 {
-            self.phase -= 1.0;
+        let pitch_ratio = if self.pitch_shift > 1e-4 {
+            let semitones = self.pitch_shift;
+            self.pitch_shift *= self.pitch_decay_coeff;
+            2.0f32.powf(semitones / 12.0)
+        } else {
+            1.0
+        };
+
+        let phase_mod = if instrument.fm_index > 0.0 {
+            let fm_index = instrument.fm_index.clamp(0.0, 10.0);
+            let fm_ratio = instrument.fm_ratio.clamp(0.01, 32.0);
+            let mod_inc = (self.base_inc * fm_ratio * pitch_ratio).clamp(0.0, 0.49);
+            let mod_sample = (self.mod_phase * TWO_PI).sin();
+            self.mod_phase += mod_inc;
+            if self.mod_phase >= 1.0 {
+                self.mod_phase -= 1.0;
+            }
+            mod_sample * (fm_index / TWO_PI)
+        } else {
+            0.0
+        };
+
+        let unison = instrument.unison.clamp(1, 7) as usize;
+        let mut osc = if unison <= 1 || instrument.detune <= 0.0 {
+            let inc = if pitch_ratio != 1.0 {
+                (self.phase_incs[0] * pitch_ratio).clamp(0.0, 0.49)
+            } else {
+                self.phase_incs[0]
+            };
+            self.phases[0] += inc;
+            if self.phases[0] >= 1.0 {
+                self.phases[0] -= 1.0;
+            }
+            let p = if phase_mod != 0.0 {
+                (self.phases[0] + phase_mod).rem_euclid(1.0)
+            } else {
+                self.phases[0]
+            };
+            waveform(instrument.waveform, p, rng)
+        } else {
+            let mut sum = 0.0f32;
+            for i in 0..unison {
+                let inc = if pitch_ratio != 1.0 {
+                    (self.phase_incs[i] * pitch_ratio).clamp(0.0, 0.49)
+                } else {
+                    self.phase_incs[i]
+                };
+                self.phases[i] += inc;
+                if self.phases[i] >= 1.0 {
+                    self.phases[i] -= 1.0;
+                }
+                let p = if phase_mod != 0.0 {
+                    (self.phases[i] + phase_mod).rem_euclid(1.0)
+                } else {
+                    self.phases[i]
+                };
+                sum += waveform(instrument.waveform, p, rng);
+            }
+            sum / (unison as f32).sqrt()
+        };
+
+        if instrument.sub > 0.0 {
+            let sub_amount = instrument.sub.clamp(0.0, 1.0);
+            let sub_inc = (self.base_inc * 0.5 * pitch_ratio).clamp(0.0, 0.49);
+            let sub_sample = (self.sub_phase * TWO_PI).sin();
+            self.sub_phase += sub_inc;
+            if self.sub_phase >= 1.0 {
+                self.sub_phase -= 1.0;
+            }
+            osc += sub_amount * sub_sample;
         }
 
-        let osc = waveform(instrument.waveform, self.phase, rng);
-        let sample = osc * self.env * self.velocity;
+        let filtered = if instrument.cutoff >= 20_000.0 && instrument.filter_env <= 0.0 {
+            osc
+        } else {
+            let env_octaves = instrument.filter_env.clamp(0.0, 8.0) * self.env.clamp(0.0, 1.0);
+            let cutoff = (instrument.cutoff.clamp(20.0, 20_000.0) * 2.0f32.powf(env_octaves))
+                .clamp(20.0, sr * 0.49);
+            let g = (std::f32::consts::PI * cutoff / sr).tan();
+            let k = 2.0 * (1.0 - instrument.resonance.clamp(0.0, 1.0) * 0.98);
+            let denom = 1.0 + k * g + g * g;
+            let hp = (osc - (k + g) * self.s1 - self.s2) / denom;
+            let bp = g * hp + self.s1;
+            let lp = g * bp + self.s2;
+            self.s1 = 2.0 * bp - self.s1;
+            self.s2 = 2.0 * lp - self.s2;
+            if self.s1.abs() < 1e-15 {
+                self.s1 = 0.0;
+            }
+            if self.s2.abs() < 1e-15 {
+                self.s2 = 0.0;
+            }
+            lp
+        };
+
+        let sample = filtered * self.env * self.velocity;
 
         if self.stage == Stage::Release && self.env <= 0.0 {
             self.env = 0.0;
             self.stage = Stage::Idle;
+            self.s1 = 0.0;
+            self.s2 = 0.0;
             return (sample, true);
         }
         (sample, false)
@@ -254,6 +399,7 @@ struct TrackVoices {
     pan: f32,
     muted: bool,
     solo: bool,
+    enabled_gain: f32,
 }
 
 impl TrackVoices {
@@ -268,6 +414,7 @@ impl TrackVoices {
             pan: 0.0,
             muted: false,
             solo: false,
+            enabled_gain: if instrument.enabled { 1.0 } else { 0.0 },
         }
     }
 
@@ -774,6 +921,7 @@ impl SynthEngine {
         }
 
         let SynthEngine {
+            sample_rate,
             tracks,
             track_count,
             any_solo,
@@ -794,7 +942,7 @@ impl SynthEngine {
             let rates = track.rates;
             let mut mono = 0.0f32;
             for voice in &mut track.voices {
-                let (sample, done) = voice.next_sample(&instrument, &rates, rng);
+                let (sample, done) = voice.next_sample(&instrument, &rates, *sample_rate, rng);
                 if done {
                     finished += 1;
                 }
@@ -825,6 +973,14 @@ impl SynthEngine {
                     }
                 }
             }
+
+            let target = if instrument.enabled { 1.0f32 } else { 0.0f32 };
+            if track.enabled_gain < target {
+                track.enabled_gain = (track.enabled_gain + (1.0 / 128.0)).min(target);
+            } else if track.enabled_gain > target {
+                track.enabled_gain = (track.enabled_gain - (1.0 / 128.0)).max(target);
+            }
+            mono *= track.enabled_gain;
 
             let (l, r) = track.effects.process_with_sidechain(
                 mono,
@@ -1440,6 +1596,216 @@ mod tests {
         for _ in 0..1_000 {
             let (l, _) = e.process_frame(&mut peaks);
             assert!(l.is_finite());
+        }
+    }
+
+    #[test]
+    fn old_presets_are_bit_exact() {
+        let expected_lead = [
+            0.00034147516,
+            0.0006829503,
+            0.0010244255,
+            0.0013659006,
+            0.0017073759,
+            0.002048851,
+            0.0023903262,
+            0.0027318012,
+            0.0030732765,
+            0.0034147517,
+        ];
+        let mut e = SynthEngine::new(44_100);
+        e.set_track_count(1);
+        e.configure_track(0, Instrument::preset("Lead"), 1.0, 0.0, false, false);
+        e.note_on(0, 60, 100, 200);
+        let mut peaks = [0.0; MAX_TRACKS];
+        for expected in expected_lead {
+            let (l, _) = e.process_frame(&mut peaks);
+            assert_eq!(l, expected);
+        }
+    }
+
+    #[test]
+    fn voice_unison_spreads_and_normalizes() {
+        let mut e1 = SynthEngine::new(44_100);
+        e1.set_track_count(1);
+        let mut inst1 = Instrument::preset("Supersaw");
+        inst1.unison = 1;
+        inst1.detune = 0.0;
+        e1.configure_track(0, inst1, 1.0, 0.0, false, false);
+        e1.note_on(0, 60, 100, 500);
+
+        let mut e7 = SynthEngine::new(44_100);
+        e7.set_track_count(1);
+        let inst7 = Instrument::preset("Supersaw");
+        e7.configure_track(0, inst7, 1.0, 0.0, false, false);
+        e7.note_on(0, 60, 100, 500);
+
+        let mut peaks1 = [0.0; MAX_TRACKS];
+        let mut peaks7 = [0.0; MAX_TRACKS];
+        let mut differ = false;
+        let mut max7 = 0.0f32;
+        for _ in 0..500 {
+            let (l1, _) = e1.process_frame(&mut peaks1);
+            let (l7, _) = e7.process_frame(&mut peaks7);
+            if (l1 - l7).abs() > 1e-4 {
+                differ = true;
+            }
+            max7 = max7.max(l7.abs());
+        }
+        assert!(differ);
+        assert!(max7 > 0.05 && max7 < 1.0);
+    }
+
+    #[test]
+    fn voice_sub_adds_low_frequency() {
+        let mut e_no_sub = SynthEngine::new(44_100);
+        e_no_sub.set_track_count(1);
+        let mut inst_no_sub = Instrument::preset("Sub Bass");
+        inst_no_sub.sub = 0.0;
+        e_no_sub.configure_track(0, inst_no_sub, 1.0, 0.0, false, false);
+        e_no_sub.note_on(0, 48, 100, 500);
+
+        let mut e_sub = SynthEngine::new(44_100);
+        e_sub.set_track_count(1);
+        let inst_sub = Instrument::preset("Sub Bass");
+        e_sub.configure_track(0, inst_sub, 1.0, 0.0, false, false);
+        e_sub.note_on(0, 48, 100, 500);
+
+        let mut peaks = [0.0; MAX_TRACKS];
+        let mut differ = false;
+        for _ in 0..500 {
+            let (l1, _) = e_no_sub.process_frame(&mut peaks);
+            let (l2, _) = e_sub.process_frame(&mut peaks);
+            if (l1 - l2).abs() > 1e-3 {
+                differ = true;
+            }
+        }
+        assert!(differ);
+    }
+
+    #[test]
+    fn voice_filter_and_filter_env_attenuate_highs() {
+        let mut e_open = SynthEngine::new(44_100);
+        e_open.set_track_count(1);
+        let mut inst_open = Instrument::preset("Lead");
+        inst_open.waveform = Waveform::Saw;
+        inst_open.cutoff = 20_000.0;
+        inst_open.filter_env = 0.0;
+        e_open.configure_track(0, inst_open, 1.0, 0.0, false, false);
+        e_open.note_on(0, 84, 100, 1_000);
+
+        let mut e_filtered = SynthEngine::new(44_100);
+        e_filtered.set_track_count(1);
+        let mut inst_filtered = inst_open;
+        inst_filtered.cutoff = 200.0;
+        inst_filtered.resonance = 0.0;
+        inst_filtered.filter_env = 0.0;
+        e_filtered.configure_track(0, inst_filtered, 1.0, 0.0, false, false);
+        e_filtered.note_on(0, 84, 100, 1_000);
+
+        let mut peaks = [0.0; MAX_TRACKS];
+        for _ in 0..500 {
+            e_open.process_frame(&mut peaks);
+            e_filtered.process_frame(&mut peaks);
+        }
+        let (mut prev_o, _) = e_open.process_frame(&mut peaks);
+        let (mut prev_f, _) = e_filtered.process_frame(&mut peaks);
+        let mut diff_open = 0.0f32;
+        let mut diff_filtered = 0.0f32;
+        for _ in 0..500 {
+            let (lo, _) = e_open.process_frame(&mut peaks);
+            let (lf, _) = e_filtered.process_frame(&mut peaks);
+            diff_open += (lo - prev_o).abs();
+            diff_filtered += (lf - prev_f).abs();
+            prev_o = lo;
+            prev_f = lf;
+        }
+        assert!(diff_filtered < diff_open * 0.1);
+    }
+
+    #[test]
+    fn voice_pitch_env_sweeps_pitch_downward() {
+        let mut e = SynthEngine::new(44_100);
+        e.set_track_count(1);
+        let inst = Instrument::preset("808");
+        e.configure_track(0, inst, 1.0, 0.0, false, false);
+        e.note_on(0, 60, 127, 2_000);
+
+        let mut peaks = [0.0; MAX_TRACKS];
+        let mut zero_crossings_early = 0usize;
+        let mut prev = 0.0f32;
+        for _ in 0..400 {
+            let (l, _) = e.process_frame(&mut peaks);
+            if (prev <= 0.0 && l > 0.0) || (prev >= 0.0 && l < 0.0) {
+                zero_crossings_early += 1;
+            }
+            prev = l;
+        }
+        for _ in 0..2_000 {
+            e.process_frame(&mut peaks);
+        }
+        let mut zero_crossings_late = 0usize;
+        for _ in 0..400 {
+            let (l, _) = e.process_frame(&mut peaks);
+            if (prev <= 0.0 && l > 0.0) || (prev >= 0.0 && l < 0.0) {
+                zero_crossings_late += 1;
+            }
+            prev = l;
+        }
+        assert!(zero_crossings_early > zero_crossings_late);
+    }
+
+    #[test]
+    fn voice_fm_modulates_carrier_phase() {
+        let mut e_plain = SynthEngine::new(44_100);
+        e_plain.set_track_count(1);
+        let mut inst_plain = Instrument::preset("Keys");
+        inst_plain.fm_index = 0.0;
+        e_plain.configure_track(0, inst_plain, 1.0, 0.0, false, false);
+        e_plain.note_on(0, 60, 100, 500);
+
+        let mut e_fm = SynthEngine::new(44_100);
+        e_fm.set_track_count(1);
+        let inst_fm = Instrument::preset("Keys");
+        e_fm.configure_track(0, inst_fm, 1.0, 0.0, false, false);
+        e_fm.note_on(0, 60, 100, 500);
+
+        let mut peaks = [0.0; MAX_TRACKS];
+        let mut differ = false;
+        for _ in 0..500 {
+            let (l1, _) = e_plain.process_frame(&mut peaks);
+            let (l2, _) = e_fm.process_frame(&mut peaks);
+            if (l1 - l2).abs() > 1e-3 {
+                differ = true;
+            }
+        }
+        assert!(differ);
+    }
+
+    #[test]
+    fn instrument_bypass_fades_to_silence() {
+        let mut e = SynthEngine::new(44_100);
+        e.set_track_count(1);
+        e.configure_track(0, Instrument::preset("Lead"), 1.0, 0.0, false, false);
+        e.note_on(0, 60, 100, HELD);
+
+        let mut peaks = [0.0; MAX_TRACKS];
+        for _ in 0..500 {
+            e.process_frame(&mut peaks);
+        }
+        let (active_l, _) = e.process_frame(&mut peaks);
+        assert!(active_l.abs() > 0.01);
+
+        let mut bypassed = Instrument::preset("Lead");
+        bypassed.enabled = false;
+        e.set_track_instrument(0, bypassed);
+
+        for _ in 0..128 {
+            e.process_frame(&mut peaks);
+        }
+        for _ in 0..100 {
+            let (l, r) = e.process_frame(&mut peaks);
+            assert_eq!((l, r), (0.0, 0.0));
         }
     }
 }
