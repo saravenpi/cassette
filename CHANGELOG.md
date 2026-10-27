@@ -490,3 +490,22 @@ Loop points, frame-accurate note starts, and a review pass over v0.9.0.
 - Undefined font consistency: preloaded font in `app.html`, mapped all weights (`100 900`, `normal`, `bold`) in `@font-face`, and removed font-weight overrides.
 - Top right action button styling: removed duplicate icon artifact and streamlined layout.
 - Favicon pixel-art fidelity: updated vector SVG favicon (`favicon.svg`) and raster PNG assets (`favicon.png`, `apple-touch-icon.png`, `icon.png`) to render `#88A888` keyboard-music with transparent background.
+
+## [0.17.0] - 2026-10-27
+
+### Added
+
+- EQ Eight visual parametric equalizer: 8-band parametric EQ with interactive biquad frequency response curve, live animated audio wave spectrum, and draggable nodes (frequency, gain, and Q bandwidth adjustment). Filter types include Low Cut, Low Shelf, Bell, High Shelf, High Cut, and Notch.
+- Enhanced Stereo Utility effect: 400% stereo width scaling, dedicated routing modes (Stereo, Mono, Left, Right), and a sub-bass mono crossover filter to center low-end frequencies while preserving high stereo width.
+- Punchy kick instrument preset: redesigned kick with 36-semitone pitch sweep, rapid 26ms envelope drop, transient FM beater click, and deep sub-bass foundation.
+- Master bus analog saturation: 4 non-linear waveshaping models (Tape, Tube, Console, Diode) with continuous tone tilt filtering and low-end warmth enhancement.
+- Ableton-style vertical Mixer console: Tab key toggles between horizontal arrangement timeline and vertical mixer view with dB faders, LED peak meters, pan sliders, insert effect chips, and pinned master strip.
+- Multi-track selection: Shift-click for range selection, Cmd/Ctrl-click for multi-track toggle, with bulk mute, solo, delete, duplicate, and recolor actions.
+- Audio track microphone recording: record live mic input directly into armed audio tracks as 16-bit PCM WAV blocks.
+- Cross-track drag guard: prevents dragging MIDI blocks to audio tracks and vice versa with visual not-allowed feedback and red outline.
+- Desktop settings dialog and self-updater: audio device status, keyboard shortcut reference, and in-app self-updater powered by Tauri updater plugin with automatic release checks.
+- Stem export: renders each populated track soloed to an individual WAV file preserving sidechain signals.
+
+### Fixed
+
+- Piano roll Space key: pressing Spacebar in the MIDI editor now toggles playback instead of scrolling the view.

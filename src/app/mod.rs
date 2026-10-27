@@ -415,15 +415,15 @@ impl App {
         for track in 0..self.song.tracks.len() {
             self.push_effects(track);
         }
+        self.push_effects(crate::models::song::MASTER_TRACK);
         self.send(RtCommand::SetMetronome { on: self.metronome });
     }
 
     pub(crate) fn set_master_volume(&mut self, volume: f32) {
         self.song.set_master_volume(volume);
-    }
-
-    pub(crate) fn export_stems(&mut self, _dir: Option<String>) {
-        self.status = "exporting stems...".into();
+        self.send(RtCommand::SetMasterVolume {
+            volume: self.song.master_volume,
+        });
     }
 
     /// Push a whole mixer strip for one track.
@@ -563,7 +563,7 @@ impl App {
             sample_rate: self.engine.sample_rate(),
             export_progress: self.export_progress,
             master_volume: self.song.master_volume,
-            master_level: 0.0,
+            master_level: self.engine.master_level(),
             master_effects: self
                 .song
                 .master_effects

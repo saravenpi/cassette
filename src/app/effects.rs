@@ -5,6 +5,7 @@
 //! pushed to the audio thread as one fixed-size [`EffectChain`].
 
 use super::App;
+use crate::models::song::MASTER_TRACK;
 use crate::models::{Effect, EffectChain, EffectKind, MAX_EFFECTS};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -21,16 +22,23 @@ impl App {
         index: usize,
         source: Option<usize>,
     ) {
-        let found = self
-            .song
-            .tracks
-            .get(track)
-            .is_some_and(|lane| index < lane.effects.len());
+        let found = if track == MASTER_TRACK {
+            index < self.song.master_effects.len()
+        } else {
+            self.song
+                .tracks
+                .get(track)
+                .is_some_and(|lane| index < lane.effects.len())
+        };
         if !found {
             self.status = "no effect there".into();
             return;
         }
-        let effect_kind = self.song.tracks[track].effects[index].kind;
+        let effect_kind = if track == MASTER_TRACK {
+            self.song.master_effects[index].kind
+        } else {
+            self.song.tracks[track].effects[index].kind
+        };
         if !effect_kind.takes_sidechain() {
             self.status = format!("{} does not take a sidechain", effect_kind.name());
             return;
@@ -45,13 +53,21 @@ impl App {
                     self.status = "no track there to listen to".into();
                     return;
                 }
-                self.song.tracks[track].effects[index].sidechain = Some(source_track as u8);
+                if track == MASTER_TRACK {
+                    self.song.master_effects[index].sidechain = Some(source_track as u8);
+                } else {
+                    self.song.tracks[track].effects[index].sidechain = Some(source_track as u8);
+                }
                 let source_name = self.song.tracks[source_track].name.clone();
                 self.push_effects(track);
                 self.status = format!("{} listens to {}", effect_kind.name(), source_name);
             }
             None => {
-                self.song.tracks[track].effects[index].sidechain = None;
+                if track == MASTER_TRACK {
+                    self.song.master_effects[index].sidechain = None;
+                } else {
+                    self.song.tracks[track].effects[index].sidechain = None;
+                }
                 self.push_effects(track);
                 self.status = format!("{} listens to its own input", effect_kind.name());
             }
@@ -59,51 +75,74 @@ impl App {
     }
 
     pub(crate) fn remap_sidechains(&mut self, shift: TrackShift) {
+        let remap = |source: u8, track_idx: Option<usize>| -> Option<u8> {
+            let s = source as usize;
+            let next = match shift {
+                TrackShift::Deleted(deleted) => {
+                    if s == deleted {
+                        None
+                    } else if s > deleted {
+                        Some((s - 1) as u8)
+                    } else {
+                        Some(s as u8)
+                    }
+                }
+                TrackShift::Inserted(inserted) => {
+                    if s >= inserted {
+                        Some((s + 1) as u8)
+                    } else {
+                        Some(s as u8)
+                    }
+                }
+                TrackShift::Moved { from, to } => {
+                    if s == from {
+                        Some(to as u8)
+                    } else if from < to && s > from && s <= to {
+                        Some((s - 1) as u8)
+                    } else if to < from && s >= to && s < from {
+                        Some((s + 1) as u8)
+                    } else {
+                        Some(s as u8)
+                    }
+                }
+            };
+            if track_idx.map(|owner| owner as u8) == next {
+                return None;
+            }
+            next
+        };
+
         for (track_idx, track) in self.song.tracks.iter_mut().enumerate() {
             for effect in &mut track.effects {
                 if let Some(source) = effect.sidechain {
-                    let s = source as usize;
-                    let next = match shift {
-                        TrackShift::Deleted(deleted) => {
-                            if s == deleted {
-                                None
-                            } else if s > deleted {
-                                Some((s - 1) as u8)
-                            } else {
-                                Some(s as u8)
-                            }
-                        }
-                        TrackShift::Inserted(inserted) => {
-                            if s >= inserted {
-                                Some((s + 1) as u8)
-                            } else {
-                                Some(s as u8)
-                            }
-                        }
-                        TrackShift::Moved { from, to } => {
-                            if s == from {
-                                Some(to as u8)
-                            } else if from < to && s > from && s <= to {
-                                Some((s - 1) as u8)
-                            } else if to < from && s >= to && s < from {
-                                Some((s + 1) as u8)
-                            } else {
-                                Some(s as u8)
-                            }
-                        }
-                    };
-                    if next == Some(track_idx as u8) {
-                        effect.sidechain = None;
-                    } else {
-                        effect.sidechain = next;
-                    }
+                    effect.sidechain = remap(source, Some(track_idx));
                 }
+            }
+        }
+        for effect in &mut self.song.master_effects {
+            if let Some(source) = effect.sidechain {
+                effect.sidechain = remap(source, None);
             }
         }
     }
 
     /// Insert a fresh effect at `index`, clamped to the chain, or at the end.
     pub(crate) fn add_effect(&mut self, track: usize, kind: EffectKind, index: Option<usize>) {
+        if track == MASTER_TRACK {
+            let lane_len = self.song.master_effects.len();
+            if lane_len >= MAX_EFFECTS {
+                self.status = format!("master bus already holds {MAX_EFFECTS} effects");
+                return;
+            }
+            let id = self.song.next_effect_id();
+            let mut effect = Effect::new(kind);
+            effect.id = id;
+            let at = index.map_or(lane_len, |index| index.min(lane_len));
+            self.song.master_effects.insert(at, effect);
+            self.push_effects(track);
+            self.status = format!("{} added to master bus", kind.name());
+            return;
+        }
         let Some(lane_len) = self.song.tracks.get(track).map(|lane| lane.effects.len()) else {
             self.status = "no track there to add an effect to".into();
             return;
@@ -131,6 +170,34 @@ impl App {
         enabled: bool,
         sidechain: Option<usize>,
     ) {
+        if track == MASTER_TRACK {
+            let lane_len = self.song.master_effects.len();
+            if lane_len >= MAX_EFFECTS {
+                self.status = format!("master bus already holds {MAX_EFFECTS} effects");
+                return;
+            }
+            let id = self.song.next_effect_id();
+            let mut effect = Effect::new(kind);
+            effect.id = id;
+            effect.enabled = enabled;
+            let spec = kind.spec();
+            for (i, p) in effect.params[..spec.len()].iter_mut().enumerate() {
+                if let Some(&val) = params.get(i) {
+                    *p = spec[i].clamp(val);
+                }
+            }
+            if let Some(s) = sidechain
+                && s < self.song.tracks.len()
+                && kind.takes_sidechain()
+            {
+                effect.sidechain = Some(s as u8);
+            }
+            let at = index.map_or(lane_len, |idx| (idx + 1).min(lane_len));
+            self.song.master_effects.insert(at, effect);
+            self.push_effects(track);
+            self.status = format!("{} pasted to master bus", kind.name());
+            return;
+        }
         let Some(lane_len) = self.song.tracks.get(track).map(|lane| lane.effects.len()) else {
             self.status = "no track there to paste an effect to".into();
             return;
@@ -164,6 +231,23 @@ impl App {
     }
 
     pub(crate) fn duplicate_effect(&mut self, track: usize, index: usize) {
+        if track == MASTER_TRACK {
+            let lane_len = self.song.master_effects.len();
+            if index >= lane_len {
+                return;
+            }
+            if lane_len >= MAX_EFFECTS {
+                self.status = format!("master bus already holds {MAX_EFFECTS} effects");
+                return;
+            }
+            let mut copy = self.song.master_effects[index];
+            copy.id = self.song.next_effect_id();
+            let at = index + 1;
+            self.song.master_effects.insert(at, copy);
+            self.push_effects(track);
+            self.status = format!("duplicated {}", self.song.master_effects[at].kind.name());
+            return;
+        }
         let Some(lane_len) = self.song.tracks.get(track).map(|lane| lane.effects.len()) else {
             return;
         };
@@ -190,7 +274,11 @@ impl App {
         if self.effect_mut(track, index).is_none() {
             return;
         }
-        let removed = self.song.tracks[track].effects.remove(index);
+        let removed = if track == MASTER_TRACK {
+            self.song.master_effects.remove(index)
+        } else {
+            self.song.tracks[track].effects.remove(index)
+        };
         self.push_effects(track);
         self.status = format!("{} removed", removed.kind.name());
     }
@@ -200,12 +288,21 @@ impl App {
         if self.effect_mut(track, from).is_none() {
             return;
         }
-        let effects = &mut self.song.tracks[track].effects;
-        let to = to.min(effects.len() - 1);
-        let effect = effects.remove(from);
-        effects.insert(to, effect);
+        let (to_slot, effect_name) = if track == MASTER_TRACK {
+            let effects = &mut self.song.master_effects;
+            let to = to.min(effects.len() - 1);
+            let effect = effects.remove(from);
+            effects.insert(to, effect);
+            (to + 1, effect.kind.name())
+        } else {
+            let effects = &mut self.song.tracks[track].effects;
+            let to = to.min(effects.len() - 1);
+            let effect = effects.remove(from);
+            effects.insert(to, effect);
+            (to + 1, effect.kind.name())
+        };
         self.push_effects(track);
-        self.status = format!("{} moved to slot {}", effect.kind.name(), to + 1);
+        self.status = format!("{} moved to slot {}", effect_name, to_slot);
     }
 
     /// Switch one effect on, or bypass it.
@@ -247,6 +344,13 @@ impl App {
 
     /// Push one track's whole chain to the audio thread.
     pub(crate) fn push_effects(&mut self, track: usize) {
+        if track == MASTER_TRACK {
+            let chain = EffectChain::from_effects(&self.song.master_effects);
+            if !self.engine.set_master_effects(&chain) {
+                self.resync_pending = true;
+            }
+            return;
+        }
         let Some(lane) = self.song.tracks.get(track) else {
             return;
         };
@@ -258,6 +362,13 @@ impl App {
 
     /// The effect an edit names, or `None` with the reason in the status.
     fn effect_mut(&mut self, track: usize, index: usize) -> Option<&mut Effect> {
+        if track == MASTER_TRACK {
+            if index < self.song.master_effects.len() {
+                return Some(&mut self.song.master_effects[index]);
+            }
+            self.status = "no effect there".into();
+            return None;
+        }
         let found = self
             .song
             .tracks
@@ -520,5 +631,49 @@ mod tests {
         );
         assert_eq!(app.song.tracks[0].effects[1].params[1], 1200.0);
         assert!(!app.song.tracks[0].effects[1].enabled);
+    }
+
+    #[test]
+    fn master_track_effects_add_remove_move_param() {
+        let mut app = headless_app();
+        app.submit(Event::AddEffect {
+            track: MASTER_TRACK,
+            kind: EffectKind::Limiter,
+            index: None,
+        });
+        assert_eq!(app.song.master_effects.len(), 1);
+        assert_eq!(app.song.master_effects[0].kind, EffectKind::Limiter);
+
+        app.submit(Event::AddEffect {
+            track: MASTER_TRACK,
+            kind: EffectKind::Eq,
+            index: Some(0),
+        });
+        assert_eq!(app.song.master_effects.len(), 2);
+        assert_eq!(app.song.master_effects[0].kind, EffectKind::Eq);
+        assert_eq!(app.song.master_effects[1].kind, EffectKind::Limiter);
+
+        app.submit(Event::SetEffectParam {
+            track: MASTER_TRACK,
+            index: 0,
+            param: 0,
+            value: 6.0,
+        });
+        assert_eq!(app.song.master_effects[0].params[0], 6.0);
+
+        app.submit(Event::MoveEffect {
+            track: MASTER_TRACK,
+            from: 0,
+            to: 1,
+        });
+        assert_eq!(app.song.master_effects[0].kind, EffectKind::Limiter);
+        assert_eq!(app.song.master_effects[1].kind, EffectKind::Eq);
+
+        app.submit(Event::RemoveEffect {
+            track: MASTER_TRACK,
+            index: 0,
+        });
+        assert_eq!(app.song.master_effects.len(), 1);
+        assert_eq!(app.song.master_effects[0].kind, EffectKind::Eq);
     }
 }

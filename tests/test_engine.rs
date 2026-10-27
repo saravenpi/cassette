@@ -440,3 +440,37 @@ fn reorder_track_preserves_playback_on_moved_track() {
         "track 2 (moved from track 0) should still sound without glitch, was {peak_at_new_slot}"
     );
 }
+
+#[test]
+fn master_volume_and_effects_can_be_updated_while_running() {
+    let song = Song::new();
+    let engine = AudioEngine::start_silent(&song).expect("engine should start");
+    assert!(engine.set_master_volume(0.6));
+    assert!(engine.set_master_effects(&cassette::models::EffectChain::EMPTY));
+    assert!(engine.set_blocks(
+        0,
+        vec![MirroredBlock {
+            start_beats: 0.0,
+            end_beats: 16.0,
+            slot: NO_SLOT,
+            gain: 0.0,
+            offset_seconds: 0.0,
+            rate: 1.0,
+        }],
+    ));
+    assert!(engine.set_notes(
+        0,
+        vec![MirroredNote {
+            start_beats: 0.0,
+            end_beats: 16.0,
+            pitch: 60,
+            velocity: 100,
+        }],
+    ));
+    engine.send(RtCommand::Play);
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while engine.master_level() <= 0.001 && Instant::now() < deadline {
+        sleep(Duration::from_millis(10));
+    }
+    assert!(engine.master_level() > 0.001);
+}

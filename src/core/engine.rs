@@ -7,7 +7,7 @@
 
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use anyhow::Result;
 use rtrb::{Consumer, Producer, RingBuffer};
@@ -29,6 +29,7 @@ struct AudioThread {
     core: RenderCore,
     consumer: Consumer<RtCommand>,
     shared: Arc<SharedState>,
+    master_level: Arc<AtomicU32>,
 }
 
 impl AudioThread {
@@ -43,6 +44,8 @@ impl AudioThread {
             self.core.apply(command);
         }
         let peaks = self.core.process(out);
+        self.master_level
+            .store(self.core.master_level().to_bits(), Ordering::Relaxed);
         self.shared.publish(
             self.core.position_frames(),
             self.core.is_playing(),
@@ -57,6 +60,7 @@ struct EffectControl {
     producer: Producer<EffectHandoff>,
     return_consumer: Consumer<Box<EffectInstance>>,
     last_chains: [EffectChain; MAX_TRACKS],
+    last_master_chain: EffectChain,
 }
 
 /// Handle to the running audio thread.
@@ -68,6 +72,7 @@ pub struct AudioEngine {
     sample_producer: Option<Producer<SampleMsg>>,
     effects: Mutex<EffectControl>,
     shared: Arc<SharedState>,
+    master_level: Arc<AtomicU32>,
     sample_rate: u32,
     backend_name: &'static str,
     stream_port: Option<u16>,
@@ -120,10 +125,12 @@ impl AudioEngine {
         let mut core = RenderCore::new(song, sample_rate);
         core.set_sample_ring(sample_consumer);
         core.set_effect_rings(effect_consumer, return_producer);
+        let master_level = Arc::new(AtomicU32::new(0));
         let mut thread = AudioThread {
             core,
             consumer,
             shared: shared.clone(),
+            master_level: master_level.clone(),
         };
         let render: RenderFn = Box::new(move |out: &mut [f32]| thread.process(out));
         backend.start(render)?;
@@ -139,6 +146,16 @@ impl AudioEngine {
             last_chains[i] = chain;
         }
 
+        let mut last_master_chain = EffectChain::from_effects(&song.master_effects);
+        for (idx, slot) in last_master_chain.slots[..last_master_chain.len as usize]
+            .iter_mut()
+            .enumerate()
+        {
+            if slot.id == 0 {
+                slot.id = (idx as u32 + 1) | 0x8000_0000;
+            }
+        }
+
         Ok(Self {
             backend_name: backend.name(),
             stream_port: backend.stream_port(),
@@ -151,8 +168,10 @@ impl AudioEngine {
                 producer: effect_producer,
                 return_consumer,
                 last_chains,
+                last_master_chain,
             }),
             shared,
+            master_level,
             sample_rate,
             note,
         })
@@ -242,6 +261,71 @@ impl AudioEngine {
         drop(effects);
         self.collect_garbage();
         true
+    }
+
+    /// Replace the master bus insert chain. The control side owns building each
+    /// effect's state, so a new effect costs the audio thread no allocation.
+    pub fn set_master_effects(&self, chain: &EffectChain) -> bool {
+        self.collect_garbage();
+        let mut effects = match self.effects.lock() {
+            Ok(guard) => guard,
+            Err(_) => return false,
+        };
+
+        let mut assigned_chain = *chain;
+        for (i, effect) in assigned_chain.slots[..assigned_chain.len as usize]
+            .iter_mut()
+            .enumerate()
+        {
+            if effect.id == 0 {
+                effect.id = (i as u32 + 1) | 0x8000_0000;
+            }
+        }
+
+        let old_chain = effects.last_master_chain;
+        for effect in assigned_chain.effects() {
+            let exists = old_chain
+                .effects()
+                .iter()
+                .any(|old| old.id == effect.id && old.kind == effect.kind);
+            if !exists {
+                let mut inst = Box::new(EffectInstance::new(effect.kind, self.sample_rate as f32));
+                inst.configure(
+                    effect,
+                    self.sample_rate as f32,
+                    self.sample_rate as f32 * 60.0 / 120.0,
+                );
+                let handoff = EffectHandoff {
+                    track: 255,
+                    id: effect.id,
+                    instance: inst,
+                };
+                if effects.producer.push(handoff).is_err() {
+                    return false;
+                }
+            }
+        }
+
+        if !self.send_internal(RtCommand::SetMasterEffects {
+            chain: assigned_chain,
+        }) {
+            return false;
+        }
+
+        effects.last_master_chain = assigned_chain;
+        drop(effects);
+        self.collect_garbage();
+        true
+    }
+
+    /// Set the master volume level.
+    pub fn set_master_volume(&self, volume: f32) -> bool {
+        self.send_internal(RtCommand::SetMasterVolume { volume })
+    }
+
+    /// Current smoothed master level.
+    pub fn master_level(&self) -> f32 {
+        f32::from_bits(self.master_level.load(Ordering::Relaxed))
     }
 
     /// Free any effect instances returned by the audio thread.
@@ -357,6 +441,8 @@ impl AudioEngine {
         });
         ok &= self.send(RtCommand::SetBpm { bpm: song.bpm() });
         ok &= self.send(RtCommand::loop_region(song.loop_region()));
+        ok &= self.set_master_volume(song.master_volume);
+        ok &= self.set_master_effects(&EffectChain::from_effects(&song.master_effects));
         for (track_index, track) in song.tracks.iter().enumerate() {
             let track_id = track_index as u8;
             ok &= self.send(RtCommand::SetTrackInstrument {
@@ -430,6 +516,18 @@ mod tests {
         let song = Song::new();
         let engine = AudioEngine::start(&song).expect("engine should start");
         assert!(engine.resync(&song));
+    }
+
+    #[test]
+    fn engine_handles_master_bus_commands() {
+        let song = Song::new();
+        let engine = AudioEngine::start_silent(&song).expect("engine should start");
+        assert!(engine.set_master_volume(0.8));
+        let chain = EffectChain::from_effects(&[crate::models::Effect::new(
+            crate::models::EffectKind::Limiter,
+        )]);
+        assert!(engine.set_master_effects(&chain));
+        assert!(engine.master_level() >= 0.0);
     }
 
     #[test]

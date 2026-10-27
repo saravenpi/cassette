@@ -11,6 +11,13 @@
 	import { menu } from '$lib/menu.svelte';
 	import { formatExportPercent, projectStem } from '$lib/project';
 	import { session } from '$lib/session.svelte';
+	import { settingsStore } from '$lib/settings.svelte';
+
+	interface Props {
+		activeView?: 'timeline' | 'mixer';
+	}
+
+	let { activeView = $bindable('timeline') }: Props = $props();
 
 	const snapshot = $derived(session.snapshot);
 	const stem = $derived(projectStem(snapshot?.projectPath ?? null));
@@ -193,9 +200,41 @@
 		<span class="position" aria-label="Position">{position}</span>
 	{/if}
 
+	<div class="group view-group" role="group" aria-label="View">
+		<button
+			class="view-btn"
+			class:active={activeView === 'timeline'}
+			aria-pressed={activeView === 'timeline'}
+			title="Timeline view (Tab)"
+			onclick={() => (activeView = 'timeline')}
+		>
+			Timeline
+		</button>
+		<button
+			class="view-btn"
+			class:active={activeView === 'mixer'}
+			aria-pressed={activeView === 'mixer'}
+			title="Mixer view (Tab)"
+			onclick={() => (activeView = 'mixer')}
+		>
+			Mixer
+		</button>
+	</div>
+
 	<div class="engine">
 		<span class="backend">{snapshot?.backend ?? 'connecting'}</span>
 		<span class="note">{snapshot?.backendNote ?? ''}</span>
+	</div>
+
+	<div class="group settings-group" role="group" aria-label="Settings">
+		<button
+			class="step settings-btn"
+			aria-label="Settings"
+			title="Settings"
+			onclick={() => settingsStore.toggle()}
+		>
+			⚙
+		</button>
 	</div>
 </header>
 
@@ -379,5 +418,31 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+
+	.view-btn {
+		font-size: 11px;
+		padding: 0 10px;
+		height: 24px;
+		letter-spacing: 0.04em;
+	}
+
+	.view-btn.active {
+		background: var(--surface-hover);
+		color: var(--text);
+		border-color: var(--border);
+	}
+
+	.settings-btn {
+		font-size: 14px;
+		line-height: 1;
+		color: var(--text-subtle);
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.settings-btn:hover {
+		color: var(--text);
 	}
 </style>

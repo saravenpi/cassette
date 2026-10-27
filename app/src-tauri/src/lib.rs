@@ -187,6 +187,19 @@ async fn read_waveform(path: String) -> Result<Waveform, String> {
         .map_err(|error| format!("cassette: {error}"))?
 }
 
+/// Write recorded audio bytes to a WAV file in the temporary directory.
+#[tauri::command]
+fn save_recorded_sample(name: String, bytes: Vec<u8>) -> Result<String, String> {
+    let dir = std::env::temp_dir().join("cassette_recordings");
+    std::fs::create_dir_all(&dir)
+        .map_err(|error| format!("cassette: failed to create recording directory: {error}"))?;
+    let path = dir.join(name);
+    std::fs::write(&path, bytes)
+        .map_err(|error| format!("cassette: failed to save recording: {error}"))?;
+    let canonical = path.canonicalize().unwrap_or(path);
+    Ok(canonical.to_string_lossy().into_owned())
+}
+
 /// The blocking body of [`read_waveform`].
 fn waveform_of(path: &str) -> Result<Waveform, String> {
     let target = resolve(path)?;
@@ -345,6 +358,8 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(snapshot)
         .manage(commands)
         .setup(move |_app| {
@@ -360,7 +375,8 @@ pub fn run() {
             list_samples,
             home_dir,
             parent_of,
-            read_waveform
+            read_waveform,
+            save_recorded_sample
         ])
         .run(tauri::generate_context!())
         .expect("cassette: the tauri runtime failed");

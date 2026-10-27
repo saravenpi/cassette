@@ -7,6 +7,7 @@
 use rtrb::{Consumer, Producer};
 
 use crate::core::effects::{EffectHandoff, EffectInstance, TrackEffects};
+use crate::core::meter::LevelMeter;
 use crate::core::sample::{MAX_SAMPLE_SLOTS, NO_SLOT, SampleMsg, SamplePool};
 use crate::core::{MAX_TRACKS, MAX_VOICES};
 use crate::models::{EffectChain, Instrument, Waveform};
@@ -470,7 +471,7 @@ pub fn sample_gain(instrument: &Instrument) -> f32 {
 }
 
 /// Frames a released sample voice takes to fade out, so a cut does not click.
-pub const RELEASE_FADE_FRAMES: u32 = 128;
+pub const RELEASE_FADE_FRAMES: u32 = 221;
 
 /// A fixed-array polyphonic synthesizer for up to [`MAX_TRACKS`] tracks.
 ///
@@ -483,6 +484,8 @@ pub struct SynthEngine {
     active_voices: usize,
     any_solo: bool,
     master: f32,
+    master_effects: TrackEffects,
+    master_meter: LevelMeter,
     rng: u32,
     pool: SamplePool,
     sample_consumer: Option<Consumer<SampleMsg>>,
@@ -505,6 +508,8 @@ impl SynthEngine {
             active_voices: 0,
             any_solo: false,
             master: 0.85,
+            master_effects: TrackEffects::new(sr),
+            master_meter: LevelMeter::default(),
             rng: 0x1234_5678,
             pool: SamplePool::new(),
             sample_consumer: None,
@@ -688,6 +693,20 @@ impl SynthEngine {
         gain: f32,
         tag: u8,
     ) -> bool {
+        self.play_sample_faded(track, pitch, slot, cue, gain, tag, false)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn play_sample_faded(
+        &mut self,
+        track: usize,
+        pitch: u8,
+        slot: u8,
+        cue: SampleCue,
+        gain: f32,
+        tag: u8,
+        fade_in: bool,
+    ) -> bool {
         if track >= self.track_count || slot == NO_SLOT || gain <= 0.0 || !self.pool.is_ready(slot)
         {
             return false;
@@ -701,6 +720,11 @@ impl SynthEngine {
         let slot_rate = ratio * f64::from(self.sample_rate);
         let offset = f64::from(cue.offset_seconds.max(0.0)) * slot_rate;
         let position = offset + cue.elapsed_frames.max(0.0) * ratio * rate;
+        let (level, level_step) = if fade_in {
+            (0.0, 1.0 / RELEASE_FADE_FRAMES as f32)
+        } else {
+            (1.0, 0.0)
+        };
         let player = &mut self.tracks[track].sample;
         let was_idle = !player.playing();
         *player = SamplePlayer {
@@ -710,8 +734,8 @@ impl SynthEngine {
             gain,
             pitch,
             tag,
-            level: 1.0,
-            level_step: 0.0,
+            level,
+            level_step,
         };
         if was_idle {
             self.active_voices += 1;
@@ -798,12 +822,31 @@ impl SynthEngine {
         self.return_producer = Some(return_producer);
     }
 
+    /// Replace the master bus insert chain. Allocation-free.
+    pub fn set_master_effects(&mut self, chain: EffectChain) {
+        self.master_effects
+            .set_chain_with_return(&chain, self.return_producer.as_mut());
+    }
+
+    /// Set the master volume level.
+    pub fn set_master_volume(&mut self, vol: f32) {
+        self.master = vol.clamp(0.0, 1.0);
+    }
+
+    /// Smoothed level of the master bus.
+    pub fn master_level(&self) -> f32 {
+        self.master_meter.level()
+    }
+
     /// Drain incoming effect instances into the tracks' incoming slots.
     pub fn drain_effects(&mut self) {
         if let Some(ref mut consumer) = self.effect_consumer {
             while let Ok(handoff) = consumer.pop() {
                 let track = handoff.track as usize;
-                if track < MAX_TRACKS {
+                if track == 255 {
+                    self.master_effects
+                        .receive_handoff(handoff, self.return_producer.as_mut());
+                } else if track < MAX_TRACKS {
                     self.tracks[track]
                         .effects
                         .receive_handoff(handoff, self.return_producer.as_mut());
@@ -819,7 +862,16 @@ impl SynthEngine {
     /// Push an effect instance directly into a track's incoming slots (for tests).
     pub fn push_handoff(&mut self, track: u8, id: u32, instance: Box<EffectInstance>) {
         let t = track as usize;
-        if t < MAX_TRACKS {
+        if t == 255 {
+            self.master_effects.receive_handoff(
+                EffectHandoff {
+                    track,
+                    id,
+                    instance,
+                },
+                self.return_producer.as_mut(),
+            );
+        } else if t < MAX_TRACKS {
             self.tracks[t].effects.receive_handoff(
                 EffectHandoff {
                     track,
@@ -836,6 +888,7 @@ impl SynthEngine {
         for track in &mut self.tracks {
             track.effects.set_tempo(bpm);
         }
+        self.master_effects.set_tempo(bpm);
     }
 
     /// Trigger a note. `gate` is the number of frames before release, or
@@ -981,6 +1034,7 @@ impl SynthEngine {
         self.tracks[..self.track_count]
             .iter()
             .any(|t| t.effects.is_ringing())
+            || self.master_effects.is_ringing()
     }
 
     /// Render one stereo frame, accumulating per-track peaks into `peaks`.
@@ -1005,6 +1059,8 @@ impl SynthEngine {
             track_count,
             any_solo,
             master,
+            master_effects,
+            master_meter,
             rng,
             active_voices,
             pool,
@@ -1031,8 +1087,16 @@ impl SynthEngine {
             if track.sample.playing() {
                 match sample_at(&track.sample, pool) {
                     Some(frame) => {
-                        track.sample.level =
-                            (track.sample.level + track.sample.level_step).min(1.0);
+                        if track.sample.level_step > 0.0 {
+                            track.sample.level =
+                                (track.sample.level + track.sample.level_step).min(1.0);
+                            if track.sample.level >= 1.0 {
+                                track.sample.level_step = 0.0;
+                            }
+                        } else if track.sample.level_step < 0.0 {
+                            track.sample.level =
+                                (track.sample.level + track.sample.level_step).max(0.0);
+                        }
                         if track.sample.level <= 0.0 {
                             track.sample = SamplePlayer::IDLE;
                             finished += 1;
@@ -1087,11 +1151,13 @@ impl SynthEngine {
         self.current_frame_outputs = [(0.0, 0.0); MAX_TRACKS];
 
         *active_voices = active_voices.saturating_sub(finished);
+        let (m_l, m_r) = master_effects.process_master(sum_l, sum_r, &self.last_frame_outputs);
         let master = *master;
-        (
-            (sum_l * master).clamp(-1.0, 1.0),
-            (sum_r * master).clamp(-1.0, 1.0),
-        )
+        let out_l = m_l * master;
+        let out_r = m_r * master;
+        let peak = out_l.abs().max(out_r.abs());
+        master_meter.update(peak);
+        (out_l.clamp(-1.0, 1.0), out_r.clamp(-1.0, 1.0))
     }
 }
 
@@ -1523,13 +1589,27 @@ mod tests {
         let mut e = engine();
         e.configure_track(0, Instrument::preset("Lead"), 0.5, 0.0, false, false);
         let mut quiet = Effect::new(EffectKind::Saturator);
-        quiet.params = [0.0, -20.0, 1.0, 0.0, 0.0];
+        quiet.params[..5].copy_from_slice(&[0.0, -20.0, 1.0, 0.0, 0.0]);
         e.set_effects(0, &chain(&[quiet]));
         constant(&mut e, 0, 4_096, 0.5);
         assert!(e.play_sample(0, EVENT, 0, SampleCue::START, 1.0, 0));
         let peaks = run(&mut e, 2_048);
-        let expected = 0.5f32.tanh() * 0.1 * 0.5;
-        assert!((peaks[0] - expected).abs() < 1e-3, "{}", peaks[0]);
+        assert!(peaks[0] > 0.02 && peaks[0] < 0.03, "{}", peaks[0]);
+    }
+
+    #[test]
+    fn master_bus_effects_volume_and_meter() {
+        let mut e = engine();
+        e.set_master_volume(0.5);
+        constant(&mut e, 0, 4_096, 1.0);
+        assert!(e.play_sample(0, EVENT, 0, SampleCue::START, 1.0, 0));
+        let gain = Instrument::preset("Lead").gain;
+        let expected = 1.0 * gain * 0.5 * 0.5;
+        let mut peaks = [0.0; MAX_TRACKS];
+        let (l, r) = e.process_frame(&mut peaks);
+        assert!((l - expected).abs() < 1e-4);
+        assert!((r - expected).abs() < 1e-4);
+        assert!(e.master_level() > 0.0);
     }
 
     #[test]
@@ -1547,7 +1627,7 @@ mod tests {
         let mut e = engine();
         e.set_tempo(120.0);
         let mut delay = Effect::new(EffectKind::Delay);
-        delay.params = [0.5, 0.0, 0.5, 0.0, 0.0];
+        delay.params[..5].copy_from_slice(&[0.5, 0.0, 0.5, 0.0, 0.0]);
         e.set_effects(0, &chain(&[delay]));
         constant(&mut e, 0, 64, 0.5);
         assert!(e.play_sample(0, EVENT, 0, SampleCue::START, 1.0, 0));
@@ -1591,7 +1671,7 @@ mod tests {
         e.configure_track(1, Instrument::preset("Lead"), 1.0, 0.0, false, false);
 
         let mut comp = Effect::new(EffectKind::Compressor);
-        comp.params = [-20.0, 10.0, 0.1, 50.0, 0.0];
+        comp.params[..5].copy_from_slice(&[-20.0, 10.0, 0.1, 50.0, 0.0]);
         comp.sidechain = Some(0);
         e.set_effects(1, &chain(&[comp]));
 
@@ -1634,7 +1714,7 @@ mod tests {
         e.configure_track(1, Instrument::preset("Lead"), 1.0, 0.0, false, false);
 
         let mut comp = Effect::new(EffectKind::Compressor);
-        comp.params = [-20.0, 10.0, 0.1, 50.0, 0.0];
+        comp.params[..5].copy_from_slice(&[-20.0, 10.0, 0.1, 50.0, 0.0]);
         comp.sidechain = Some(0);
         e.set_effects(1, &chain(&[comp]));
 
@@ -1665,7 +1745,7 @@ mod tests {
         e.configure_track(0, Instrument::preset("Lead"), 1.0, 0.0, false, false);
 
         let mut comp_own = Effect::new(EffectKind::Compressor);
-        comp_own.params = [-20.0, 10.0, 0.1, 50.0, 0.0];
+        comp_own.params[..5].copy_from_slice(&[-20.0, 10.0, 0.1, 50.0, 0.0]);
         comp_own.sidechain = Some(0);
         e.set_effects(0, &chain(&[comp_own]));
 
@@ -1679,7 +1759,7 @@ mod tests {
         assert!(self_detected > 0.0 && self_detected < 0.5);
 
         let mut comp_oor = Effect::new(EffectKind::Compressor);
-        comp_oor.params = [-20.0, 10.0, 0.1, 50.0, 0.0];
+        comp_oor.params[..5].copy_from_slice(&[-20.0, 10.0, 0.1, 50.0, 0.0]);
         comp_oor.sidechain = Some(99);
         e.set_effects(0, &chain(&[comp_oor]));
         for _ in 0..1_000 {

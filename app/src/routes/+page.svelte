@@ -13,6 +13,8 @@
 	import Sidebar from '$lib/components/Sidebar.svelte';
 	import StatusBar from '$lib/components/StatusBar.svelte';
 	import Timeline from '$lib/components/Timeline.svelte';
+	import Mixer from '$lib/components/Mixer.svelte';
+	import Settings from '$lib/components/Settings.svelte';
 	import Transport from '$lib/components/Transport.svelte';
 	import { AUDIO_EXTS } from '$lib/audio';
 	import { runDropQueue } from '$lib/dropQueue';
@@ -21,6 +23,34 @@
 	import { freeStart, gridStep, snapBeats } from '$lib/geometry';
 	import { projectTitle } from '$lib/project';
 	import { session } from '$lib/session.svelte';
+	import { settingsStore } from '$lib/settings.svelte';
+
+	let activeView = $state<'timeline' | 'mixer'>('timeline');
+
+	function onWindowKeyDown(event: KeyboardEvent): void {
+		if (
+			event.key === 'Tab' &&
+			!event.shiftKey &&
+			!event.ctrlKey &&
+			!event.altKey &&
+			!event.metaKey
+		) {
+			const target = event.target;
+			if (
+				target instanceof HTMLInputElement ||
+				target instanceof HTMLTextAreaElement ||
+				target instanceof HTMLSelectElement ||
+				(target instanceof HTMLElement && target.isContentEditable)
+			) {
+				return;
+			}
+			if (settingsStore.isOpen) {
+				return;
+			}
+			event.preventDefault();
+			activeView = activeView === 'timeline' ? 'mixer' : 'timeline';
+		}
+	}
 
 	onMount(() => session.attachKeyboard());
 
@@ -90,13 +120,19 @@
 	});
 </script>
 
+<svelte:window onkeydown={onWindowKeyDown} />
+
 <div class="app">
-	<Transport />
+	<Transport bind:activeView />
 	<div class="body">
 		<Sidebar />
 		<div class="main">
 			<div class="lanes">
-				<Timeline />
+				{#if activeView === 'timeline'}
+					<Timeline />
+				{:else}
+					<Mixer />
+				{/if}
 			</div>
 			<DetailPane />
 		</div>
@@ -105,6 +141,7 @@
 </div>
 
 <ContextMenu />
+<Settings />
 
 <style>
 	.app {

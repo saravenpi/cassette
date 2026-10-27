@@ -10,6 +10,7 @@
 	import { menu } from '$lib/menu.svelte';
 	import { trackColor } from '$lib/palette';
 	import { session } from '$lib/session.svelte';
+	import { trackSelection } from '$lib/trackSelection.svelte';
 	import type { TrackView } from '$lib/wire';
 
 	interface Props {
@@ -33,6 +34,7 @@
 
 	const color = $derived(trackColor(track.colorIndex));
 	const selected = $derived(session.snapshot?.cursor.track === index);
+	const isSelected = $derived(selected || trackSelection.isSelected(index));
 	const level = $derived(Math.round(Math.min(1, Math.max(0, track.level)) * 100));
 	const volume = $derived(draggedVolume ?? track.volume);
 	const pan = $derived(draggedPan ?? track.pan);
@@ -104,14 +106,76 @@
 		}
 	}
 
+	function onPick(event: MouseEvent): void {
+		trackSelection.selectTrack(index, {
+			shift: event.shiftKey,
+			toggle: event.metaKey || event.ctrlKey,
+			totalTracks: session.snapshot?.tracks.length ?? 1
+		});
+		session.selectTrack(index);
+	}
+
+	function toggleMute(): void {
+		const nextMuted = !track.muted;
+		if (isSelected && trackSelection.selectedTracks.size > 1) {
+			for (const t of trackSelection.selectedTracks) {
+				const item = session.snapshot?.tracks[t];
+				if (item) {
+					session.queueMix(t, item.volume, item.pan, nextMuted, item.solo);
+				}
+			}
+		} else {
+			mix(volume, pan, nextMuted, track.solo);
+		}
+	}
+
+	function toggleSolo(): void {
+		const nextSolo = !track.solo;
+		if (isSelected && trackSelection.selectedTracks.size > 1) {
+			for (const t of trackSelection.selectedTracks) {
+				const item = session.snapshot?.tracks[t];
+				if (item) {
+					session.queueMix(t, item.volume, item.pan, item.muted, nextSolo);
+				}
+			}
+		} else {
+			mix(volume, pan, track.muted, nextSolo);
+		}
+	}
+
 	function onContextMenu(event: MouseEvent): void {
 		event.preventDefault();
 		const totalTracks = session.snapshot?.tracks.length ?? 1;
-		menu.open(
-			event.clientX,
-			event.clientY,
-			trackMenu(session, index, track, totalTracks, (muted, solo) => mix(volume, pan, muted, solo), startRename)
-		);
+		const inSelection = isSelected;
+		const entries = trackMenu(
+			session,
+			index,
+			track,
+			totalTracks,
+			(muted, solo) => {
+				if (muted !== track.muted) {
+					toggleMute();
+				} else if (solo !== track.solo) {
+					toggleSolo();
+				} else {
+					mix(volume, pan, muted, solo);
+				}
+			},
+			startRename
+		).map((entry) => {
+			if (entry.kind === 'colors' && inSelection) {
+				return {
+					...entry,
+					pick: (colorIndex: number) => {
+						for (const t of trackSelection.selectedTracks) {
+							void session.request({ setTrackColor: { track: t, colorIndex } });
+						}
+					}
+				};
+			}
+			return entry;
+		});
+		menu.open(event.clientX, event.clientY, entries);
 	}
 
 	function onFader(event: Event, which: 'volume' | 'pan'): void {
@@ -150,6 +214,7 @@
 <div
 	class="head"
 	class:dragging
+	class:selected={isSelected}
 	role="group"
 	aria-label="{track.name} strip"
 	data-track-header={index}
@@ -189,8 +254,8 @@
 		{:else}
 			<button
 				class="pick"
-				aria-pressed={selected}
-				onclick={() => session.selectTrack(index)}
+				aria-pressed={isSelected}
+				onclick={(event) => onPick(event)}
 				ondblclick={(event) => {
 					event.stopPropagation();
 					startRename();
@@ -210,7 +275,7 @@
 				class:on={track.muted}
 				aria-pressed={track.muted}
 				aria-label="Mute {track.name}"
-				onclick={() => mix(volume, pan, !track.muted, track.solo)}
+				onclick={toggleMute}
 			>
 				M
 			</button>
@@ -219,7 +284,7 @@
 				class:on={track.solo}
 				aria-pressed={track.solo}
 				aria-label="Solo {track.name}"
-				onclick={() => mix(volume, pan, track.muted, !track.solo)}
+				onclick={toggleSolo}
 			>
 				S
 			</button>
@@ -287,6 +352,11 @@
 		border-left: 1px solid var(--border-subtle);
 		border-bottom: 1px solid var(--border-subtle);
 		padding: 6px 10px;
+	}
+
+	.head.selected {
+		background: var(--surface-hover);
+		border-left-color: var(--fill);
 	}
 
 	.head.dragging {

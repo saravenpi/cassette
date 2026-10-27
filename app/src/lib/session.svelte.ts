@@ -26,6 +26,7 @@ import { KeyedQueue, nextBackoff } from './queue';
 import { selection } from './selection.svelte';
 import { menu } from './menu.svelte';
 import { TRACK_PALETTE } from './palette';
+import { trackSelection, type SelectTrackOptions } from './trackSelection.svelte';
 import type { EffectKind, EngineEvent, TrackKind, UiState } from './wire';
 
 /** A track's voice, as the effects pane edits it. */
@@ -151,11 +152,37 @@ class Session {
 	/** Apply one intent. */
 	dispatch(event: EngineEvent): void {
 		if (this.exporting && (event === 'togglePlay' || event === 'toggleRecord')) return;
+		if (typeof event === 'object' && 'reorderTrack' in event) {
+			trackSelection.reorderTrack(event.reorderTrack.from, event.reorderTrack.to);
+		}
 		void this.send(event);
 	}
 
 	/** Apply one intent and resolve to whether the engine accepted it. */
 	request(event: EngineEvent): Promise<boolean> {
+		if (typeof event === 'object' && 'deleteTrack' in event) {
+			const cursorTrack = this.snapshot?.cursor.track;
+			if (
+				trackSelection.selectedTracks.size > 1 &&
+				((cursorTrack !== undefined && trackSelection.selectedTracks.has(cursorTrack)) ||
+					trackSelection.selectedTracks.has(event.deleteTrack.track))
+			) {
+				this.deleteSelectedTracks();
+				return Promise.resolve(true);
+			}
+		}
+		if (typeof event === 'object' && 'duplicateTrack' in event) {
+			if (
+				trackSelection.selectedTracks.size > 1 &&
+				trackSelection.selectedTracks.has(event.duplicateTrack.track)
+			) {
+				this.duplicateSelectedTracks();
+				return Promise.resolve(true);
+			}
+		}
+		if (typeof event === 'object' && 'reorderTrack' in event) {
+			trackSelection.reorderTrack(event.reorderTrack.from, event.reorderTrack.to);
+		}
 		return this.send(event);
 	}
 
@@ -192,12 +219,32 @@ class Session {
 	}
 
 	/** Select a track from its header, and show its devices if the detail pane is open. */
-	selectTrack(track: number): void {
+	selectTrack(track: number, options?: SelectTrackOptions): void {
 		if (this.snapshot?.cursor.track !== track) {
 			this.selectedEffectIndex = null;
 		}
+		if (options) {
+			trackSelection.selectTrack(track, {
+				...options,
+				totalTracks: this.snapshot?.tracks.length ?? 1
+			});
+		} else if (!trackSelection.isSelected(track)) {
+			trackSelection.selectTrack(track, {
+				totalTracks: this.snapshot?.tracks.length ?? 1
+			});
+		}
 		this.dispatch({ selectTrack: { track } });
 		detail.followTrack();
+	}
+
+	selectAllTracks(): void {
+		const total = this.snapshot?.tracks.length ?? 1;
+		trackSelection.selectAll(total);
+	}
+
+	clearTrackSelection(activeTrack?: number): void {
+		const active = activeTrack ?? this.snapshot?.cursor.track ?? 0;
+		trackSelection.clear(active);
 	}
 
 	copyEffect(trackIndex?: number, effectIndex?: number): void {
@@ -466,9 +513,18 @@ class Session {
 		if (selection.range !== null) {
 			this.dispatch({ deleteRange: { range: selection.range } });
 			selection.clear();
-		} else {
-			this.dispatch('deleteBlock');
+			return;
 		}
+		const cursorTrack = this.snapshot?.cursor.track;
+		if (
+			trackSelection.selectedTracks.size > 1 &&
+			cursorTrack !== undefined &&
+			trackSelection.selectedTracks.has(cursorTrack)
+		) {
+			this.deleteSelectedTracks();
+			return;
+		}
+		this.dispatch('deleteBlock');
 	}
 
 	/** Toggle or set looping over the active selection or song. */
@@ -507,18 +563,85 @@ class Session {
 		}
 	}
 
+	addMidiTrack(): void {
+		this.addTrack('midi');
+	}
+
+	addAudioTrack(): void {
+		this.addTrack('audio');
+	}
+
 	/** Delete a track if more than one track remains. */
 	deleteTrack(track: number): void {
-		if ((this.snapshot?.tracks.length ?? 0) > 1) {
-			this.dispatch({ deleteTrack: { track } });
+		const total = this.snapshot?.tracks.length ?? 0;
+		if (total <= 1) return;
+		const cursorTrack = this.snapshot?.cursor.track;
+		if (
+			trackSelection.selectedTracks.size > 1 &&
+			((cursorTrack !== undefined && trackSelection.selectedTracks.has(cursorTrack)) ||
+				trackSelection.selectedTracks.has(track))
+		) {
+			this.deleteSelectedTracks();
+			return;
+		}
+		this.dispatch({ deleteTrack: { track } });
+		trackSelection.deleteTracks([track]);
+		if (trackSelection.selectedTracks.size === 0) {
+			const remaining = Math.max(1, total - 1);
+			const target = Math.max(0, Math.min(track, remaining - 1));
+			trackSelection.clear(target);
+		}
+	}
+
+	deleteSelectedTracks(): void {
+		const currentCount = this.snapshot?.tracks.length ?? 0;
+		if (currentCount <= 1) return;
+		const tracks = Array.from(trackSelection.selectedTracks).sort((a, b) => b - a);
+		const maxDeletions = currentCount - 1;
+		const toDelete = tracks.slice(0, maxDeletions);
+		if (toDelete.length === 0) return;
+		this.dispatch('checkpoint');
+		for (const t of toDelete) {
+			this.dispatch({ deleteTrack: { track: t } });
+		}
+		trackSelection.deleteTracks(toDelete);
+		if (trackSelection.selectedTracks.size === 0) {
+			const remaining = Math.max(1, currentCount - toDelete.length);
+			const target = Math.max(0, Math.min(toDelete[toDelete.length - 1], remaining - 1));
+			trackSelection.clear(target);
+			this.dispatch({ selectTrack: { track: target } });
 		}
 	}
 
 	/** Duplicate a track if below the maximum track count. */
 	duplicateTrack(track: number): void {
-		if ((this.snapshot?.tracks.length ?? 0) < 16) {
-			this.dispatch({ duplicateTrack: { track } });
+		const total = this.snapshot?.tracks.length ?? 0;
+		if (total >= 16) return;
+		if (
+			trackSelection.selectedTracks.size > 1 &&
+			trackSelection.isSelected(track)
+		) {
+			this.duplicateSelectedTracks();
+			return;
 		}
+		this.dispatch({ duplicateTrack: { track } });
+	}
+
+	duplicateSelectedTracks(): void {
+		let total = this.snapshot?.tracks.length ?? 0;
+		if (total >= 16) return;
+		this.dispatch('checkpoint');
+		const tracks = Array.from(trackSelection.selectedTracks).sort((a, b) => b - a);
+		for (const t of tracks) {
+			if (total >= 16) break;
+			this.dispatch({ duplicateTrack: { track: t } });
+			total += 1;
+		}
+	}
+
+	reorderTrack(from: number, to: number): void {
+		trackSelection.reorderTrack(from, to);
+		this.dispatch({ reorderTrack: { from, to } });
 	}
 
 	/** Rename a track. */
@@ -589,7 +712,10 @@ class Session {
 	async loadProjectFromDialog(pick: () => Promise<string | null> = pickProject): Promise<void> {
 		try {
 			const path = await pick();
-			if (path !== null) await this.send({ loadProject: { path } });
+			if (path !== null) {
+				await this.send({ loadProject: { path } });
+				trackSelection.clear(0);
+			}
 		} catch (error) {
 			this.fail(error, 'send');
 		}
@@ -685,6 +811,24 @@ class Session {
 				return;
 			}
 			this.clear('poll');
+			if (this.snapshot) {
+				const count = this.snapshot.tracks.length;
+				let changed = false;
+				const valid = new Set<number>();
+				for (const t of trackSelection.selectedTracks) {
+					if (t < count) {
+						valid.add(t);
+					} else {
+						changed = true;
+					}
+				}
+				if (valid.size === 0) {
+					const target = Math.max(0, Math.min(this.snapshot.cursor.track, count - 1));
+					trackSelection.clear(target);
+				} else if (changed) {
+					trackSelection.selectedTracks = valid;
+				}
+			}
 			if (this.snapshot?.exportProgress !== undefined && this.snapshot?.exportProgress !== null) {
 				this.exportProgress = this.snapshot.exportProgress;
 				this.exporting = true;

@@ -250,6 +250,14 @@ pub enum RtCommand {
         track: u8,
         chain: crate::models::EffectChain,
     },
+    /// Replace the master bus insert chain.
+    SetMasterEffects {
+        chain: crate::models::EffectChain,
+    },
+    /// Set the master volume level.
+    SetMasterVolume {
+        volume: f32,
+    },
     /// Turn the metronome click on or off.
     SetMetronome {
         on: bool,
@@ -417,6 +425,8 @@ impl RenderCore {
         for (i, track) in song.tracks.iter().enumerate() {
             synth.set_effects(i, &EffectChain::from_effects(&track.effects));
         }
+        synth.set_master_volume(song.master_volume);
+        synth.set_master_effects(EffectChain::from_effects(&song.master_effects));
         let mut core = Self {
             synth,
             transport: Transport::new(song.bpm(), sample_rate),
@@ -616,6 +626,8 @@ impl RenderCore {
             RtCommand::SetEffects { track, chain } => {
                 self.synth.set_effects(track as usize, &chain)
             }
+            RtCommand::SetMasterEffects { chain } => self.synth.set_master_effects(chain),
+            RtCommand::SetMasterVolume { volume } => self.synth.set_master_volume(volume),
             RtCommand::SetMetronome { on } => self.metronome = on,
             RtCommand::PlayAfterCountIn { beats } => self.count_in(beats),
         }
@@ -871,16 +883,22 @@ impl RenderCore {
                         * frames_per_beat,
                     rate: block.rate,
                 };
-                self.synth.play_sample(
+                self.synth.play_sample_faded(
                     track,
                     EVENT_PITCH,
                     block.slot,
                     cue,
                     block.gain,
                     index as u8,
+                    true,
                 );
             }
         }
+    }
+
+    /// Read the master bus level from the synthesizer.
+    pub fn master_level(&self) -> f32 {
+        self.synth.master_level()
     }
 
     /// Transport position in frames.

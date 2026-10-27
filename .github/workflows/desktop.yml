@@ -143,8 +143,55 @@ jobs:
           gh release create "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --title "$RELEASE_TAG" \
-            --generate-notes || true
+            --generate-notes \
+            --latest=false || true
           gh release upload "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --clobber \
             Cassette-* desktop-checksums.txt
+
+  manifest:
+    name: updater manifest
+    needs: [bundle, publish]
+    if: github.ref_type == 'tag' || inputs.tag != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: oven-sh/setup-bun@v2
+
+      - uses: actions/download-artifact@v8
+        with:
+          path: out
+          merge-multiple: true
+
+      - name: Test the manifest builder
+        run: bun test scripts
+
+      - name: Build latest.json
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          bun run scripts/latest-json.ts \
+            --tag "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --dir out \
+            --changelog CHANGELOG.md \
+            --out out/latest.json
+          cat out/latest.json
+
+      - name: Upload latest.json and signatures
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          cd out
+          gh release upload "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber \
+            latest.json Cassette-*.sig
+          gh release edit "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --latest

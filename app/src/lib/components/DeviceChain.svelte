@@ -21,6 +21,7 @@
 	import { session } from '$lib/session.svelte';
 	import type { EffectKind, TrackView } from '$lib/wire';
 	import Device from './Device.svelte';
+	import EqEightView from './EqEightView.svelte';
 	import Knob from './Knob.svelte';
 	import VoiceEditor from './VoiceEditor.svelte';
 
@@ -248,6 +249,8 @@
 				>
 					{#if spec === null}
 						<p class="note">The engine lists no controls for {effect.name}.</p>
+					{:else if effect.kind === 'eqEight'}
+						<EqEightView {effect} {index} {at} />
 					{:else}
 						<div class="params">
 							{#each spec.params as param, p (param.name)}

@@ -34,6 +34,7 @@ export interface Drag {
 	released: boolean;
 	dirty: boolean;
 	releasedAt: number;
+	invalidTarget: boolean;
 }
 
 /** What a drag needs from the session it belongs to. */
@@ -56,11 +57,14 @@ export function laneUnder(
 ): { track: number; beats: number } | null {
 	const elements = typeof document !== 'undefined' && document.elementsFromPoint ? document.elementsFromPoint(clientX, clientY) : [];
 	for (const hit of elements) {
-		const lane = hit instanceof Element ? hit.closest('[data-lane-track]') : null;
-		if (lane instanceof HTMLElement) {
-			const track = Number(lane.dataset.laneTrack);
-			if (Number.isInteger(track)) {
-				return { track, beats: pxToBeats(clientX - lane.getBoundingClientRect().left, zoom) };
+		const lane =
+			typeof Element !== 'undefined' && hit instanceof Element
+				? hit.closest('[data-lane-track]')
+				: (hit as any)?.closest?.('[data-lane-track]');
+		if (lane && typeof lane === 'object' && 'dataset' in lane) {
+			const track = Number((lane as any).dataset?.laneTrack);
+			if (Number.isInteger(track) && typeof (lane as any).getBoundingClientRect === 'function') {
+				return { track, beats: pxToBeats(clientX - (lane as any).getBoundingClientRect().left, zoom) };
 			}
 		}
 	}
@@ -101,6 +105,9 @@ export class DragController {
 		const drag = this.state;
 		if (drag === null || !drag.dirty) return;
 		if (drag.kind === 'trim' && drag.view.kind === 'midi' && !drag.released) return;
+		if (drag.invalidTarget) {
+			drag.targetTrack = drag.track;
+		}
 		drag.dirty = false;
 		await this.context.send(request(drag));
 	}
@@ -135,7 +142,8 @@ export class DragController {
 			floorBeats: this.floor(view),
 			released: false,
 			dirty: false,
-			releasedAt: 0
+			releasedAt: 0,
+			invalidTarget: false
 		};
 		window.addEventListener('pointermove', this.onPointerMove);
 		window.addEventListener('pointerup', this.onPointerUp);
@@ -153,9 +161,16 @@ export class DragController {
 		if (lane === null) return;
 		if (drag.kind === 'move') {
 			const startBeats = snapBeats(lane.beats - drag.grab, gridStep(this.context.zoom()), event.altKey);
-			if (startBeats === drag.startBeats && lane.track === drag.targetTrack) return;
+			const targetTrackKind = this.context.snapshot()?.tracks[lane.track]?.kind;
+			const wasInvalid = drag.invalidTarget;
+			if (drag.view.kind !== targetTrackKind) {
+				drag.invalidTarget = true;
+			} else {
+				drag.invalidTarget = false;
+				drag.targetTrack = lane.track;
+			}
+			if (startBeats === drag.startBeats && (drag.invalidTarget ? wasInvalid : lane.track === drag.targetTrack)) return;
 			drag.startBeats = startBeats;
-			drag.targetTrack = lane.track;
 		} else if (drag.kind === 'trim') {
 			const span = trimSpan(
 				snapBeats(lane.beats, gridStep(this.context.zoom()), event.altKey),
@@ -198,6 +213,9 @@ export class DragController {
 	private release(): void {
 		const drag = this.state;
 		if (drag === null) return;
+		if (drag.invalidTarget) {
+			drag.targetTrack = drag.track;
+		}
 		drag.released = true;
 		drag.releasedAt = performance.now();
 		window.removeEventListener('pointermove', this.onPointerMove);

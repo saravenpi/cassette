@@ -50,7 +50,72 @@ impl App {
         self.report_export_progress(None);
     }
 
+    pub(crate) fn export_stems(&mut self, dir: Option<String>) {
+        self.end_take();
+        self.send(RtCommand::Stop);
+        self.send(RtCommand::Seek {
+            beats: self.marker_beats,
+        });
+        let base_dir = dir
+            .filter(|d| !d.is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| default_directory().join("stems"));
+        if let Err(e) = std::fs::create_dir_all(&base_dir) {
+            self.status = format!("export stems failed: {e}");
+            return;
+        }
+
+        let tracks_with_blocks: Vec<(usize, String)> = self
+            .song
+            .tracks
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| !t.blocks.is_empty())
+            .map(|(i, t)| (i, t.name.clone()))
+            .collect();
+
+        if tracks_with_blocks.is_empty() {
+            self.status = "no tracks to export stems for".into();
+            return;
+        }
+
+        let mut exported = 0;
+        for (track_idx, track_name) in &tracks_with_blocks {
+            let safe_name: String = track_name
+                .chars()
+                .map(|c| {
+                    if c.is_alphanumeric() || c == '-' || c == '_' {
+                        c
+                    } else {
+                        '_'
+                    }
+                })
+                .collect();
+            let file_name = if safe_name.is_empty() {
+                format!("track_{}", track_idx + 1)
+            } else {
+                safe_name
+            };
+            let stem_path = base_dir.join(format!("{file_name}.wav"));
+            match self.render_tracks_to(Some(*track_idx), &stem_path) {
+                Ok(_) => exported += 1,
+                Err(error) => {
+                    self.status = format!("export stems failed: {error:#}");
+                    self.report_export_progress(None);
+                    return;
+                }
+            }
+        }
+
+        self.status = format!("exported {exported} stems to {}", base_dir.display());
+        self.report_export_progress(None);
+    }
+
     fn render_to(&mut self, path: &Path) -> Result<bool> {
+        self.render_tracks_to(None, path)
+    }
+
+    fn render_tracks_to(&mut self, solo_track: Option<usize>, path: &Path) -> Result<bool> {
         let sample_rate = EXPORT_SAMPLE_RATE;
         let max_end_beats = self
             .song
@@ -87,7 +152,23 @@ impl App {
                 track: track as u8,
                 chain: EffectChain::from_effects(&self.song.tracks[track].effects),
             });
+            if let Some(solo_idx) = solo_track {
+                let is_solo = track == solo_idx;
+                core.apply(RtCommand::SetTrackMix {
+                    track: track as u8,
+                    volume: self.song.tracks[track].volume,
+                    pan: self.song.tracks[track].pan,
+                    muted: !is_solo,
+                    solo: is_solo,
+                });
+            }
         }
+        core.apply(RtCommand::SetMasterVolume {
+            volume: self.song.master_volume,
+        });
+        core.apply(RtCommand::SetMasterEffects {
+            chain: EffectChain::from_effects(&self.song.master_effects),
+        });
 
         core.apply(RtCommand::SetLooping { looping: false });
         core.apply(RtCommand::Seek { beats: 0.0 });
@@ -387,6 +468,19 @@ mod tests {
         assert!(app.status.contains("exported audio to"));
         let leftovers = std::fs::read_dir(&dir.0).expect("list").count();
         assert_eq!(leftovers, 1, "the temp file must be renamed away");
+    }
+
+    #[test]
+    fn stems_export_renders_tracks_with_blocks() {
+        let mut app = headless_app();
+        let dir = TempDir::new();
+        app.song.tracks[0].add_block(0.0, 4.0);
+        app.song.tracks[1].add_block(0.0, 4.0);
+        app.export_stems(Some(dir.0.to_string_lossy().into_owned()));
+        assert!(app.status.contains("exported 2 stems"));
+        assert!(dir.file("Midi_1.wav").exists());
+        assert!(dir.file("Midi_2.wav").exists());
+        assert!(!dir.file("Audio_1.wav").exists());
     }
 
     #[test]

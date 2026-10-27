@@ -49,6 +49,22 @@
 		const drag = session.drag.state;
 		return drag !== null && drag.track === track && drag.index === index ? drag.kind : null;
 	});
+	const isDragging = $derived(
+		dragging ||
+			(session.drag.state !== null &&
+				session.drag.state.track === track &&
+				session.drag.state.index === index)
+	);
+	const invalidDrop = $derived(
+		isDragging && session.drag.state !== null && session.drag.state.invalidTarget
+	);
+	const invalidNotice = $derived(
+		invalidDrop
+			? block.kind === 'midi'
+				? 'Cannot place MIDI block on audio track'
+				: 'Cannot place audio block on MIDI track'
+			: undefined
+	);
 	const rate = $derived(
 		editing === 'stretch' ? (block.lengthBeats * block.rate) / Math.max(lengthBeats, 0.001) : block.rate
 	);
@@ -142,7 +158,10 @@
 	class="block"
 	class:selected={block.selected}
 	class:dragging
+	class:invalid-drop={invalidDrop}
 	role="listitem"
+	title={invalidNotice}
+	aria-label={invalidNotice}
 	data-block={index}
 	data-block-track={track}
 	style="left: {left}px; width: {width}px; --fill: {trackColor(colorIndex)}"
@@ -234,6 +253,17 @@
 	.block.dragging {
 		opacity: 0.7;
 		cursor: grabbing;
+	}
+
+	.block.invalid-drop {
+		opacity: 0.35;
+		cursor: not-allowed !important;
+		outline: 1px dashed var(--danger, #ff4444);
+	}
+
+	.block.invalid-drop .handle {
+		cursor: not-allowed !important;
+		pointer-events: none;
 	}
 
 	.wave {

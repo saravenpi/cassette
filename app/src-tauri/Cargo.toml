@@ -1,6 +1,6 @@
 [package]
 name = "cassette-app"
-version = "0.16.3"
+version = "0.17.0"
 description = "cassette: the desktop shell (Tauri) around the audio engine"
 license = "MIT"
 edition = "2024"
@@ -31,6 +31,8 @@ tauri = { version = "2", features = [] }
 #   sudo apt install libasound2-dev
 cassette = { path = "../..", features = ["cpal"] }
 tauri-plugin-dialog = "2.8.3"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 
 # No `panic = "abort"` here, unlike the engine: a webview-side panic should not
 # abort the process on the spot.

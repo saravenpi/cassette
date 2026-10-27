@@ -16,6 +16,7 @@ export interface Span {
 /** What each built-in effect does, in one line for the effect browser. */
 export const EFFECT_BLURBS: Record<EffectKind, string> = {
 	eq: 'Cut or boost the lows, mids and highs.',
+	eqEight: 'Eight-band visual parametric equalizer.',
 	filter: 'Low-, high- or band-pass with resonance.',
 	saturator: 'Drive into soft clipping for warmth.',
 	compressor: 'Even out the level, or duck under another track with the sidechain.',
@@ -30,7 +31,7 @@ export const EFFECT_BLURBS: Record<EffectKind, string> = {
 };
 
 /** The most parameters one effect has, so a queue key never collides. */
-const PARAM_SLOTS = 8;
+const PARAM_SLOTS = 32;
 /** The most effects one chain holds, likewise. */
 const EFFECT_SLOTS = 8;
 

@@ -37,6 +37,7 @@ export interface BlockView {
 
 export type EffectKind =
 	| 'eq'
+	| 'eqEight'
 	| 'filter'
 	| 'saturator'
 	| 'compressor'

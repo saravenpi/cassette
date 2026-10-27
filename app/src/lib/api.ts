@@ -82,3 +82,8 @@ export function pickExportWav(defaultName?: string): Promise<string | null> {
 		filters: [{ name: 'WAV Audio', extensions: ['wav'] }]
 	});
 }
+
+/** Write recorded audio bytes to a WAV file in the temporary directory. */
+export function saveRecordedSample(name: string, bytes: Uint8Array | number[]): Promise<string> {
+	return invoke<string>('save_recorded_sample', { name, bytes: Array.from(bytes) });
+}

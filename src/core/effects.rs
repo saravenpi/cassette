@@ -98,6 +98,7 @@ enum Shape {
     Peak,
     LowShelf,
     HighShelf,
+    Notch,
 }
 
 /// Normalised `[b0, b1, b2, a1, a2]` for one RBJ cookbook biquad.
@@ -151,6 +152,7 @@ fn rbj(shape: Shape, freq: f32, q: f32, gain_db: f32, sample_rate: f32) -> [f32;
             2.0 * ((a - 1.0) - (a + 1.0) * cos),
             (a + 1.0) - (a - 1.0) * cos - root,
         ],
+        Shape::Notch => [1.0, -2.0 * cos, 1.0, 1.0 + alpha, -2.0 * cos, 1.0 - alpha],
     };
     [b0 / a0, b1 / a0, b2 / a0, a1 / a0, a2 / a0].map(|c| c as f32)
 }
@@ -233,6 +235,42 @@ impl EqThree {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct EqEight {
+    bands: [Biquad; 8],
+}
+
+impl EqEight {
+    fn configure(&mut self, effect: &Effect, sample_rate: f32) {
+        for (b, band) in self.bands.iter_mut().enumerate() {
+            let base = b * 4;
+            let freq = param(effect, base);
+            let gain = param(effect, base + 1);
+            let q = param(effect, base + 2);
+            let shape = match param(effect, base + 3).round() as u8 {
+                0 => Shape::HighPass,
+                1 => Shape::LowShelf,
+                2 => Shape::Peak,
+                3 => Shape::HighShelf,
+                4 => Shape::LowPass,
+                5 => Shape::Notch,
+                _ => Shape::Peak,
+            };
+            band.target = rbj(shape, freq, q, gain, sample_rate);
+        }
+    }
+
+    fn reset(&mut self) {
+        self.bands.iter_mut().for_each(Biquad::reset);
+    }
+
+    fn process(&mut self, l: f32, r: f32, k: f32) -> (f32, f32) {
+        self.bands
+            .iter_mut()
+            .fold((l, r), |(l, r), band| band.process(l, r, k))
+    }
+}
+
 /// Filter: a resonant low-, high- or band-pass biquad.
 #[derive(Clone, Copy, Debug)]
 /// A multi-mode biquad filter.
@@ -260,34 +298,133 @@ impl Filter {
     }
 }
 
-/// Saturator: pre-gain into a tanh soft clip, then output gain and dry/wet.
+/// Saturator: multi-model analog saturation stage with tone control.
 #[derive(Clone, Copy, Debug)]
-/// A soft-clipping saturation stage.
 pub struct Saturator {
     drive: Smoothed,
     output: Smoothed,
     mix: Smoothed,
+    model: u8,
+    tone: Smoothed,
+    sample_rate: f32,
+    tone_l: f32,
+    tone_r: f32,
+    tape_warmth_l: f32,
+    tape_warmth_r: f32,
+    tape_shelf_l: f32,
+    tape_shelf_r: f32,
 }
 
 impl Saturator {
-    fn configure(&mut self, effect: &Effect) {
+    pub fn new(sample_rate: f32) -> Self {
+        Self {
+            drive: Smoothed::at(db_to_gain(6.0)),
+            output: Smoothed::at(1.0),
+            mix: Smoothed::at(1.0),
+            model: 0,
+            tone: Smoothed::at(0.0),
+            sample_rate: sample_rate.max(1.0),
+            tone_l: 0.0,
+            tone_r: 0.0,
+            tape_warmth_l: 0.0,
+            tape_warmth_r: 0.0,
+            tape_shelf_l: 0.0,
+            tape_shelf_r: 0.0,
+        }
+    }
+
+    fn configure(&mut self, effect: &Effect, sample_rate: f32) {
+        self.sample_rate = sample_rate.max(1.0);
         self.drive.set(db_to_gain(param(effect, 0)));
         self.output.set(db_to_gain(param(effect, 1)));
         self.mix.set(param(effect, 2));
+        self.model = param(effect, 3).round().clamp(0.0, 3.0) as u8;
+        self.tone.set(param(effect, 4));
     }
 
     fn reset(&mut self) {
         self.drive.snap();
         self.output.snap();
         self.mix.snap();
+        self.tone.snap();
+        self.tone_l = 0.0;
+        self.tone_r = 0.0;
+        self.tape_warmth_l = 0.0;
+        self.tape_warmth_r = 0.0;
+        self.tape_shelf_l = 0.0;
+        self.tape_shelf_r = 0.0;
     }
 
     fn process(&mut self, l: f32, r: f32, k: f32) -> (f32, f32) {
         let drive = self.drive.next(k);
         let output = self.output.next(k);
         let mix = self.mix.next(k);
-        let shape = |x: f32| x + ((x * drive).tanh() * output - x) * mix;
-        (shape(l), shape(r))
+        let tone = self.tone.next(k);
+        let tone_gain = db_to_gain(tone);
+        let sample_rate = self.sample_rate;
+        let model = self.model;
+
+        let alpha_tone = 1.0 - (-std::f32::consts::TAU * 3_500.0 / sample_rate).exp();
+        let alpha_warmth = 1.0 - (-std::f32::consts::TAU * 150.0 / sample_rate).exp();
+        let fc_shelf = (18_000.0 - 500.0 * drive.max(1.0).log2()).clamp(6_000.0, 18_000.0);
+        let alpha_shelf = 1.0 - (-std::f32::consts::TAU * fc_shelf / sample_rate).exp();
+        let roll_amount = (0.10 + 0.05 * drive.max(1.0).log2()).clamp(0.10, 0.40);
+
+        let process_channel =
+            |x: f32, tone_state: &mut f32, warmth_state: &mut f32, shelf_state: &mut f32| -> f32 {
+                let sat = match model {
+                    1 => {
+                        if x >= 0.0 {
+                            1.0 - (-x * drive).clamp(-50.0, 0.0).exp()
+                        } else {
+                            -(1.0 - (x * drive * 0.75).clamp(-50.0, 0.0).exp()) * 1.3
+                        }
+                    }
+                    2 => {
+                        let v = (x * drive).clamp(-1.5, 1.5);
+                        1.5 * v - 0.5 * v.powi(3)
+                    }
+                    3 => {
+                        let v = x * drive;
+                        let a = v.abs();
+                        if a < 0.6 {
+                            v
+                        } else {
+                            v.signum()
+                                * (0.6 + 0.4 * (1.0 - (-(a - 0.6) / 0.4).clamp(-50.0, 0.0).exp()))
+                        }
+                    }
+                    _ => {
+                        *warmth_state =
+                            flush(*warmth_state + alpha_warmth * (x * drive - *warmth_state));
+                        let warmed = x * drive + 0.15 * *warmth_state;
+                        let s = warmed / (1.0 + warmed.powi(2)).sqrt();
+                        *shelf_state = flush(*shelf_state + alpha_shelf * (s - *shelf_state));
+                        s * (1.0 - roll_amount) + *shelf_state * roll_amount
+                    }
+                };
+
+                *tone_state = flush(*tone_state + alpha_tone * (sat - *tone_state));
+                let hp = sat - *tone_state;
+                let toned = *tone_state + hp * tone_gain;
+                let wet = toned * output;
+                x * (1.0 - mix) + wet * mix
+            };
+
+        (
+            process_channel(
+                l,
+                &mut self.tone_l,
+                &mut self.tape_warmth_l,
+                &mut self.tape_shelf_l,
+            ),
+            process_channel(
+                r,
+                &mut self.tone_r,
+                &mut self.tape_warmth_r,
+                &mut self.tape_shelf_r,
+            ),
+        )
     }
 }
 
@@ -842,38 +979,65 @@ pub struct Utility {
     gain: Smoothed,
     width: Smoothed,
     pan: Smoothed,
+    mode: u8,
+    bass_mono_freq: Smoothed,
+    sample_rate: f32,
+    bass_mono_state: f32,
 }
 
 impl Utility {
-    fn new() -> Self {
+    fn new(sample_rate: f32) -> Self {
         Self {
             gain: Smoothed::at(1.0),
             width: Smoothed::at(1.0),
             pan: Smoothed::at(0.0),
+            mode: 0,
+            bass_mono_freq: Smoothed::at(0.0),
+            sample_rate,
+            bass_mono_state: 0.0,
         }
     }
 
-    fn configure(&mut self, effect: &Effect) {
+    fn configure(&mut self, effect: &Effect, sample_rate: f32) {
+        self.sample_rate = sample_rate;
         self.gain.set(db_to_gain(param(effect, 0)));
-        self.width.set(param(effect, 1).clamp(0.0, 2.0));
+        self.width.set(param(effect, 1).clamp(0.0, 4.0));
         self.pan.set(param(effect, 2).clamp(-1.0, 1.0));
+        self.mode = param(effect, 3).round().clamp(0.0, 3.0) as u8;
+        self.bass_mono_freq.set(param(effect, 4).clamp(0.0, 500.0));
     }
 
     fn reset(&mut self) {
         self.gain.snap();
         self.width.snap();
         self.pan.snap();
+        self.bass_mono_freq.snap();
+        self.bass_mono_state = 0.0;
     }
 
     fn process(&mut self, l: f32, r: f32, k: f32) -> (f32, f32) {
-        let gain = self.gain.next(k);
-        let width = self.width.next(k);
-        let pan = self.pan.next(k);
+        let (l, r) = match self.mode {
+            1 => ((l + r) * 0.5, (l + r) * 0.5),
+            2 => (l, l),
+            3 => (r, r),
+            _ => (l, r),
+        };
         let mid = (l + r) * 0.5;
-        let side = (l - r) * 0.5;
-        let side_w = side * width;
-        let ms_l = mid + side_w;
-        let ms_r = mid - side_w;
+        let mut side = (l - r) * 0.5;
+        let bass_freq = self.bass_mono_freq.next(k);
+        if bass_freq > 20.0 {
+            let alpha =
+                1.0 - (-std::f32::consts::TAU * bass_freq / self.sample_rate.max(1.0)).exp();
+            self.bass_mono_state += alpha * (side - self.bass_mono_state);
+            self.bass_mono_state = flush(self.bass_mono_state);
+            side -= self.bass_mono_state;
+        }
+        let width = self.width.next(k);
+        side *= width;
+        let ms_l = mid + side;
+        let ms_r = mid - side;
+        let pan = self.pan.next(k);
+        let gain = self.gain.next(k);
         let pan_l = if pan > 0.0 { 1.0 - pan } else { 1.0 };
         let pan_r = if pan < 0.0 { 1.0 + pan } else { 1.0 };
         (ms_l * pan_l * gain, ms_r * pan_r * gain)
@@ -937,6 +1101,7 @@ impl Limiter {
 #[allow(clippy::large_enum_variant)]
 pub enum EffectInstance {
     Eq(EqThree),
+    EqEight(EqEight),
     Filter(Filter),
     Saturator(Saturator),
     Compressor(Compressor),
@@ -957,14 +1122,13 @@ impl EffectInstance {
             EffectKind::Eq => Self::Eq(EqThree {
                 bands: [Biquad::IDENTITY; 3],
             }),
+            EffectKind::EqEight => Self::EqEight(EqEight {
+                bands: [Biquad::IDENTITY; 8],
+            }),
             EffectKind::Filter => Self::Filter(Filter {
                 biquad: Biquad::IDENTITY,
             }),
-            EffectKind::Saturator => Self::Saturator(Saturator {
-                drive: Smoothed::at(1.0),
-                output: Smoothed::at(1.0),
-                mix: Smoothed::at(0.0),
-            }),
+            EffectKind::Saturator => Self::Saturator(Saturator::new(sample_rate)),
             EffectKind::Compressor => Self::Compressor(Compressor {
                 threshold: 0.0,
                 slope: 0.0,
@@ -979,7 +1143,7 @@ impl EffectInstance {
             EffectKind::Phaser => Self::Phaser(Phaser::new(sample_rate)),
             EffectKind::AutoPan => Self::AutoPan(AutoPan::new(sample_rate)),
             EffectKind::BitCrusher => Self::BitCrusher(BitCrusher::new()),
-            EffectKind::Utility => Self::Utility(Utility::new()),
+            EffectKind::Utility => Self::Utility(Utility::new(sample_rate)),
             EffectKind::Limiter => Self::Limiter(Limiter::new(sample_rate)),
         }
     }
@@ -988,6 +1152,7 @@ impl EffectInstance {
     pub fn kind(&self) -> EffectKind {
         match self {
             Self::Eq(_) => EffectKind::Eq,
+            Self::EqEight(_) => EffectKind::EqEight,
             Self::Filter(_) => EffectKind::Filter,
             Self::Saturator(_) => EffectKind::Saturator,
             Self::Compressor(_) => EffectKind::Compressor,
@@ -1006,8 +1171,9 @@ impl EffectInstance {
     pub fn configure(&mut self, effect: &Effect, sample_rate: f32, frames_per_beat: f32) {
         match self {
             Self::Eq(e) => e.configure(effect, sample_rate),
+            Self::EqEight(e) => e.configure(effect, sample_rate),
             Self::Filter(f) => f.configure(effect, sample_rate),
-            Self::Saturator(s) => s.configure(effect),
+            Self::Saturator(s) => s.configure(effect, sample_rate),
             Self::Compressor(c) => c.configure(effect, sample_rate),
             Self::Delay(d) => d.configure(effect, frames_per_beat),
             Self::Reverb(r) => r.configure(effect),
@@ -1015,7 +1181,7 @@ impl EffectInstance {
             Self::Phaser(p) => p.configure(effect, sample_rate),
             Self::AutoPan(ap) => ap.configure(effect, frames_per_beat),
             Self::BitCrusher(bc) => bc.configure(effect),
-            Self::Utility(u) => u.configure(effect),
+            Self::Utility(u) => u.configure(effect, sample_rate),
             Self::Limiter(lim) => lim.configure(effect, sample_rate),
         }
     }
@@ -1024,6 +1190,7 @@ impl EffectInstance {
     pub fn reset(&mut self) {
         match self {
             Self::Eq(e) => e.reset(),
+            Self::EqEight(e) => e.reset(),
             Self::Filter(f) => f.reset(),
             Self::Saturator(s) => s.reset(),
             Self::Compressor(c) => c.reset(),
@@ -1048,6 +1215,7 @@ impl EffectInstance {
     ) -> (f32, f32) {
         match self {
             Self::Eq(e) => e.process(l, r, k),
+            Self::EqEight(e) => e.process(l, r, k),
             Self::Filter(f) => f.process(l, r, k),
             Self::Saturator(s) => s.process(l, r, k),
             Self::Compressor(c) => c.process(l, r, k, sidechain_key),
@@ -1241,6 +1409,16 @@ impl TrackEffects {
         self.process_with_sidechain(l, r, &[(0.0, 0.0); MAX_TRACKS], 0, 1)
     }
 
+    /// Run one stereo frame on the master bus with all tracks available as sidechain sources.
+    pub fn process_master(
+        &mut self,
+        l: f32,
+        r: f32,
+        last_frame_outputs: &[(f32, f32); MAX_TRACKS],
+    ) -> (f32, f32) {
+        self.process_with_sidechain(l, r, last_frame_outputs, usize::MAX, MAX_TRACKS)
+    }
+
     /// Run one stereo frame through the enabled effects, resolving sidechains
     /// against [`last_frame_outputs`].
     pub fn process_with_sidechain(
@@ -1305,6 +1483,7 @@ impl TrackEffects {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::MAX_PARAMS;
 
     const SR: f32 = 44_100.0;
 
@@ -1387,6 +1566,31 @@ mod tests {
             let x = 8.0 * sine(220.0, frame);
             let (l, r) = fx.process(x, x);
             assert!(l.abs() <= 1.0 && r.abs() <= 1.0, "{l} {r}");
+        }
+    }
+
+    #[test]
+    fn all_saturation_models_process_finite_across_inputs() {
+        for model in 0..4 {
+            for &tone in &[-12.0, 0.0, 12.0] {
+                let mut fx = with(&[effect(
+                    EffectKind::Saturator,
+                    &[18.0, 0.0, 1.0, model as f32, tone],
+                )]);
+                for &input in &[
+                    0.0, 1e-6, -1e-6, 0.5, -0.5, 1.0, -1.0, 10.0, -10.0, 100.0, -100.0,
+                ] {
+                    let (l, r) = fx.process(input, input);
+                    assert!(
+                        l.is_finite(),
+                        "model {model} output l not finite for {input}"
+                    );
+                    assert!(
+                        r.is_finite(),
+                        "model {model} output r not finite for {input}"
+                    );
+                }
+            }
         }
     }
 
@@ -1503,7 +1707,7 @@ mod tests {
         let effects = EffectKind::ALL.map(|kind| Effect {
             kind,
             enabled: true,
-            params: [f32::NAN, f32::INFINITY, -1.0e9, 1.0e9, f32::NEG_INFINITY],
+            params: [f32::NAN; MAX_PARAMS],
             ..Effect::new(kind)
         });
         let mut fx = with(&effects);
@@ -1581,8 +1785,7 @@ mod tests {
 
     #[test]
     fn chorus_modulates_stereo_and_has_tail() {
-        let mut ch = Effect::new(EffectKind::Chorus);
-        ch.params = [1.0, 1.0, 15.0, 1.0, 0.0];
+        let ch = effect(EffectKind::Chorus, &[1.0, 1.0, 15.0, 1.0, 0.0]);
         let mut fx = with(&[ch]);
         let mut different_channels = false;
         for frame in 0..4_000 {
@@ -1598,8 +1801,7 @@ mod tests {
 
     #[test]
     fn phaser_sweeps_spectrum_and_has_tail() {
-        let mut ph = Effect::new(EffectKind::Phaser);
-        ph.params = [1.0, 1.0, 0.8, 1.0, 0.0];
+        let ph = effect(EffectKind::Phaser, &[1.0, 1.0, 0.8, 1.0, 0.0]);
         let mut fx = with(&[ph]);
         let mut peak = 0.0f32;
         for frame in 0..2_000 {
@@ -1615,8 +1817,7 @@ mod tests {
 
     #[test]
     fn auto_pan_pans_and_tremolos() {
-        let mut pan = Effect::new(EffectKind::AutoPan);
-        pan.params = [0.0, 1.0, 1.0, 0.0, 0.0];
+        let pan = effect(EffectKind::AutoPan, &[0.0, 1.0, 1.0, 0.0, 0.0]);
         let mut fx = with(&[pan]);
         let mut had_left_bias = false;
         let mut had_right_bias = false;
@@ -1631,8 +1832,7 @@ mod tests {
         }
         assert!(had_left_bias && had_right_bias);
 
-        let mut trem = Effect::new(EffectKind::AutoPan);
-        trem.params = [1.0, 1.0, 1.0, 0.0, 0.0];
+        let trem = effect(EffectKind::AutoPan, &[1.0, 1.0, 1.0, 0.0, 0.0]);
         let mut fx_trem = with(&[trem]);
         let mut min_gain = 1.0f32;
         let mut max_gain = 0.0f32;
@@ -1646,8 +1846,7 @@ mod tests {
 
     #[test]
     fn bit_crusher_downsamples_and_quantizes() {
-        let mut bc = Effect::new(EffectKind::BitCrusher);
-        bc.params = [4.0, 8.0, 1.0, 0.0, 0.0];
+        let bc = effect(EffectKind::BitCrusher, &[4.0, 8.0, 1.0, 0.0, 0.0]);
         let mut fx = with(&[bc]);
         let mut prev = (0.0, 0.0);
         let mut held_count = 0;
@@ -1664,21 +1863,18 @@ mod tests {
 
     #[test]
     fn utility_controls_gain_width_and_pan() {
-        let mut mono = Effect::new(EffectKind::Utility);
-        mono.params = [0.0, 0.0, 0.0, 0.0, 0.0];
+        let mono = effect(EffectKind::Utility, &[0.0, 0.0, 0.0, 0.0, 0.0]);
         let mut fx = with(&[mono]);
         let (l, r) = fx.process(1.0, -1.0);
         assert!((l - r).abs() < 1e-4);
         assert!(l.abs() < 1e-4);
 
-        let mut boost = Effect::new(EffectKind::Utility);
-        boost.params = [6.0, 1.0, 0.0, 0.0, 0.0];
+        let boost = effect(EffectKind::Utility, &[6.0, 1.0, 0.0, 0.0, 0.0]);
         let mut fx_boost = with(&[boost]);
         let (l, _) = fx_boost.process(0.5, 0.5);
         assert!((l - 1.0).abs() < 0.05);
 
-        let mut pan = Effect::new(EffectKind::Utility);
-        pan.params = [0.0, 1.0, -1.0, 0.0, 0.0];
+        let pan = effect(EffectKind::Utility, &[0.0, 1.0, -1.0, 0.0, 0.0]);
         let mut fx_pan = with(&[pan]);
         let (l, r) = fx_pan.process(0.5, 0.5);
         assert!((l - 0.5).abs() < 1e-4);
@@ -1686,9 +1882,75 @@ mod tests {
     }
 
     #[test]
+    fn utility_mono_mode_and_bass_mono() {
+        let mut fx = with(&[effect(EffectKind::Utility, &[0.0, 1.0, 0.0, 1.0, 0.0])]);
+        let (l, r) = fx.process(1.0, 0.0);
+        assert!((l - 0.5).abs() < 1e-4);
+        assert!((r - 0.5).abs() < 1e-4);
+
+        let mut fx_bass = with(&[effect(EffectKind::Utility, &[0.0, 1.0, 0.0, 0.0, 200.0])]);
+        for _ in 0..1_000 {
+            fx_bass.process(1.0, -1.0);
+        }
+        let mut sum_diff = 0.0f32;
+        for frame in 0..SR as usize {
+            let x = sine(40.0, frame);
+            let (l, r) = fx_bass.process(x, -x);
+            sum_diff += (l - r).abs();
+        }
+        assert!(sum_diff / SR < 0.3);
+    }
+
+    #[test]
+    fn eq_eight_filters_bands() {
+        let mut low_cut_params = [0.0; MAX_PARAMS];
+        low_cut_params[0] = 500.0;
+        low_cut_params[1] = 0.0;
+        low_cut_params[2] = 0.71;
+        low_cut_params[3] = 0.0;
+        for i in 1..8 {
+            low_cut_params[i * 4] = 1_000.0;
+            low_cut_params[i * 4 + 1] = 0.0;
+            low_cut_params[i * 4 + 2] = 1.0;
+            low_cut_params[i * 4 + 3] = 2.0;
+        }
+        let mut fx_cut = with(&[effect(EffectKind::EqEight, &low_cut_params)]);
+        assert!(gain_at(&mut fx_cut, 50.0, 0.5) < 0.05);
+
+        let mut bell_params = [0.0; MAX_PARAMS];
+        for i in 0..8 {
+            bell_params[i * 4] = 1_000.0;
+            bell_params[i * 4 + 1] = 0.0;
+            bell_params[i * 4 + 2] = 1.0;
+            bell_params[i * 4 + 3] = 2.0;
+        }
+        bell_params[2 * 4] = 1_000.0;
+        bell_params[2 * 4 + 1] = 12.0;
+        bell_params[2 * 4 + 2] = 2.0;
+        bell_params[2 * 4 + 3] = 2.0;
+        let mut fx_bell = with(&[effect(EffectKind::EqEight, &bell_params)]);
+        let boosted = gain_at(&mut fx_bell, 1_000.0, 0.1);
+        assert!(boosted > 2.5);
+
+        let mut notch_params = [0.0; MAX_PARAMS];
+        for i in 0..8 {
+            notch_params[i * 4] = 1_000.0;
+            notch_params[i * 4 + 1] = 0.0;
+            notch_params[i * 4 + 2] = 1.0;
+            notch_params[i * 4 + 3] = 2.0;
+        }
+        notch_params[3 * 4] = 1_000.0;
+        notch_params[3 * 4 + 1] = 0.0;
+        notch_params[3 * 4 + 2] = 5.0;
+        notch_params[3 * 4 + 3] = 5.0;
+        let mut fx_notch = with(&[effect(EffectKind::EqEight, &notch_params)]);
+        let notched = gain_at(&mut fx_notch, 1_000.0, 0.5);
+        assert!(notched < 0.1);
+    }
+
+    #[test]
     fn limiter_clamps_to_ceiling_and_never_exceeds() {
-        let mut lim = Effect::new(EffectKind::Limiter);
-        lim.params = [12.0, -3.0, 50.0, 0.0, 0.0];
+        let lim = effect(EffectKind::Limiter, &[12.0, -3.0, 50.0, 0.0, 0.0]);
         let mut fx = with(&[lim]);
         let ceil = 10f32.powf(-3.0 / 20.0);
         for frame in 0..4_410 {

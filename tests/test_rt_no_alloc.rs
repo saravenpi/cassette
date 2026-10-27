@@ -98,6 +98,10 @@ mod red_zone {
                 track: 0,
                 pitch: 64,
             });
+            core.apply(RtCommand::SetMasterVolume { volume: 0.8 });
+            core.apply(RtCommand::SetMasterEffects {
+                chain: EffectChain::EMPTY,
+            });
             core.apply(RtCommand::Stop);
         });
 
@@ -234,9 +238,9 @@ mod red_zone {
     fn eight_effects() -> EffectChain {
         let mut effects = [
             Effect::new(EffectKind::Delay),
-            Effect::new(EffectKind::Delay),
+            Effect::new(EffectKind::Utility),
             Effect::new(EffectKind::Filter),
-            Effect::new(EffectKind::Filter),
+            Effect::new(EffectKind::EqEight),
             Effect::new(EffectKind::Reverb),
             Effect::new(EffectKind::Eq),
             Effect::new(EffectKind::Saturator),
@@ -326,6 +330,73 @@ mod red_zone {
             loudest > 0.0,
             "the note reached the meter through the chain"
         );
+    }
+
+    #[test]
+    fn every_effect_on_master_allocates_nothing() {
+        let song = Song::new();
+        let mut core = RenderCore::new(&song, DEFAULT_SAMPLE_RATE);
+        let (mut handoff_prod, handoff_cons) =
+            rtrb::RingBuffer::<cassette::core::effects::EffectHandoff>::new(256);
+        let (return_prod, mut _return_cons) =
+            rtrb::RingBuffer::<Box<cassette::core::effects::EffectInstance>>::new(256);
+        core.set_effect_rings(handoff_cons, return_prod);
+        core.apply(RtCommand::SetBlocks {
+            track: 0,
+            blocks: lane(),
+        });
+        let chain = eight_effects();
+        for effect in chain.effects() {
+            let instance = Box::new(cassette::core::effects::EffectInstance::new(
+                effect.kind,
+                DEFAULT_SAMPLE_RATE as f32,
+            ));
+            handoff_prod
+                .push(cassette::core::effects::EffectHandoff {
+                    track: 255,
+                    id: effect.id,
+                    instance,
+                })
+                .expect("handoff push");
+        }
+        let mut moved = chain;
+        moved.slots.reverse();
+        let mut out = vec![0.0f32; 1024 * 2];
+        let mut loudest = 0.0f32;
+
+        assert_no_alloc::assert_no_alloc(|| {
+            core.drain_effects();
+            core.apply(RtCommand::SetMasterEffects { chain });
+            core.apply(RtCommand::SetMasterVolume { volume: 0.85 });
+            core.apply(RtCommand::Play);
+            core.apply(RtCommand::NoteOn {
+                track: 0,
+                pitch: 60,
+                velocity: 100,
+            });
+            for block in 0..64 {
+                if block == 16 {
+                    core.apply(RtCommand::SetMasterEffects { chain: moved });
+                }
+                if block == 32 {
+                    core.apply(RtCommand::NoteOff {
+                        track: 0,
+                        pitch: 60,
+                    });
+                }
+                loudest = loudest.max(core.process(&mut out)[0]);
+            }
+            core.apply(RtCommand::SetMasterEffects {
+                chain: EffectChain::EMPTY,
+            });
+        });
+
+        assert!(
+            out.iter().all(|sample| sample.is_finite()),
+            "the master chain stayed finite"
+        );
+        assert!(loudest > 0.0, "the note reached the output");
+        assert!(core.master_level() > 0.0, "the master meter read signal");
     }
 
     #[test]

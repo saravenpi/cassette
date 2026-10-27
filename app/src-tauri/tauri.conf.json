@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Cassette",
-  "version": "0.16.3",
+  "version": "0.17.0",
   "identifier": "dev.saravenpi.cassette",
   "build": {
     "beforeDevCommand": "bun run dev",
@@ -30,6 +30,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": [
       "deb",
       "appimage",
@@ -45,5 +46,13 @@
       "icons/icon.ico",
       "icons/icon.icns"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJEMTNBN0I2OEYzQzRCQTMKUldTalN6eVB0cWNUTFFYb1ZSME5vQzhsTkhlT1pwcmpKK2pQb2tIYTZxT3pTcjdtNXI4ZTRKVUYK",
+      "endpoints": [
+        "https://github.com/Saravenpi/cassette/releases/latest/download/latest.json"
+      ]
+    }
   }
 }
