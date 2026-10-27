@@ -9,6 +9,7 @@
 
 	import { onDestroy, tick } from 'svelte';
 
+	import { moveTarget } from '$lib/chain';
 	import {
 		HEADER_WIDTH,
 		anchoredScroll,
@@ -38,8 +39,16 @@
 
 	const ROW_KEY_STEP = 8;
 
+	interface TrackReorder {
+		from: number;
+		startY: number;
+		active: boolean;
+		slot: number;
+	}
+
 	let scroller = $state<HTMLDivElement | null>(null);
 	let trackHeights = $state<Record<number, number>>({});
+	let trackReorder = $state<TrackReorder | null>(null);
 	let cancelResize: (() => void) | null = null;
 	let pointer: { x: number; y: number; free: boolean } | null = null;
 
@@ -72,6 +81,16 @@
 		const left = beatsToPx(selRange.startBeats, session.zoom);
 		const width = beatsToPx(selRange.endBeats - selRange.startBeats, session.zoom);
 		return { top, height, left, width };
+	});
+
+	const trackDragSeamTop = $derived.by(() => {
+		if (trackReorder === null || !trackReorder.active) return null;
+		const slot = trackReorder.slot;
+		let top = RULER_HEIGHT;
+		for (let i = 0; i < slot && i < tracks.length; i++) {
+			top += getHeight(i);
+		}
+		return top;
 	});
 
 	function onGridPointerDown(event: PointerEvent): void {
@@ -287,8 +306,78 @@
 		return () => element.removeEventListener('wheel', listener);
 	});
 
+	function computeTrackDropSlot(clientY: number): number {
+		const rows = [...document.querySelectorAll<HTMLElement>('.timeline .track-row')];
+		if (rows.length === 0) return 0;
+		for (let i = 0; i < rows.length; i++) {
+			const rect = rows[i].getBoundingClientRect();
+			const mid = rect.top + rect.height / 2;
+			if (clientY < mid) return i;
+		}
+		return rows.length;
+	}
+
+	function startTrackReorder(event: PointerEvent, from: number): void {
+		if (event.button !== 0) return;
+		stopTrackReorder();
+		trackReorder = {
+			from,
+			startY: event.clientY,
+			active: false,
+			slot: from
+		};
+		window.addEventListener('pointermove', onTrackReorderMove);
+		window.addEventListener('pointerup', onTrackReorderEnd);
+		window.addEventListener('pointercancel', onTrackReorderEnd);
+	}
+
+	function onTrackReorderMove(event: PointerEvent): void {
+		if (trackReorder === null) return;
+		if (event.buttons === 0) {
+			stopTrackReorder();
+			return;
+		}
+		if (!trackReorder.active && Math.abs(event.clientY - trackReorder.startY) < 4) {
+			return;
+		}
+		event.preventDefault();
+		const slot = computeTrackDropSlot(event.clientY);
+		trackReorder = { ...trackReorder, active: true, slot };
+	}
+
+	function onTrackReorderEnd(event: PointerEvent): void {
+		const done = trackReorder;
+		stopTrackReorder();
+		if (done === null || !done.active || event.type === 'pointercancel') return;
+		const to = moveTarget(done.from, done.slot);
+		if (to !== null) {
+			const count = tracks.length;
+			const from = done.from;
+			if (Object.keys(trackHeights).length > 0) {
+				const list: (number | undefined)[] = [];
+				for (let i = 0; i < count; i++) list.push(trackHeights[i]);
+				const [item] = list.splice(from, 1);
+				list.splice(to, 0, item);
+				const next: Record<number, number> = {};
+				for (let i = 0; i < count; i++) {
+					if (list[i] !== undefined) next[i] = list[i]!;
+				}
+				trackHeights = next;
+			}
+			session.dispatch({ reorderTrack: { from, to } });
+		}
+	}
+
+	function stopTrackReorder(): void {
+		trackReorder = null;
+		window.removeEventListener('pointermove', onTrackReorderMove);
+		window.removeEventListener('pointerup', onTrackReorderEnd);
+		window.removeEventListener('pointercancel', onTrackReorderEnd);
+	}
+
 	onDestroy(() => {
 		cancelResize?.();
+		stopTrackReorder();
 		session.hover = null;
 	});
 
@@ -344,7 +433,13 @@
 				<div class="row track-row" style="height: {trackHeight}px">
 					<TrackLane {track} {index} width={contentWidth} {barWidth} height={trackHeight} />
 					<div class="slot" style="width: {HEADER_WIDTH}px">
-						<TrackHeader {track} {index} height={trackHeight} />
+						<TrackHeader
+							{track}
+							{index}
+							height={trackHeight}
+							dragging={trackReorder?.active === true && trackReorder.from === index}
+							ongrab={(event) => startTrackReorder(event, index)}
+						/>
 					</div>
 					<div
 						class="row-resize-handle"
@@ -406,6 +501,14 @@
 						onpointerdown={(e) => startSelectionResize(e, 'end')}
 					></button>
 				</div>
+			{/if}
+
+			{#if trackDragSeamTop !== null}
+				<div
+					class="track-drag-seam"
+					style="top: {trackDragSeamTop - 1}px; width: {HEADER_WIDTH + contentWidth}px"
+					aria-hidden="true"
+				></div>
 			{/if}
 
 			<Playhead
@@ -631,5 +734,15 @@
 		filter: none;
 		background: var(--green);
 		opacity: 0.7;
+	}
+
+	.track-drag-seam {
+		position: absolute;
+		right: 0;
+		height: 2px;
+		background: var(--green);
+		box-shadow: 0 0 6px var(--green);
+		z-index: 30;
+		pointer-events: none;
 	}
 </style>

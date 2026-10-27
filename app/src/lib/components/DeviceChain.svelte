@@ -108,16 +108,40 @@
 	function move(from: number, direction: number): void {
 		const to = from + direction;
 		if (to < 0 || to >= effects.length) return;
+		if (session.selectedEffectIndex === from) {
+			session.selectedEffectIndex = to;
+		}
 		session.dispatch({ moveEffect: { track: index, from, to } });
 	}
 
 	function remove(at: number): void {
+		if (session.selectedEffectIndex === at) {
+			session.selectedEffectIndex = null;
+		} else if (session.selectedEffectIndex !== null && session.selectedEffectIndex > at) {
+			session.selectedEffectIndex -= 1;
+		}
 		session.dispatch({ removeEffect: { track: index, index: at } });
 	}
 
 	function openDeviceMenu(event: MouseEvent, at: number, id: number): void {
+		session.selectedEffectIndex = at;
 		const key = foldKey(id);
-		menu.open(event.clientX, event.clientY, deviceMenu(session, index, at, effects.length, folded.has(key), () => toggleFold(key)));
+		menu.open(
+			event.clientX,
+			event.clientY,
+			deviceMenu(
+				session,
+				index,
+				at,
+				effects.length,
+				folded.has(key),
+				() => toggleFold(key),
+				session.effectClipboard !== null,
+				() => session.copyEffect(index, at),
+				() => session.pasteEffect(index, at),
+				() => session.duplicateEffect(index, at)
+			)
+		);
 	}
 
 	function openAddMenu(event: MouseEvent): void {
@@ -161,7 +185,12 @@
 		stopReorder();
 		if (done === null || !done.active || event.type === 'pointercancel') return;
 		const to = moveTarget(done.from, dropIndex(event.clientX, spans()));
-		if (to !== null) session.dispatch({ moveEffect: { track: index, from: done.from, to } });
+		if (to !== null) {
+			if (session.selectedEffectIndex === done.from) {
+				session.selectedEffectIndex = to;
+			}
+			session.dispatch({ moveEffect: { track: index, from: done.from, to } });
+		}
 	}
 
 	function stopReorder(): void {
@@ -170,9 +199,15 @@
 		window.removeEventListener('pointerup', onReorderEnd);
 		window.removeEventListener('pointercancel', onReorderEnd);
 	}
+
+	function onScrollerPointerDown(event: PointerEvent): void {
+		if (event.target instanceof Element && event.target.closest('[data-effect-card]') === null) {
+			session.selectedEffectIndex = null;
+		}
+	}
 </script>
 
-<div class="scroller" bind:this={scroller} role="list" aria-label="Devices on {track.name}">
+<div class="scroller" bind:this={scroller} role="list" aria-label="Devices on {track.name}" onpointerdown={onScrollerPointerDown}>
 	<div class="row" bind:this={row} style="gap: {GAP}px">
 		<div class="slot" role="listitem">
 			{#if track.kind === 'midi'}
@@ -201,7 +236,9 @@
 					folded={folded.has(key)}
 					enabled={effect.enabled}
 					effect
+					selected={session.selectedEffectIndex === at}
 					dragging={reorder?.active === true && reorder.from === at}
+					onselect={() => (session.selectedEffectIndex = at)}
 					onfold={() => toggleFold(key)}
 					ontoggle={() => session.dispatch({ setEffectEnabled: { track: index, index: at, enabled: !effect.enabled } })}
 					ondelete={() => remove(at)}

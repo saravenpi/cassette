@@ -139,6 +139,31 @@
 		editing = false;
 	}
 
+	function onSliderKeyDown(
+		event: KeyboardEvent,
+		id: keyof Voice,
+		min: number,
+		max: number,
+		step: number
+	): void {
+		if (
+			event.key !== 'ArrowUp' &&
+			event.key !== 'ArrowRight' &&
+			event.key !== 'ArrowDown' &&
+			event.key !== 'ArrowLeft'
+		) {
+			return;
+		}
+		event.preventDefault();
+		event.stopPropagation();
+		if (!event.repeat) session.dispatch('checkpoint');
+		const dir = event.key === 'ArrowUp' || event.key === 'ArrowRight' ? 1 : -1;
+		const cur = valueOf(id);
+		const precision = step < 0.01 ? 3 : step < 1 ? 2 : 0;
+		const next = Math.max(min, Math.min(max, Number((cur + dir * step).toFixed(precision))));
+		onSlider(id, String(next));
+	}
+
 	function onToneChange(which: 'cutoff' | 'resonance' | 'detune' | 'sub', value: number): void {
 		const cutoff = which === 'cutoff' ? value : track.cutoff;
 		const resonance = which === 'resonance' ? value : track.resonance;
@@ -180,6 +205,7 @@
 					value={valueOf(slider.id)}
 					style="--filled: {rangePercent(valueOf(slider.id), slider.min, slider.max)}"
 					oninput={(event) => onSlider(slider.id, event.currentTarget.value)}
+					onkeydown={(event) => onSliderKeyDown(event, slider.id, slider.min, slider.max, slider.step)}
 					onpointerdown={(event) => {
 						if (event.detail === 2) {
 							resetSlider(slider.id);

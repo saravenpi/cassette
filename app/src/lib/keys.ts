@@ -67,7 +67,8 @@ type LocalIntent =
 	| 'loopSelection'
 	| 'save'
 	| 'saveAs'
-	| 'open';
+	| 'open'
+	| 'recolorTrack';
 
 /**
  * The minus and equals keys already nudge the volume, so the zoom pair sits on
@@ -160,6 +161,9 @@ export function repeats(intent: EngineEvent): boolean {
 /** The interface-only intent a key carries, or null while nothing is being typed. */
 export function localFor(event: KeyboardEvent, renaming: boolean): LocalIntent | null {
 	if (renaming) return null;
+	if (event.altKey && !event.ctrlKey && !event.metaKey && event.code === 'KeyC') {
+		return 'recolorTrack';
+	}
 	if (isChord(event)) {
 		if (event.code === 'KeyS') return event.shiftKey ? 'saveAs' : 'save';
 		return CHORDS[event.code] ?? null;

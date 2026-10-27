@@ -161,6 +161,18 @@ describe('lane and track menus', () => {
 		const maxTracksEntries = trackMenu(fake, 0, track, 16, () => {});
 		expect(find(maxTracksEntries, 'Duplicate').disabled).toBe(true);
 	});
+
+	test('track menu offers track color picker and dispatches setTrackColor', () => {
+		const fake = host();
+		const track = { muted: false, solo: false, colorIndex: 2 } as TrackView;
+		const entries = trackMenu(fake, 3, track, 4, () => {});
+		const colorEntry = entries.find((e) => e.kind === 'colors');
+		if (!colorEntry || colorEntry.kind !== 'colors') throw new Error('no colors entry');
+		expect(colorEntry.selected).toBe(2);
+		expect(colorEntry.colors.length).toBe(8);
+		colorEntry.pick(5);
+		expect(fake.sent).toEqual([{ setTrackColor: { track: 3, colorIndex: 5 } }]);
+	});
 });
 
 describe('selectionMenu', () => {
@@ -316,5 +328,39 @@ describe('deviceMenu', () => {
 		});
 		find(entries, 'Unfold').run();
 		expect(folds).toBe(1);
+	});
+
+	test('offers copy, paste, and duplicate on a device', () => {
+		const target = host();
+		let copied = false;
+		let pasted = false;
+		let duplicated = false;
+		const entries = deviceMenu(
+			target,
+			0,
+			1,
+			3,
+			false,
+			() => {},
+			true,
+			() => {
+				copied = true;
+			},
+			() => {
+				pasted = true;
+			},
+			() => {
+				duplicated = true;
+			}
+		);
+		find(entries, 'Copy effect').run();
+		find(entries, 'Paste effect').run();
+		find(entries, 'Duplicate effect').run();
+		expect(copied).toBe(true);
+		expect(pasted).toBe(true);
+		expect(duplicated).toBe(true);
+
+		const cannotPaste = deviceMenu(target, 0, 1, 3, false, () => {}, false);
+		expect(find(cannotPaste, 'Paste effect').disabled).toBe(true);
 	});
 });

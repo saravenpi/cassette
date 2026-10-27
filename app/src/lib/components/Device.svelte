@@ -17,6 +17,8 @@
 		enabled?: boolean;
 		effect?: boolean;
 		dragging?: boolean;
+		selected?: boolean;
+		onselect?: () => void;
 		onfold: () => void;
 		ontoggle?: () => void;
 		ondelete?: () => void;
@@ -32,6 +34,8 @@
 		enabled = true,
 		effect = false,
 		dragging = false,
+		selected = false,
+		onselect,
 		onfold,
 		ontoggle,
 		ondelete,
@@ -76,8 +80,11 @@
 	class:folded
 	class:bypassed={!enabled}
 	class:dragging
+	class:selected
 	aria-label="{name} device"
 	data-effect-card={effect ? '' : undefined}
+	onpointerdown={() => onselect?.()}
+	onfocusin={() => onselect?.()}
 >
 	<div
 		class="title"
@@ -133,6 +140,10 @@
 		height: 100%;
 		background: var(--surface);
 		box-shadow: inset 0 0 0 1px var(--border-subtle);
+	}
+
+	.device.selected {
+		box-shadow: inset 0 0 0 1px var(--green);
 	}
 
 	.device.dragging {

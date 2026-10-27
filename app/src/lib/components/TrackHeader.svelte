@@ -16,9 +16,11 @@
 		track: TrackView;
 		index: number;
 		height?: number;
+		dragging?: boolean;
+		ongrab?: (event: PointerEvent) => void;
 	}
 
-	let { track, index, height }: Props = $props();
+	let { track, index, height, dragging = false, ongrab }: Props = $props();
 
 	let draggedVolume = $state<number | null>(null);
 	let draggedPan = $state<number | null>(null);
@@ -120,16 +122,61 @@
 		else draggedPan = value;
 		mix(volume, pan, track.muted, track.solo);
 	}
+
+	function onFaderKeyDown(event: KeyboardEvent, which: 'volume' | 'pan'): void {
+		if (
+			event.key !== 'ArrowUp' &&
+			event.key !== 'ArrowRight' &&
+			event.key !== 'ArrowDown' &&
+			event.key !== 'ArrowLeft'
+		) {
+			return;
+		}
+		event.preventDefault();
+		event.stopPropagation();
+		if (!event.repeat) session.dispatch('checkpoint');
+		const dir = event.key === 'ArrowUp' || event.key === 'ArrowRight' ? 1 : -1;
+		const step = which === 'volume' ? 0.01 : 0.02;
+		const cur = which === 'volume' ? volume : pan;
+		const min = which === 'volume' ? 0 : -1;
+		const max = 1;
+		const next = Math.max(min, Math.min(max, Number((cur + dir * step).toFixed(2))));
+		if (which === 'volume') draggedVolume = next;
+		else draggedPan = next;
+		mix(which === 'volume' ? next : volume, which === 'pan' ? next : pan, track.muted, track.solo);
+	}
 </script>
 
 <div
 	class="head"
+	class:dragging
 	role="group"
 	aria-label="{track.name} strip"
+	data-track-header={index}
 	style="width: {HEADER_WIDTH}px; height: {height ?? ROW_HEIGHT}px; --fill: {color}"
 	oncontextmenu={onContextMenu}
 >
 	<div class="top-row">
+		{#if !renaming}
+			<button
+				type="button"
+				class="drag-handle"
+				aria-label="Drag to reorder {track.name}"
+				title="Drag to reorder"
+				onpointerdown={(event) => {
+					if (event.button === 0 && ongrab) ongrab(event);
+				}}
+			>
+				<svg width="6" height="12" viewBox="0 0 6 12" aria-hidden="true">
+					<circle cx="1.5" cy="2" r="1" fill="currentColor" />
+					<circle cx="4.5" cy="2" r="1" fill="currentColor" />
+					<circle cx="1.5" cy="6" r="1" fill="currentColor" />
+					<circle cx="4.5" cy="6" r="1" fill="currentColor" />
+					<circle cx="1.5" cy="10" r="1" fill="currentColor" />
+					<circle cx="4.5" cy="10" r="1" fill="currentColor" />
+				</svg>
+			</button>
+		{/if}
 		{#if renaming}
 			<input
 				bind:this={renameInput}
@@ -147,6 +194,9 @@
 				ondblclick={(event) => {
 					event.stopPropagation();
 					startRename();
+				}}
+				onpointerdown={(event) => {
+					if (event.button === 0 && ongrab) ongrab(event);
 				}}
 			>
 				<span class="chip"></span>
@@ -195,6 +245,7 @@
 			}}
 			ondblclick={() => resetFader('volume')}
 			oninput={(event) => onFader(event, 'volume')}
+			onkeydown={(event) => onFaderKeyDown(event, 'volume')}
 			onchange={releaseFaders}
 			onblur={releaseFaders}
 		/>
@@ -216,6 +267,7 @@
 			}}
 			ondblclick={() => resetFader('pan')}
 			oninput={(event) => onFader(event, 'pan')}
+			onkeydown={(event) => onFaderKeyDown(event, 'pan')}
 			onchange={releaseFaders}
 			onblur={releaseFaders}
 		/>
@@ -235,6 +287,32 @@
 		border-left: 1px solid var(--border-subtle);
 		border-bottom: 1px solid var(--border-subtle);
 		padding: 6px 10px;
+	}
+
+	.head.dragging {
+		opacity: 0.5;
+	}
+
+	.drag-handle {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 10px;
+		height: 18px;
+		padding: 0;
+		background: transparent;
+		border: 0;
+		color: var(--text-subtle);
+		cursor: grab;
+		flex: none;
+	}
+
+	.drag-handle:hover {
+		color: var(--text);
+	}
+
+	.drag-handle:active {
+		cursor: grabbing;
 	}
 
 	.top-row {

@@ -6,6 +6,7 @@
  */
 
 import { DEFAULT_LENGTH_BEATS, MIN_LENGTH_BEATS, pxToBeats, snapBeats } from './geometry';
+import { TRACK_PALETTE } from './palette';
 import type { BeatRange, BlockView, ClipboardView, EngineEvent, TrackKind, TrackView } from './wire';
 
 /** One choice in a menu. */
@@ -30,7 +31,16 @@ export interface MenuHeading {
 	label: string;
 }
 
-export type MenuEntry = MenuItem | MenuSeparator | MenuHeading;
+export interface MenuColorPicker {
+	kind: 'colors';
+	label?: string;
+	shortcut?: string;
+	colors: readonly string[];
+	selected: number;
+	pick: (index: number) => void;
+}
+
+export type MenuEntry = MenuItem | MenuSeparator | MenuHeading | MenuColorPicker;
 
 /** What a menu's choices need from the session. */
 export interface MenuHost {
@@ -245,12 +255,35 @@ export function trackMenu(
 			danger: true
 		}),
 		separator,
+		{
+			kind: 'colors',
+			label: 'Color',
+			shortcut: 'Alt+C',
+			colors: TRACK_PALETTE,
+			selected: track.colorIndex,
+			pick: (colorIndex: number) => void host.request({ setTrackColor: { track: index, colorIndex } })
+		},
+		separator,
 		item('Change kind', () => chain(host, select, 'cycleTrackKind'), {
 			shortcut: 'C'
 		}),
 		item('Add block at end', () => chain(host, select, 'addBlock'), {
 			shortcut: 'N'
 		})
+	];
+}
+
+export function trackColorMenu(host: MenuHost, track: number, currentColorIndex: number): MenuEntry[] {
+	return [
+		{ kind: 'heading', label: 'Color' },
+		{
+			kind: 'colors',
+			label: 'Track color',
+			shortcut: 'Alt+C',
+			colors: TRACK_PALETTE,
+			selected: currentColorIndex,
+			pick: (colorIndex: number) => void host.request({ setTrackColor: { track, colorIndex } })
+		}
 	];
 }
 
@@ -358,7 +391,11 @@ export function deviceMenu(
 	index: number,
 	count: number,
 	folded: boolean,
-	fold: () => void
+	fold: () => void,
+	canPaste = false,
+	onCopy?: () => void,
+	onPaste?: () => void,
+	onDuplicate?: () => void
 ): MenuEntry[] {
 	return [
 		item('Move left', () => void host.request({ moveEffect: { track, from: index, to: index - 1 } }), {
@@ -370,6 +407,22 @@ export function deviceMenu(
 			disabled: index >= count - 1
 		}),
 		item(folded ? 'Unfold' : 'Fold', fold),
+		separator,
+		item('Copy effect', () => (onCopy ? onCopy() : void 0), {
+			shortcut: 'Ctrl+C'
+		}),
+		item('Paste effect', () => (onPaste ? onPaste() : void 0), {
+			shortcut: 'Ctrl+V',
+			disabled: !canPaste
+		}),
+		item(
+			'Duplicate effect',
+			() => (onDuplicate ? onDuplicate() : void host.request({ duplicateEffect: { track, index } })),
+			{
+				shortcut: 'Ctrl+D',
+				disabled: count >= 8
+			}
+		),
 		separator,
 		item('Delete', () => void host.request({ removeEffect: { track, index } }), {
 			shortcut: 'Del',

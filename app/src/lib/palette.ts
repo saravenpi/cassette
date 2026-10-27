@@ -5,7 +5,7 @@
  * selection outline uses.
  */
 
-const TRACK_PALETTE: readonly string[] = [
+export const TRACK_PALETTE: readonly string[] = [
 	'#88A888',
 	'#A8B365',
 	'#7FA7BF',

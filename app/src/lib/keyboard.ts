@@ -34,6 +34,13 @@ interface KeyboardHost {
 	clearSelection(): boolean;
 	nudgeSelectedBlock(deltaTrack: number, deltaBeats: number): boolean;
 	seekCursor(direction: number): void;
+	readonly selectedEffectIndex?: number | null;
+	readonly effectClipboard?: unknown | null;
+	copyEffect?(track?: number, index?: number): void;
+	pasteEffect?(track?: number, index?: number | null): void;
+	duplicateEffect?(track?: number, index?: number): void;
+	deselectEffect?(): void;
+	openTrackRecolor?(): void;
 }
 
 /** Controls that keep Shift+Tab for moving focus back, so the keymap leaves it to them. */
@@ -43,7 +50,7 @@ const FOCUS_KEEPERS =
 /** Elements that own editing and clip-level shortcuts, so arrangement keys must not hijack them. */
 function ignoresArrangementKeys(target: EventTarget | null): boolean {
 	if (!(target instanceof Element)) return false;
-	if (target.closest('input, textarea, [contenteditable="true"]')) return true;
+	if (target.closest('input, textarea, [contenteditable="true"], [role="slider"]')) return true;
 	if (target.closest('[role="grid"]')) return true;
 	return false;
 }
@@ -83,16 +90,24 @@ export function attachKeyboard(host: KeyboardHost): () => void {
 			if (!event.repeat) noteOn(pitch);
 		} else {
 			const inInputOrGrid = ignoresArrangementKeys(event.target);
+			const inTextInputOrGrid =
+				event.target instanceof Element &&
+				(event.target.closest('input:not([type="range"]), textarea, [contenteditable="true"]') !== null ||
+					event.target.closest('[role="grid"]') !== null);
 			const local = localFor(event, host.renaming);
 			if (local === 'toggleDetail' && keepsShiftTab(event.target)) return;
-			if (inInputOrGrid && (local === 'copy' || local === 'cut' || local === 'paste' || local === 'duplicate' || local === 'loopSelection')) return;
+			if (inTextInputOrGrid && (local === 'copy' || local === 'cut' || local === 'paste' || local === 'duplicate' || local === 'loopSelection')) return;
 
 			if (local === 'scrollStart') {
 				if (!event.repeat) host.requestScrollStart();
 			} else if (local === 'openRoll') {
 				if (!event.repeat) host.openSelectedRoll();
 			} else if (local === 'closeRoll') {
-				if (!host.clearSelection()) host.closeRoll();
+				if (host.selectedEffectIndex !== null && host.selectedEffectIndex !== undefined && host.deselectEffect) {
+					host.deselectEffect();
+				} else if (!host.clearSelection()) {
+					host.closeRoll();
+				}
 			} else if (local === 'zoomIn') {
 				host.setZoom(1);
 			} else if (local === 'zoomOut') {
@@ -102,7 +117,13 @@ export function attachKeyboard(host: KeyboardHost): () => void {
 			} else if (local === 'splitAtPointer') {
 				if (!event.repeat) host.splitAtPointer();
 			} else if (local === 'duplicate') {
-				if (!event.repeat) host.duplicate();
+				if (!event.repeat) {
+					if (host.selectedEffectIndex !== null && host.selectedEffectIndex !== undefined && host.duplicateEffect) {
+						host.duplicateEffect();
+					} else {
+						host.duplicate();
+					}
+				}
 			} else if (local === 'toggleDetail') {
 				if (!event.repeat) host.toggleDetail();
 			} else if (local === 'quantize') {
@@ -114,13 +135,29 @@ export function attachKeyboard(host: KeyboardHost): () => void {
 			} else if (local === 'open') {
 				if (!event.repeat) host.loadProjectFromDialog();
 			} else if (local === 'copy') {
-				if (!event.repeat) host.copySelection();
+				if (!event.repeat) {
+					if (host.selectedEffectIndex !== null && host.selectedEffectIndex !== undefined && host.copyEffect) {
+						host.copyEffect();
+					} else {
+						host.copySelection();
+					}
+				}
 			} else if (local === 'cut') {
 				if (!event.repeat) host.cutSelection();
 			} else if (local === 'paste') {
-				if (!event.repeat) host.pasteSelection();
+				if (!event.repeat) {
+					if (host.selectedEffectIndex !== null && host.selectedEffectIndex !== undefined && host.pasteEffect) {
+						host.pasteEffect();
+					} else if (host.effectClipboard && host.pasteEffect && event.target instanceof Element && event.target.closest('[role="list"][aria-label^="Devices"], [data-effect-card], .scroller')) {
+						host.pasteEffect();
+					} else {
+						host.pasteSelection();
+					}
+				}
 			} else if (local === 'loopSelection') {
 				if (!event.repeat) host.loopSelection();
+			} else if (local === 'recolorTrack') {
+				if (!event.repeat) host.openTrackRecolor?.();
 			}
 
 			if (!inInputOrGrid && (event.key === 'ArrowUp' || event.key === 'ArrowDown' || event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {

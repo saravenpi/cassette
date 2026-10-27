@@ -24,6 +24,8 @@ import { NOTE_GRID, locateBlock } from './pianoRoll';
 import { resolveSaveAction, resolveSaveAsAction } from './project';
 import { KeyedQueue, nextBackoff } from './queue';
 import { selection } from './selection.svelte';
+import { menu } from './menu.svelte';
+import { TRACK_PALETTE } from './palette';
 import type { EffectKind, EngineEvent, TrackKind, UiState } from './wire';
 
 /** A track's voice, as the effects pane edits it. */
@@ -66,6 +68,13 @@ function message(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
+export interface EffectClipboard {
+	kind: EffectKind;
+	params: number[];
+	enabled: boolean;
+	sidechain: number | null;
+}
+
 class Session {
 	snapshot = $state<UiState | null>(null);
 	error = $state<string | null>(null);
@@ -76,6 +85,8 @@ class Session {
 	exporting = $state(false);
 	exportProgress = $state<number | null>(null);
 	saving = $state(false);
+	selectedEffectIndex = $state<number | null>(null);
+	effectClipboard = $state<EffectClipboard | null>(null);
 	drag: DragController;
 
 	private errorFrom: 'poll' | 'send' | null = null;
@@ -182,8 +193,90 @@ class Session {
 
 	/** Select a track from its header, and show its devices if the detail pane is open. */
 	selectTrack(track: number): void {
+		if (this.snapshot?.cursor.track !== track) {
+			this.selectedEffectIndex = null;
+		}
 		this.dispatch({ selectTrack: { track } });
 		detail.followTrack();
+	}
+
+	copyEffect(trackIndex?: number, effectIndex?: number): void {
+		const track = trackIndex ?? this.snapshot?.cursor.track;
+		const at = effectIndex ?? this.selectedEffectIndex;
+		if (track === undefined || at === null || at === undefined) return;
+		const effect = this.snapshot?.tracks[track]?.effects[at];
+		if (!effect) return;
+		this.effectClipboard = {
+			kind: effect.kind,
+			params: [...effect.params],
+			enabled: effect.enabled,
+			sidechain: effect.sidechain
+		};
+	}
+
+	pasteEffect(trackIndex?: number, effectIndex?: number | null): void {
+		const clip = this.effectClipboard;
+		if (clip === null) return;
+		const track = trackIndex ?? this.snapshot?.cursor.track;
+		if (track === undefined) return;
+		const trackView = this.snapshot?.tracks[track];
+		if (!trackView || trackView.effects.length >= 8) return;
+		const at = effectIndex !== undefined ? effectIndex : this.selectedEffectIndex;
+		this.dispatch({
+			pasteEffect: {
+				track,
+				index: at,
+				kind: clip.kind,
+				params: [...clip.params],
+				enabled: clip.enabled,
+				sidechain: clip.sidechain
+			}
+		});
+		const newIndex =
+			at !== null && at !== undefined
+				? Math.min(trackView.effects.length, at + 1)
+				: trackView.effects.length;
+		this.selectedEffectIndex = newIndex;
+	}
+
+	duplicateEffect(trackIndex?: number, effectIndex?: number): void {
+		const track = trackIndex ?? this.snapshot?.cursor.track;
+		const at = effectIndex ?? this.selectedEffectIndex;
+		if (track === undefined || at === null || at === undefined) return;
+		const trackView = this.snapshot?.tracks[track];
+		if (!trackView || at >= trackView.effects.length || trackView.effects.length >= 8) return;
+		this.dispatch({
+			duplicateEffect: {
+				track,
+				index: at
+			}
+		});
+		this.selectedEffectIndex = Math.min(trackView.effects.length, at + 1);
+	}
+
+	deselectEffect(): void {
+		this.selectedEffectIndex = null;
+	}
+
+	openTrackRecolor(): void {
+		const snapshot = this.snapshot;
+		if (snapshot === null) return;
+		const trackIndex = snapshot.cursor.track;
+		const track = snapshot.tracks[trackIndex];
+		if (!track) return;
+		const header = document.querySelector(`[data-track-header="${trackIndex}"]`);
+		const rect = header?.getBoundingClientRect();
+		const x = rect ? rect.left + 20 : window.innerWidth / 2 - 100;
+		const y = rect ? rect.top + 26 : window.innerHeight / 2 - 50;
+		menu.open(x, y, [
+			{ kind: 'heading', label: `Color: ${track.name}` },
+			{
+				kind: 'colors',
+				colors: TRACK_PALETTE,
+				selected: track.colorIndex,
+				pick: (colorIndex) => void this.request({ setTrackColor: { track: trackIndex, colorIndex } })
+			}
+		]);
 	}
 
 	/** Switch the detail pane between Clip and Devices, opening it if hidden. */

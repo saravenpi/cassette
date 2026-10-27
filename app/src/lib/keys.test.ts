@@ -497,6 +497,13 @@ describe('detail pane and quantize keys', () => {
 		expect(localFor(chord(press('KeyU', 'u')), true)).toBeNull();
 	});
 
+	test('opens track recolor on Alt+C', () => {
+		const altC = { code: 'KeyC', key: 'c', altKey: true, ctrlKey: false, metaKey: false } as KeyboardEvent;
+		expect(localFor(altC, false)).toBe('recolorTrack');
+		expect(isAppKey(altC, false)).toBe(true);
+		expect(localFor(altC, true)).toBeNull();
+	});
+
 	test('binds no interface key to a note', () => {
 		for (const [code, character] of EVERY_KEY) {
 			const plain = localFor(press(code, character), false);

@@ -151,6 +151,39 @@
 				<div class="separator" role="separator"></div>
 			{:else if entry.kind === 'heading'}
 				<div class="heading" role="none">{entry.label}</div>
+			{:else if entry.kind === 'colors'}
+				<div class="color-picker" role="group" aria-label={entry.label ?? 'Track color'}>
+					{#if entry.label}
+						<div class="color-header">
+							<span class="color-title">{entry.label}</span>
+							{#if entry.shortcut}
+								<span class="shortcut">{entry.shortcut}</span>
+							{/if}
+						</div>
+					{/if}
+					<div class="swatches" role="radiogroup" aria-label="Palette colors">
+						{#each entry.colors as color, c (c)}
+							{@const isSelected = ((entry.selected % entry.colors.length) + entry.colors.length) % entry.colors.length === c}
+							<button
+								type="button"
+								class="swatch"
+								class:selected={isSelected}
+								role="radio"
+								aria-checked={isSelected}
+								aria-label="Color {c + 1}"
+								style="background: {color}"
+								onclick={() => {
+									menu.close(true);
+									entry.pick(c);
+								}}
+							>
+								{#if isSelected}
+									<span class="swatch-check" aria-hidden="true">✓</span>
+								{/if}
+							</button>
+						{/each}
+					</div>
+				</div>
 			{:else}
 				<button
 					type="button"
@@ -268,5 +301,61 @@
 		height: 1px;
 		margin: 4px 0;
 		background: var(--border-subtle);
+	}
+
+	.color-picker {
+		padding: 6px 10px;
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+	}
+
+	.color-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+	}
+
+	.color-title {
+		font-size: 10px;
+		letter-spacing: 0.14em;
+		text-transform: uppercase;
+		color: var(--text-subtle);
+	}
+
+	.swatches {
+		display: grid;
+		grid-template-columns: repeat(8, 1fr);
+		gap: 4px;
+	}
+
+	.swatch {
+		width: 18px;
+		height: 18px;
+		padding: 0;
+		border-radius: 2px;
+		border: 1px solid rgba(0, 0, 0, 0.25);
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: transform 0.1s ease, outline 0.1s ease;
+	}
+
+	.swatch:hover {
+		transform: scale(1.15);
+		outline: 1px solid var(--text);
+	}
+
+	.swatch.selected {
+		outline: 2px solid var(--text);
+		outline-offset: 1px;
+	}
+
+	.swatch-check {
+		font-size: 10px;
+		color: #111;
+		font-weight: bold;
+		line-height: 1;
 	}
 </style>
