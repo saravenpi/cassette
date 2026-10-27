@@ -67,7 +67,7 @@
 <div class="max-w-6xl mx-auto px-4 sm:px-6 pt-12 sm:pt-16 pb-20 sm:pb-24 space-y-16 sm:space-y-24">
   <section class="space-y-6 pt-4">
     <div class="inline-flex items-center gap-2 text-xs text-[#88A888] uppercase tracking-widest">
-      <span class="inline-block w-2 h-2 bg-[#88A888]"></span>
+      <Icon icon="pixelarticons:keyboard-music" class="w-4 h-4 text-[#88A888]" />
       <span>Open source audio workstation</span>
     </div>
 

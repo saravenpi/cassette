@@ -31,11 +31,7 @@
       class="max-w-6xl mx-auto flex items-center justify-between gap-4 text-[11px] uppercase tracking-widest leading-none"
     >
       <a href="/" class="flex items-center gap-2.5 no-underline text-[#FFFFFF] hover:text-[#88A888] transition-colors">
-        <img
-          src="/logo.svg"
-          alt="CASSETTE"
-          class="h-6 w-6 block"
-        />
+        <Icon icon="pixelarticons:keyboard-music" class="w-6 h-6 text-[#88A888] shrink-0" />
         <span class="tracking-widest">CASSETTE</span>
       </a>
 
@@ -109,7 +105,7 @@
     <div class="space-y-8">
       <div class="flex items-center justify-between pb-4">
         <div class="flex items-center gap-2">
-          <img src="/logo.svg" alt="CASSETTE" class="h-5 w-5" />
+          <Icon icon="pixelarticons:keyboard-music" class="w-5 h-5 text-[#88A888] shrink-0" />
           <span class="text-xs uppercase tracking-widest text-[#FFFFFF]">CASSETTE</span>
         </div>
         <button

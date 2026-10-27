@@ -20,7 +20,7 @@
   <footer class="border-t border-[#262626] mt-24 py-12 text-xs text-[#FFFFFF]/60">
     <div class="max-w-6xl mx-auto px-4 sm:px-6 flex flex-col md:flex-row items-center justify-between gap-6">
       <div class="flex items-center gap-3">
-        <img src="/logo.svg" alt="Cassette" class="h-5 w-5 opacity-70" />
+        <Icon icon="pixelarticons:keyboard-music" class="w-5 h-5 text-[#88A888] shrink-0" />
         <span>CASSETTE DAW</span>
         <span class="text-[#262626]">|</span>
         <span>OPEN SOURCE SESSION WORKSTATION</span>
