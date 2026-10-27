@@ -6,7 +6,14 @@
  * has open. Opening a block and picking a track also steer the detail pane.
  */
 
-import { pickProject, send as sendEvent, sendNow as sendWithoutWaiting, state } from './api';
+import {
+	pickExportWav,
+	pickProject,
+	pickSaveProject,
+	send as sendEvent,
+	sendNow as sendWithoutWaiting,
+	state
+} from './api';
 import { paramKey } from './chain';
 import { detail } from './detail.svelte';
 import { DragController } from './drag.svelte';
@@ -14,6 +21,7 @@ import { ZOOM_DEFAULT, clampZoom, gridStep, zoomBy } from './geometry';
 import { attachKeyboard } from './keyboard';
 import { NoteCache } from './noteCache';
 import { NOTE_GRID, locateBlock } from './pianoRoll';
+import { resolveSaveAction, resolveSaveAsAction } from './project';
 import { KeyedQueue, nextBackoff } from './queue';
 import { selection } from './selection.svelte';
 import type { EffectKind, EngineEvent, TrackKind, UiState } from './wire';
@@ -394,10 +402,40 @@ class Session {
 	}
 
 	/** Ask for a project file and load it. */
-	async loadProjectFromDialog(): Promise<void> {
+	async loadProjectFromDialog(pick: () => Promise<string | null> = pickProject): Promise<void> {
 		try {
-			const path = await pickProject();
+			const path = await pick();
 			if (path !== null) await this.send({ loadProject: { path } });
+		} catch (error) {
+			this.fail(error, 'send');
+		}
+	}
+
+	/** Save the project to its remembered path, or ask for one if never saved. */
+	async saveProject(pick: (name?: string) => Promise<string | null> = pickSaveProject): Promise<void> {
+		try {
+			const event = await resolveSaveAction(this.snapshot?.projectPath ?? null, () => pick());
+			if (event !== null) await this.send(event);
+		} catch (error) {
+			this.fail(error, 'send');
+		}
+	}
+
+	/** Save the project under a new path selected via dialog. */
+	async saveProjectAs(pick: (name?: string) => Promise<string | null> = pickSaveProject): Promise<void> {
+		try {
+			const event = await resolveSaveAsAction(() => pick());
+			if (event !== null) await this.send(event);
+		} catch (error) {
+			this.fail(error, 'send');
+		}
+	}
+
+	/** Export audio to a WAV file picked from a dialog. */
+	async exportAudio(pick: (name?: string) => Promise<string | null> = pickExportWav): Promise<void> {
+		try {
+			const path = await pick();
+			if (path !== null) await this.send({ exportAudio: { path } });
 		} catch (error) {
 			this.fail(error, 'send');
 		}

@@ -4,7 +4,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
-import { open } from '@tauri-apps/plugin-dialog';
+import { open, save } from '@tauri-apps/plugin-dialog';
 
 import type { EngineEvent, SampleEntry, UiState, Waveform } from './wire';
 
@@ -63,6 +63,22 @@ export function pickProject(): Promise<string | null> {
 	return open({
 		multiple: false,
 		directory: false,
-		filters: [{ name: 'Project', extensions: ['json'] }]
+		filters: [{ name: 'Project', extensions: ['cassette', 'json'] }]
+	});
+}
+
+/** Ask where to save a project, or null when they cancel. */
+export function pickSaveProject(defaultName?: string): Promise<string | null> {
+	return save({
+		defaultPath: defaultName,
+		filters: [{ name: 'Cassette Project', extensions: ['cassette'] }]
+	});
+}
+
+/** Ask where to export audio to WAV, or null when they cancel. */
+export function pickExportWav(defaultName?: string): Promise<string | null> {
+	return save({
+		defaultPath: defaultName,
+		filters: [{ name: 'WAV Audio', extensions: ['wav'] }]
 	});
 }

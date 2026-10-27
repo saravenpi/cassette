@@ -22,6 +22,9 @@ interface KeyboardHost {
 	duplicate(): void;
 	toggleDetail(): void;
 	quantizeSelected(): void;
+	saveProject(): void;
+	saveProjectAs(): void;
+	loadProjectFromDialog(): void;
 	copySelection(): void;
 	cutSelection(): void;
 	pasteSelection(): void;
@@ -100,6 +103,12 @@ export function attachKeyboard(host: KeyboardHost): () => void {
 				if (!event.repeat) host.toggleDetail();
 			} else if (local === 'quantize') {
 				if (!event.repeat) host.quantizeSelected();
+			} else if (local === 'save') {
+				if (!event.repeat) host.saveProject();
+			} else if (local === 'saveAs') {
+				if (!event.repeat) host.saveProjectAs();
+			} else if (local === 'open') {
+				if (!event.repeat) host.loadProjectFromDialog();
 			} else if (local === 'copy') {
 				if (!event.repeat) host.copySelection();
 			} else if (local === 'cut') {

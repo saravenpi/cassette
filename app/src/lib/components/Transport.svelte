@@ -7,11 +7,13 @@
 	 */
 
 	import { formatCountIn, formatPosition } from '$lib/geometry';
-	import { metronomeMenu } from '$lib/menu';
+	import { metronomeMenu, type MenuEntry } from '$lib/menu';
 	import { menu } from '$lib/menu.svelte';
+	import { projectStem } from '$lib/project';
 	import { session } from '$lib/session.svelte';
 
 	const snapshot = $derived(session.snapshot);
+	const stem = $derived(projectStem(snapshot?.projectPath ?? null));
 	const bpm = $derived(Math.round(snapshot?.bpm ?? 120));
 	const position = $derived(
 		formatPosition(snapshot?.transportPositionBeats ?? 0, snapshot?.beatsPerBar ?? 4)
@@ -24,6 +26,21 @@
 		if (!(button instanceof HTMLElement)) return;
 		const rect = button.getBoundingClientRect();
 		const entries = metronomeMenu(session, snapshot?.countInBars ?? 0, snapshot?.recordQuantizeBeats ?? 0);
+		menu.open(rect.left, rect.bottom + 2, entries, button);
+	}
+
+	function openSaveMenu(event: MouseEvent): void {
+		const button = event.currentTarget;
+		if (!(button instanceof HTMLElement)) return;
+		const rect = button.getBoundingClientRect();
+		const entries: MenuEntry[] = [
+			{
+				kind: 'item',
+				label: 'Save As…',
+				shortcut: 'Ctrl+Shift+S',
+				run: () => session.saveProjectAs()
+			}
+		];
 		menu.open(rect.left, rect.bottom + 2, entries, button);
 	}
 </script>
@@ -95,9 +112,23 @@
 	</div>
 
 	<div class="group" role="group" aria-label="Project">
-		<button onclick={() => session.dispatch({ exportAudio: { path: null } })}>Export</button>
-		<button onclick={() => session.dispatch({ exportProject: { path: null } })}>Save</button>
-		<button onclick={() => session.loadProjectFromDialog()}>Load</button>
+		<button onclick={() => session.exportAudio()}>Export</button>
+		<div class="save-pair">
+			<button onclick={() => session.saveProject()}>Save</button>
+			<button
+				class="step"
+				aria-label="Save options"
+				aria-haspopup="menu"
+				title="Save options"
+				onclick={openSaveMenu}
+			>
+				&#9662;
+			</button>
+		</div>
+		<button onclick={() => session.loadProjectFromDialog()}>Open</button>
+		<span class="project-name" title={snapshot?.projectPath ?? 'Untitled'}>
+			{stem}{#if snapshot?.projectDirty}<span class="dirty" aria-hidden="true">&bull;</span>{/if}
+		</span>
 	</div>
 
 	<div class="group" role="group" aria-label="Tempo">
@@ -172,6 +203,30 @@
 
 	.wide {
 		min-width: 64px;
+	}
+
+	.save-pair {
+		display: flex;
+		align-items: center;
+	}
+
+	.project-name {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		margin-left: 6px;
+		font-size: 11px;
+		letter-spacing: 0.04em;
+		color: var(--text);
+		max-width: 140px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.dirty {
+		color: var(--green);
+		font-size: 14px;
 	}
 
 	.step {
