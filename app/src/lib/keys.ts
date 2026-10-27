@@ -58,11 +58,14 @@ type LocalIntent =
 	| 'closeRoll'
 	| 'splitAtPlayhead'
 	| 'splitAtPointer'
-	| 'duplicate';
+	| 'duplicate'
+	| 'toggleDetail'
+	| 'quantize';
 
 /**
  * The minus and equals keys already nudge the volume, so the zoom pair sits on
- * their shifted characters (`+` and `_`) plus the numeric keypad. Enter already
+ * their shifted characters (`+` and `_`) plus the numeric keypad. Shift+Tab
+ * switches the detail pane between Clip and Devices, as in Ableton. Enter already
  * adds a block, so the piano roll opens on `P` and closes on Escape, which is
  * free whenever no name is being typed.
  */
@@ -82,7 +85,8 @@ const LOCAL: Record<string, LocalIntent> = {
  */
 const CHORDS: Record<string, LocalIntent> = {
 	KeyE: 'splitAtPlayhead',
-	KeyD: 'duplicate'
+	KeyD: 'duplicate',
+	KeyU: 'quantize'
 };
 
 /** Chords that carry an engine intent: undo, and redo on Shift+Z or on Y. */
@@ -107,7 +111,7 @@ const ONCE_PER_PRESS = new Set<string>([
 	'toggleSolo'
 ]);
 
-const clash = Object.keys(COMMANDS).find((code) => code in PIANO);
+const clash = [...Object.keys(COMMANDS), ...Object.keys(LOCAL)].find((code) => code in PIANO);
 if (clash) {
 	throw new Error(`cassette: ${clash} is bound to both a note and a command`);
 }
@@ -144,6 +148,7 @@ export function localFor(event: KeyboardEvent, renaming: boolean): LocalIntent |
 	if (isChord(event)) return CHORDS[event.code] ?? null;
 	if (event.shiftKey && event.code === 'Equal') return 'zoomIn';
 	if (event.shiftKey && event.code === 'Minus') return 'zoomOut';
+	if (event.shiftKey && event.code === 'Tab') return 'toggleDetail';
 	return LOCAL[event.code] ?? null;
 }
 

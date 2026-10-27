@@ -1,10 +1,14 @@
 <script lang="ts">
 	/**
-	 * The transport bar: play, stop, loop, record, tempo, the position readout, the play
-	 * octave and the engine's note about which backend it settled on.
+	 * The transport bar: play, stop, loop, record, the metronome with its menu
+	 * (count-in and record quantize), tempo, the position readout, the play
+	 * octave and the engine's note about which backend it settled on. While a
+	 * count-in runs, the readout shows the beats left as `-N` in the alert colour.
 	 */
 
-	import { formatPosition } from '$lib/geometry';
+	import { formatCountIn, formatPosition } from '$lib/geometry';
+	import { metronomeMenu } from '$lib/menu';
+	import { menu } from '$lib/menu.svelte';
 	import { session } from '$lib/session.svelte';
 
 	const snapshot = $derived(session.snapshot);
@@ -12,8 +16,16 @@
 	const position = $derived(
 		formatPosition(snapshot?.transportPositionBeats ?? 0, snapshot?.beatsPerBar ?? 4)
 	);
+	const countIn = $derived(formatCountIn(snapshot?.countInBeatsLeft ?? 0));
 	const isMac = typeof navigator !== 'undefined' && /Macintosh|Mac OS X/.test(navigator.userAgent);
 
+	function openMetronomeMenu(event: MouseEvent): void {
+		const button = event.currentTarget;
+		if (!(button instanceof HTMLElement)) return;
+		const rect = button.getBoundingClientRect();
+		const entries = metronomeMenu(session, snapshot?.countInBars ?? 0, snapshot?.recordQuantizeBeats ?? 0);
+		menu.open(rect.left, rect.bottom + 2, entries, button);
+	}
 </script>
 
 <header data-tauri-drag-region class:mac={isMac}>
@@ -41,6 +53,25 @@
 		>
 			<span class="dot" aria-hidden="true"></span>
 			Rec
+		</button>
+	</div>
+
+	<div class="group" role="group" aria-label="Metronome">
+		<button
+			aria-pressed={snapshot?.metronome ?? false}
+			title="Metronome click"
+			onclick={() => session.dispatch('toggleMetronome')}
+		>
+			Metro
+		</button>
+		<button
+			class="step"
+			aria-label="Count-in and record quantize"
+			aria-haspopup="menu"
+			title="Count-in and record quantize"
+			onclick={openMetronomeMenu}
+		>
+			&#9662;
 		</button>
 	</div>
 
@@ -93,7 +124,11 @@
 		</button>
 	</div>
 
-	<span class="position" aria-label="Position">{position}</span>
+	{#if countIn !== null}
+		<span class="position counting" aria-label="Count-in, beats left">{countIn}</span>
+	{:else}
+		<span class="position" aria-label="Position">{position}</span>
+	{/if}
 
 	<div class="engine">
 		<span class="backend">{snapshot?.backend ?? 'connecting'}</span>
@@ -198,6 +233,10 @@
 		font-variant-numeric: tabular-nums;
 		color: var(--green);
 		min-width: 64px;
+	}
+
+	.position.counting {
+		color: var(--alert);
 	}
 
 	.engine {

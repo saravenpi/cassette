@@ -2,7 +2,9 @@ import {
 	beatUnder,
 	blockMenu,
 	clampToViewport,
+	deviceMenu,
 	laneMenu,
+	metronomeMenu,
 	markAt,
 	splitPoint,
 	trackMenu,
@@ -176,5 +178,66 @@ describe('markAt', () => {
 	test('marks the grid line off every block', () => {
 		expect(markAt(undefined, 3.6, 1)).toBe(4);
 		expect(markAt(undefined, 3.6, 1, true)).toBe(3.6);
+	});
+});
+
+describe('metronomeMenu', () => {
+	test('lists the count-ins and the record grids under their headings', () => {
+		const entries = metronomeMenu(host(), 1, 0);
+		const headings = entries.flatMap((entry) => (entry.kind === 'heading' ? [entry.label] : []));
+		expect(headings).toEqual(['Count-in', 'Record quantize']);
+		const items = entries.flatMap((entry) => (entry.kind === 'item' ? [entry.label] : []));
+		expect(items).toEqual(['None', '1 bar', '2 bars', '4 bars', 'Off', '1/4', '1/8', '1/16']);
+	});
+
+	test('checks the current count-in and grid', () => {
+		const entries = metronomeMenu(host(), 2, 0.5);
+		const checked = entries.flatMap((entry) => (entry.kind === 'item' && entry.checked ? [entry.label] : []));
+		expect(checked).toEqual(['2 bars', '1/8']);
+	});
+
+	test('sends the count-in in bars and the grid in beats', () => {
+		const target = host();
+		const entries = metronomeMenu(target, 0, 0);
+		find(entries, '4 bars').run();
+		find(entries, '1/16').run();
+		find(entries, 'Off').run();
+		expect(target.sent).toEqual([
+			{ setCountIn: { bars: 4 } },
+			{ setRecordQuantize: { gridBeats: 0.25 } },
+			{ setRecordQuantize: { gridBeats: 0 } }
+		]);
+	});
+});
+
+describe('deviceMenu', () => {
+	test('moves a device left and right and deletes it', () => {
+		const target = host();
+		const entries = deviceMenu(target, 1, 1, 3, false, () => {});
+		find(entries, 'Move left').run();
+		find(entries, 'Move right').run();
+		find(entries, 'Delete').run();
+		expect(target.sent).toEqual([
+			{ moveEffect: { track: 1, from: 1, to: 0 } },
+			{ moveEffect: { track: 1, from: 1, to: 2 } },
+			{ removeEffect: { track: 1, index: 1 } }
+		]);
+	});
+
+	test('disables the moves at the ends of the chain', () => {
+		const first = deviceMenu(host(), 0, 0, 2, false, () => {});
+		const last = deviceMenu(host(), 0, 1, 2, false, () => {});
+		expect(find(first, 'Move left').disabled).toBe(true);
+		expect(find(first, 'Move right').disabled).toBe(false);
+		expect(find(last, 'Move right').disabled).toBe(true);
+	});
+
+	test('offers Unfold on a folded device and runs the fold', () => {
+		let folds = 0;
+		const entries = deviceMenu(host(), 0, 0, 1, true, () => {
+			folds += 1;
+		});
+		find(entries, 'Unfold').run();
+		expect(folds).toBe(1);
 	});
 });

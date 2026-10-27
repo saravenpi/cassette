@@ -1,6 +1,6 @@
 /**
- * The right-click menus as data: what a block, a lane and a track header offer,
- * and where a menu may sit on screen. Every builder is pure apart from the
+ * The right-click menus as data: what a block, a lane, a track header, a device
+ * and the metronome button offer, and where a menu may sit on screen. Every builder is pure apart from the
  * `run` closures, which only call the host they are given, so the lists can be
  * tested without a webview or an engine.
  */
@@ -15,6 +15,7 @@ export interface MenuItem {
 	shortcut?: string;
 	disabled?: boolean;
 	danger?: boolean;
+	checked?: boolean;
 	run: () => void;
 }
 
@@ -23,7 +24,13 @@ export interface MenuSeparator {
 	kind: 'separator';
 }
 
-export type MenuEntry = MenuItem | MenuSeparator;
+/** A label over a group of choices. */
+export interface MenuHeading {
+	kind: 'heading';
+	label: string;
+}
+
+export type MenuEntry = MenuItem | MenuSeparator | MenuHeading;
 
 /** What a menu's choices need from the session. */
 export interface MenuHost {
@@ -228,6 +235,68 @@ export function trackMenu(
 		}),
 		item('Add block at end', () => chain(host, select, 'addBlock'), {
 			shortcut: 'N'
+		})
+	];
+}
+
+/** Bars of count-in the metronome menu offers. */
+export const COUNT_IN_BARS = [0, 1, 2, 4];
+
+/** Record quantize grids the metronome menu offers, in beats; 0 is off. */
+export const RECORD_GRIDS: { label: string; beats: number }[] = [
+	{ label: 'Off', beats: 0 },
+	{ label: '1/4', beats: 1 },
+	{ label: '1/8', beats: 0.5 },
+	{ label: '1/16', beats: 0.25 }
+];
+
+function countInLabel(bars: number): string {
+	if (bars === 0) return 'None';
+	return bars === 1 ? '1 bar' : `${bars} bars`;
+}
+
+/** The metronome menu: the count-in and the record quantize, each checked at its current value. */
+export function metronomeMenu(host: MenuHost, countInBars: number, recordQuantizeBeats: number): MenuEntry[] {
+	return [
+		{ kind: 'heading', label: 'Count-in' },
+		...COUNT_IN_BARS.map((bars) =>
+			item(countInLabel(bars), () => void host.request({ setCountIn: { bars } }), {
+				checked: bars === countInBars
+			})
+		),
+		separator,
+		{ kind: 'heading', label: 'Record quantize' },
+		...RECORD_GRIDS.map((grid) =>
+			item(grid.label, () => void host.request({ setRecordQuantize: { gridBeats: grid.beats } }), {
+				checked: Math.abs(grid.beats - recordQuantizeBeats) < 1e-6
+			})
+		)
+	];
+}
+
+/** The choices for a device in a chain of `count` effects. `fold` flips its fold. */
+export function deviceMenu(
+	host: MenuHost,
+	track: number,
+	index: number,
+	count: number,
+	folded: boolean,
+	fold: () => void
+): MenuEntry[] {
+	return [
+		item('Move left', () => void host.request({ moveEffect: { track, from: index, to: index - 1 } }), {
+			shortcut: 'Alt+Left',
+			disabled: index === 0
+		}),
+		item('Move right', () => void host.request({ moveEffect: { track, from: index, to: index + 1 } }), {
+			shortcut: 'Alt+Right',
+			disabled: index >= count - 1
+		}),
+		item(folded ? 'Unfold' : 'Fold', fold),
+		separator,
+		item('Delete', () => void host.request({ removeEffect: { track, index } }), {
+			shortcut: 'Del',
+			danger: true
 		})
 	];
 }

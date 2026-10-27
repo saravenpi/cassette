@@ -1,8 +1,10 @@
 <script lang="ts">
 	/**
-	 * The voice editor for one MIDI track: gain, octave and the four envelope
-	 * stages, each sent through `setInstrument` at most once per frame, with the
-	 * envelope drawn from the values the sliders show.
+	 * The voice editor for one MIDI track, laid out for the Instrument device: the
+	 * preset and its oscillator with the envelope on the left, and gain, octave
+	 * and the four envelope stages on the right, each sent through
+	 * `setInstrument` at most once per frame, with the envelope drawn from the
+	 * values the sliders show.
 	 */
 
 	import { envelopePoints, rangePercent } from '$lib/geometry';
@@ -89,56 +91,75 @@
 	}
 </script>
 
-<h3 class="eyebrow">Envelope</h3>
-<svg
-	class="envelope"
-	viewBox="0 0 {WIDTH} {HEIGHT}"
-	preserveAspectRatio="none"
-	role="img"
-	aria-label="Attack, decay, sustain and release envelope"
->
-	{#each [0.25, 0.5, 0.75] as level (level)}
-		<line class="guide" x1="0" x2={WIDTH} y1={HEIGHT * level} y2={HEIGHT * level} />
-	{/each}
-	<polyline points={envelope} />
-</svg>
+<div class="voice">
+	<div class="shape">
+		<p class="preset">
+			<span class="strong">{track.preset}</span> on a {track.waveform.toLowerCase()} oscillator
+		</p>
+		<h3 class="eyebrow">Envelope</h3>
+		<svg
+			class="envelope"
+			viewBox="0 0 {WIDTH} {HEIGHT}"
+			preserveAspectRatio="none"
+			role="img"
+			aria-label="Attack, decay, sustain and release envelope"
+		>
+			{#each [0.25, 0.5, 0.75] as level (level)}
+				<line class="guide" x1="0" x2={WIDTH} y1={HEIGHT * level} y2={HEIGHT * level} />
+			{/each}
+			<polyline points={envelope} />
+		</svg>
+	</div>
 
-<h3 class="eyebrow">Voice</h3>
-
-<div class="sliders">
-	{#each SLIDERS as slider (slider.id)}
-		<label class="slider">
-			<span class="label">{slider.label}</span>
-			<input
-				type="range"
-				min={slider.min}
-				max={slider.max}
-				step={slider.step}
-				value={valueOf(slider.id)}
-				style="--filled: {rangePercent(valueOf(slider.id), slider.min, slider.max)}"
-				oninput={(event) => onSlider(slider.id, event.currentTarget.value)}
-				onpointerdown={() => (editing = true)}
-				onfocus={() => (editing = true)}
-				onblur={() => (editing = false)}
-			/>
-			<span class="value">
-				{valueOf(slider.id).toFixed(slider.step < 1 ? 2 : 0)}{slider.unit}
-			</span>
-		</label>
-	{/each}
+	<div class="sliders" role="group" aria-label="Voice of {track.name}">
+		{#each SLIDERS as slider (slider.id)}
+			<label class="slider">
+				<span class="label">{slider.label}</span>
+				<input
+					type="range"
+					min={slider.min}
+					max={slider.max}
+					step={slider.step}
+					value={valueOf(slider.id)}
+					style="--filled: {rangePercent(valueOf(slider.id), slider.min, slider.max)}"
+					oninput={(event) => onSlider(slider.id, event.currentTarget.value)}
+					onpointerdown={() => (editing = true)}
+					onfocus={() => (editing = true)}
+					onblur={() => (editing = false)}
+				/>
+				<span class="value">
+					{valueOf(slider.id).toFixed(slider.step < 1 ? 2 : 0)}{slider.unit}
+				</span>
+			</label>
+		{/each}
+	</div>
 </div>
 
 <style>
+	.voice {
+		display: grid;
+		grid-template-columns: 180px 240px;
+		gap: 16px;
+		align-items: start;
+	}
+
+	.preset {
+		margin-bottom: 10px;
+		font-size: 11px;
+		line-height: 1.5;
+		color: var(--dim);
+	}
+
+	.strong {
+		color: var(--text);
+	}
+
 	.eyebrow {
-		margin: 16px 0 8px;
+		margin: 0 0 8px;
 		font-size: 11px;
 		letter-spacing: 0.14em;
 		text-transform: uppercase;
 		color: var(--text-subtle);
-	}
-
-	.eyebrow:first-of-type {
-		margin-top: 4px;
 	}
 
 	.envelope {
@@ -172,7 +193,7 @@
 		grid-template-columns: 60px 1fr 48px;
 		align-items: center;
 		gap: 10px;
-		height: 32px;
+		height: 28px;
 		border-bottom: 1px solid var(--border-subtle);
 		font-size: 11px;
 	}

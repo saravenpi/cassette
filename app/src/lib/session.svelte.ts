@@ -3,17 +3,19 @@
  * frame, holds the snapshot every component reads, funnels intent back through one
  * queue so a drag or a fader sends at most one message per frame, hands the
  * block drags to the drag controller, and remembers which block the piano roll
- * has open.
+ * has open. Opening a block and picking a track also steer the detail pane.
  */
 
 import { pickProject, send as sendEvent, sendNow as sendWithoutWaiting, state } from './api';
+import { paramKey } from './chain';
+import { detail } from './detail.svelte';
 import { DragController } from './drag.svelte';
-import { ZOOM_DEFAULT, clampZoom, zoomBy } from './geometry';
+import { ZOOM_DEFAULT, clampZoom, gridStep, zoomBy } from './geometry';
 import { attachKeyboard } from './keyboard';
 import { NoteCache } from './noteCache';
-import { locateBlock } from './pianoRoll';
+import { NOTE_GRID, locateBlock } from './pianoRoll';
 import { KeyedQueue, nextBackoff } from './queue';
-import type { EngineEvent, UiState } from './wire';
+import type { EffectKind, EngineEvent, UiState } from './wire';
 
 /** A track's voice, as the effects pane edits it. */
 export interface Voice {
@@ -72,6 +74,7 @@ class Session {
 	private voice = new KeyedQueue<EngineEvent>();
 	private noteDrag = new KeyedQueue<EngineEvent>();
 	private noteVelocity = new KeyedQueue<EngineEvent>();
+	private effectParam = new KeyedQueue<EngineEvent>();
 	private opened = 0;
 	private notes = new NoteCache();
 	private backoff = 0;
@@ -150,10 +153,55 @@ class Session {
 		this.voice.set(index, { setInstrument: { track: index, ...voice } });
 	}
 
-	/** Open the piano roll on a block, if it is a MIDI block. */
+	/** Send an effect parameter change, collapsed to one message per frame per parameter. */
+	queueEffectParam(track: number, index: number, param: number, value: number): void {
+		this.effectParam.set(paramKey(track, index, param), {
+			setEffectParam: { track, index, param, value }
+		});
+	}
+
+	/** Add an effect to a track's chain at `index`, or at the end when it is null. */
+	addEffect(track: number, kind: EffectKind, index: number | null = null): void {
+		this.dispatch({ addEffect: { track, kind, index } });
+	}
+
+	/** Select a track from its header, and show its devices if the detail pane is open. */
+	selectTrack(track: number): void {
+		this.dispatch({ selectTrack: { track } });
+		detail.followTrack();
+	}
+
+	/** Switch the detail pane between Clip and Devices, opening it if hidden. */
+	toggleDetail(): void {
+		detail.toggle();
+	}
+
+	/**
+	 * Quantize note starts: the open roll's block to the roll's grid, or else the
+	 * selected MIDI block to the timeline grid.
+	 */
+	quantizeSelected(): void {
+		const roll = this.roll;
+		if (roll !== null) {
+			this.dispatch({ quantizeBlock: { track: roll.track, block: roll.block, gridBeats: NOTE_GRID } });
+			return;
+		}
+		const cursor = this.snapshot?.cursor;
+		const view = cursor === undefined ? undefined : this.snapshot?.tracks[cursor.track]?.blocks[cursor.block];
+		if (cursor === undefined || view?.kind !== 'midi') {
+			this.report('select a MIDI block to quantize it');
+			return;
+		}
+		this.dispatch({
+			quantizeBlock: { track: cursor.track, block: cursor.block, gridBeats: gridStep(this.zoom) }
+		});
+	}
+
+	/** Open the piano roll on a block, if it is a MIDI block, and show the Clip view. */
 	openRoll(track: number, block: number): void {
 		const view = this.snapshot?.tracks[track]?.blocks[block];
 		if (view === undefined || view.kind !== 'midi') return;
+		detail.showClip();
 		this.opened += 1;
 		this.roll = {
 			serial: this.opened,
@@ -302,7 +350,8 @@ class Session {
 			...this.mix.drain(),
 			...this.voice.drain(),
 			...this.noteDrag.drain(),
-			...this.noteVelocity.drain()
+			...this.noteVelocity.drain(),
+			...this.effectParam.drain()
 		];
 		for (const event of queued) await this.send(event);
 	}

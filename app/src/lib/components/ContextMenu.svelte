@@ -6,7 +6,9 @@
 	 * the menu and hands focus back. While it is open it listens on the window in
 	 * the capture phase and swallows every key, so the keymap never plays a note
 	 * or moves the cursor behind it. Shift+F10 and the ContextMenu key open the
-	 * selected block's menu.
+	 * menu of the focused element when it offers one (`data-menu-target`), and
+	 * the selected block's menu otherwise. Headings label groups, and an item
+	 * with `checked` reads as a radio choice.
 	 */
 
 	import { onMount, tick } from 'svelte';
@@ -56,7 +58,8 @@
 	}
 
 	function openSelectedBlock(): void {
-		const block = document.querySelector('[data-block].selected');
+		const focused = document.activeElement?.closest('[data-menu-target]') ?? null;
+		const block = focused ?? document.querySelector('[data-block].selected');
 		if (!(block instanceof HTMLElement)) return;
 		const rect = block.getBoundingClientRect();
 		block.dispatchEvent(
@@ -146,12 +149,15 @@
 		{#each open.entries as entry, index (index)}
 			{#if entry.kind === 'separator'}
 				<div class="separator" role="separator"></div>
+			{:else if entry.kind === 'heading'}
+				<div class="heading" role="none">{entry.label}</div>
 			{:else}
 				<button
 					type="button"
 					class="item"
 					class:danger={entry.danger}
-					role="menuitem"
+					role={entry.checked === undefined ? 'menuitem' : 'menuitemradio'}
+					aria-checked={entry.checked === undefined ? undefined : entry.checked}
 					data-entry={index}
 					tabindex={index === active ? 0 : -1}
 					aria-disabled={entry.disabled ? 'true' : undefined}
@@ -160,6 +166,9 @@
 						if (active !== index) focusEntry(index);
 					}}
 				>
+					{#if entry.checked !== undefined}
+						<span class="check" aria-hidden="true">{entry.checked ? '✓' : ''}</span>
+					{/if}
 					<span class="label">{entry.label}</span>
 					{#if entry.shortcut}
 						<span class="shortcut">{entry.shortcut}</span>
@@ -238,6 +247,21 @@
 		color: var(--text-subtle);
 		white-space: nowrap;
 		font-variant-numeric: tabular-nums;
+	}
+
+	.heading {
+		padding: 6px 10px 4px;
+		font-size: 10px;
+		letter-spacing: 0.14em;
+		text-transform: uppercase;
+		color: var(--text-subtle);
+	}
+
+	.check {
+		flex: none;
+		width: 10px;
+		margin-right: -8px;
+		color: var(--green);
 	}
 
 	.separator {
