@@ -127,23 +127,21 @@
       </div>
     </div>
 
-    <div class="border border-[#262626] bg-[#000000] p-2 sm:p-4 overflow-hidden">
-      {#if activeTab === "devices"}
-        <img
-          src="/screenshot-devices.png"
-          alt="Cassette DAW session view with synth browser, arrangement timeline, and stereo DSP devices rack"
-          class="w-full h-auto block object-contain shadow-2xl"
-          loading="eager"
-        />
-      {:else}
-        <img
-          src="/screenshot-piano-roll.png"
-          alt="Cassette DAW piano roll with velocity editing, MIDI notes, and audio effects rack"
-          class="w-full h-auto block object-contain shadow-2xl"
-          loading="eager"
-        />
-      {/if}
-    </div>
+    {#if activeTab === "devices"}
+      <img
+        src="/screenshot-devices.png"
+        alt="Cassette DAW session view with synth browser, arrangement timeline, and stereo DSP devices rack"
+        class="w-full h-auto block"
+        loading="eager"
+      />
+    {:else}
+      <img
+        src="/screenshot-piano-roll.png"
+        alt="Cassette DAW piano roll with velocity editing, MIDI notes, and audio effects rack"
+        class="w-full h-auto block"
+        loading="eager"
+      />
+    {/if}
   </section>
 
   <section id="features" class="space-y-8 sm:space-y-12">
