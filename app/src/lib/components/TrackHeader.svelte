@@ -22,12 +22,52 @@
 
 	let draggedVolume = $state<number | null>(null);
 	let draggedPan = $state<number | null>(null);
+	let renameInput = $state<HTMLInputElement | null>(null);
+	let renaming = $state(false);
+	let renameText = $state('');
 
 	const color = $derived(trackColor(track.colorIndex));
 	const selected = $derived(session.snapshot?.cursor.track === index);
 	const level = $derived(Math.round(Math.min(1, Math.max(0, track.level)) * 100));
 	const volume = $derived(draggedVolume ?? track.volume);
 	const pan = $derived(draggedPan ?? track.pan);
+
+	$effect(() => {
+		if (renaming && renameInput) {
+			renameInput.focus();
+			renameInput.select();
+		}
+	});
+
+	function startRename(): void {
+		renameText = track.name;
+		renaming = true;
+	}
+
+	function commitRename(): void {
+		if (!renaming) return;
+		renaming = false;
+		const trimmed = renameText.trim();
+		if (trimmed && trimmed !== track.name) {
+			session.renameTrack(index, trimmed);
+		}
+	}
+
+	function cancelRename(): void {
+		renaming = false;
+		renameText = track.name;
+	}
+
+	function onRenameKeyDown(event: KeyboardEvent): void {
+		event.stopPropagation();
+		if (event.key === 'Enter') {
+			event.preventDefault();
+			commitRename();
+		} else if (event.key === 'Escape') {
+			event.preventDefault();
+			cancelRename();
+		}
+	}
 
 	/** A fader follows the pointer while it is down, then hands back to the snapshot. */
 	function releaseFaders(): void {
@@ -41,10 +81,11 @@
 
 	function onContextMenu(event: MouseEvent): void {
 		event.preventDefault();
+		const totalTracks = session.snapshot?.tracks.length ?? 1;
 		menu.open(
 			event.clientX,
 			event.clientY,
-			trackMenu(session, index, track, (muted, solo) => mix(volume, pan, muted, solo))
+			trackMenu(session, index, track, totalTracks, (muted, solo) => mix(volume, pan, muted, solo), startRename)
 		);
 	}
 
@@ -66,11 +107,30 @@
 	oncontextmenu={onContextMenu}
 >
 	<div class="top-row">
-		<button class="pick" aria-pressed={selected} onclick={() => session.selectTrack(index)}>
-			<span class="chip"></span>
-			<span class="name">{track.name}</span>
-			<span class="kind">{track.kind === 'midi' ? track.preset || 'Midi' : 'Audio'}</span>
-		</button>
+		{#if renaming}
+			<input
+				bind:this={renameInput}
+				class="rename-input"
+				bind:value={renameText}
+				aria-label="Rename {track.name}"
+				onkeydown={onRenameKeyDown}
+				onblur={commitRename}
+			/>
+		{:else}
+			<button
+				class="pick"
+				aria-pressed={selected}
+				onclick={() => session.selectTrack(index)}
+				ondblclick={(event) => {
+					event.stopPropagation();
+					startRename();
+				}}
+			>
+				<span class="chip"></span>
+				<span class="name">{track.name}</span>
+				<span class="kind">{track.kind === 'midi' ? track.preset || 'Midi' : 'Audio'}</span>
+			</button>
+		{/if}
 		<div class="buttons">
 			<button
 				class="toggle"
@@ -258,5 +318,22 @@
 
 	.toggle.on[aria-label^='Solo'] {
 		background: var(--green);
+	}
+
+	.rename-input {
+		flex: 1;
+		min-width: 0;
+		height: 22px;
+		margin: 0;
+		padding: 0 4px;
+		font: inherit;
+		font-size: 12px;
+		color: var(--text);
+		background: var(--bg);
+		border: 1px solid var(--green);
+	}
+
+	.rename-input:focus {
+		outline: 1px solid var(--green);
 	}
 </style>

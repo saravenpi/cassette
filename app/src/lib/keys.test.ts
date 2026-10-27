@@ -505,3 +505,16 @@ describe('detail pane and quantize keys', () => {
 		}
 	});
 });
+
+	test('maps add track chords: audio on Ctrl+T, midi on Ctrl+Shift+T', () => {
+		expect(intentFor(chord(press('KeyT', 't')), false)).toEqual({ addTrack: { kind: 'audio' } });
+		expect(intentFor(chord(press('KeyT', 't'), 'metaKey'), false)).toEqual({
+			addTrack: { kind: 'audio' }
+		});
+		expect(intentFor(held(chord(press('KeyT', 'T'))), false)).toEqual({
+			addTrack: { kind: 'midi' }
+		});
+		expect(intentFor(held(chord(press('KeyT', 'T'), 'metaKey')), false)).toEqual({
+			addTrack: { kind: 'midi' }
+		});
+	});

@@ -26,7 +26,7 @@
 		zoomByWheel
 	} from '$lib/geometry';
 	import { laneUnder } from '$lib/drag.svelte';
-	import { markAt, selectionMenu } from '$lib/menu';
+	import { emptyTimelineMenu, markAt, selectionMenu } from '$lib/menu';
 	import { menu } from '$lib/menu.svelte';
 	import { formatRangeLength, rangeLength } from '$lib/selection';
 	import { selection } from '$lib/selection.svelte';
@@ -178,6 +178,28 @@
 		);
 	}
 
+	function openAddTrackMenu(event: MouseEvent): void {
+		const button = event.currentTarget;
+		if (!(button instanceof HTMLElement)) return;
+		const rect = button.getBoundingClientRect();
+		const entries = emptyTimelineMenu(session, tracks.length);
+		menu.open(rect.left, rect.bottom + 2, entries, button);
+	}
+
+	function onEmptySpaceContextMenu(event: MouseEvent): void {
+		if (
+			event.target instanceof Element &&
+			(event.target.closest('[data-block]') ||
+				event.target.closest('.row-resize-handle') ||
+				event.target.closest('.selection-band') ||
+				event.target.closest('.ruler') ||
+				event.target.closest('.corner'))
+		) {
+			return;
+		}
+		event.preventDefault();
+		menu.open(event.clientX, event.clientY, emptyTimelineMenu(session, tracks.length));
+	}
 
 	function startRowResize(event: PointerEvent, index: number, initialHeight: number): void {
 		if (event.button !== 0) return;
@@ -340,6 +362,28 @@
 				</div>
 			{/each}
 
+			<div class="row add-track-row" role="presentation" oncontextmenu={onEmptySpaceContextMenu}>
+				<div class="empty-lane" style="width: {contentWidth}px"></div>
+				<div class="slot add-slot" style="width: {HEADER_WIDTH}px">
+					<button
+						type="button"
+						class="add-track-btn"
+						aria-label="Add track"
+						title={tracks.length >= 16 ? 'Track limit reached (16 tracks)' : 'Add track'}
+						disabled={tracks.length >= 16}
+						onclick={openAddTrackMenu}
+					>
+						+
+					</button>
+				</div>
+			</div>
+
+			<div
+				class="empty-space"
+				style="width: {HEADER_WIDTH + contentWidth}px"
+				role="presentation"
+				oncontextmenu={onEmptySpaceContextMenu}
+			></div>
 
 			{#if selLayout !== null && selRange !== null}
 				<div
@@ -505,6 +549,48 @@
 		opacity: 0.5;
 	}
 
+	.add-track-row {
+		height: 32px;
+	}
+
+	.empty-lane {
+		flex: none;
+		background: var(--bg);
+		border-bottom: 1px solid var(--border-subtle);
+	}
+
+	.add-slot {
+		align-items: center;
+		justify-content: center;
+		border-bottom: 1px solid var(--border-subtle);
+	}
+
+	.add-track-btn {
+		width: 22px;
+		height: 22px;
+		padding: 0;
+		font-size: 14px;
+		letter-spacing: 0;
+		background: transparent;
+		border: 1px dashed var(--border);
+		color: var(--text-subtle);
+	}
+
+	.add-track-btn:hover:not(:disabled) {
+		filter: none;
+		border-color: var(--green);
+		color: var(--green);
+		background: var(--surface-hover);
+	}
+
+	.add-track-btn:disabled {
+		opacity: 0.3;
+	}
+
+	.empty-space {
+		min-height: 120px;
+		background: var(--bg);
+	}
 
 	.selection-band {
 		position: absolute;

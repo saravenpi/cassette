@@ -16,7 +16,7 @@ import { NoteCache } from './noteCache';
 import { NOTE_GRID, locateBlock } from './pianoRoll';
 import { KeyedQueue, nextBackoff } from './queue';
 import { selection } from './selection.svelte';
-import type { EffectKind, EngineEvent, UiState } from './wire';
+import type { EffectKind, EngineEvent, TrackKind, UiState } from './wire';
 
 /** A track's voice, as the effects pane edits it. */
 export interface Voice {
@@ -324,6 +324,32 @@ class Session {
 			}
 			this.dispatch({ setLoopRegion: { startBeats: 0, endBeats: 0 } });
 		}
+	}
+
+	/** Add a new track of the given kind if below the maximum. */
+	addTrack(kind: TrackKind): void {
+		if ((this.snapshot?.tracks.length ?? 0) < 16) {
+			this.dispatch({ addTrack: { kind } });
+		}
+	}
+
+	/** Delete a track if more than one track remains. */
+	deleteTrack(track: number): void {
+		if ((this.snapshot?.tracks.length ?? 0) > 1) {
+			this.dispatch({ deleteTrack: { track } });
+		}
+	}
+
+	/** Duplicate a track if below the maximum track count. */
+	duplicateTrack(track: number): void {
+		if ((this.snapshot?.tracks.length ?? 0) < 16) {
+			this.dispatch({ duplicateTrack: { track } });
+		}
+	}
+
+	/** Rename a track. */
+	renameTrack(track: number, name: string): void {
+		this.dispatch({ renameTrack: { track, name } });
 	}
 
 	/** Close the piano roll. */
