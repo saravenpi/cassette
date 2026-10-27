@@ -1,32 +1,40 @@
 <script lang="ts">
+  import Icon from "@iconify/svelte";
+
   const features = [
     {
       title: "Glitch-free playback",
+      icon: "pixelarticons:zap",
       summary: "Zero-allocation audio loop",
       description: "The audio thread never allocates memory or locks during playback. Reorder tracks, tweak reverbs, or add clips in the middle of a set without a single dropout."
     },
     {
       title: "Modular insert chain",
+      icon: "pixelarticons:sliders",
       summary: "Nine stereo effects per channel",
       description: "Each track runs its own effects chain. Chorus, tape delay, plate reverb, overdrive, bitcrusher, state-variable filter, compressor with sidechain, limiter, and 3-band EQ."
     },
     {
       title: "Fast piano roll",
+      icon: "pixelarticons:grid",
       summary: "Direct note and velocity editing",
       description: "Draw and duplicate notes with velocity bars. Grid snapping scales from whole notes down to 1/64 triplets, with quantize and scale folding built right in."
     },
     {
       title: "Beat timeline",
+      icon: "pixelarticons:audio-waveform",
       summary: "Sample-accurate audio and MIDI blocks",
       description: "Slice, duplicate, loop, and drag audio samples and MIDI clips. Waveforms render instantly on high-refresh displays."
     },
     {
       title: "Built-in polysynth",
+      icon: "pixelarticons:keyboard-music",
       summary: "Subtractive sound engine",
       description: "Dual anti-aliased oscillators, resonant low-pass filter, ADSR envelopes, and LFO modulation. Play it with your MIDI controller or computer keyboard immediately."
     },
     {
       title: "Instant startup",
+      icon: "pixelarticons:speed-fast",
       summary: "Lightweight and fully offline",
       description: "Starts in under 200 milliseconds. Takes less than 20 megabytes on disk. No login, no telemetry, and no background services."
     }
@@ -56,8 +64,9 @@
 
 <div class="max-w-6xl mx-auto px-6 pt-16 pb-24 space-y-24">
   <section class="space-y-6 pt-4">
-    <div class="text-xs text-[#86A881] uppercase tracking-widest">
-      Open source audio workstation
+    <div class="inline-flex items-center gap-2 text-xs text-[#86A881] uppercase tracking-widest">
+      <span class="inline-block w-2 h-2 bg-[#86A881]"></span>
+      <span>Open source audio workstation</span>
     </div>
 
     <h1 class="text-4xl sm:text-6xl uppercase tracking-tight leading-none max-w-4xl">
@@ -74,6 +83,7 @@
         href="/download"
         class="inline-flex items-center gap-3 bg-[#86A881] text-[#0B0B0B] px-6 py-3.5 text-xs uppercase tracking-widest hover:bg-[#FFFFFF] transition-colors"
       >
+        <Icon icon="pixelarticons:download" class="w-4 h-4 shrink-0" />
         <span>&gt; Download Cassette</span>
       </a>
 
@@ -83,87 +93,19 @@
         rel="noreferrer"
         class="inline-flex items-center gap-3 border border-[#333333] text-[#FFFFFF] px-6 py-3.5 text-xs uppercase tracking-widest hover:border-[#86A881] hover:text-[#86A881] transition-colors"
       >
-        <span>GitHub repository ↗</span>
+        <Icon icon="pixelarticons:github" class="w-4 h-4 shrink-0" />
+        <span>GitHub repository</span>
+        <Icon icon="pixelarticons:external-link" class="w-3.5 h-3.5 shrink-0 opacity-70" />
       </a>
-    </div>
-  </section>
-
-  <section class="border border-[#262626] bg-[#1F1F1F] p-4 sm:p-6 space-y-4">
-    <div class="flex items-center justify-between border-b border-[#262626] pb-3 text-xs text-[#FFFFFF]/60">
-      <div class="flex items-center gap-3">
-        <span class="inline-block w-2.5 h-2.5 rounded-full bg-[#86A881]"></span>
-        <span class="text-[#86A881] tracking-widest uppercase">Live session view</span>
-        <span class="text-[#262626]">|</span>
-        <span class="font-mono text-[11px]">120.0 BPM · 4/4 · 44.1 kHz</span>
-      </div>
-      <div class="text-[11px] uppercase tracking-widest text-[#FFFFFF]/40 hidden sm:block">
-        Real-time audio: 0 xruns
-      </div>
-    </div>
-
-    <div class="bg-[#0B0B0B] border border-[#262626] p-4 sm:p-6 font-mono text-xs overflow-x-auto space-y-4">
-      <div class="grid grid-cols-12 gap-3 text-[10px] text-[#FFFFFF]/40 uppercase tracking-widest border-b border-[#1F1F1F] pb-2">
-        <div class="col-span-3">Track</div>
-        <div class="col-span-2">Type</div>
-        <div class="col-span-4">Insert chain</div>
-        <div class="col-span-3 text-right">Meters</div>
-      </div>
-
-      <div class="grid grid-cols-12 gap-3 items-center border-b border-[#1F1F1F]/60 pb-3">
-        <div class="col-span-3 text-[#FFFFFF] flex items-center gap-2">
-          <span class="w-2 h-2 bg-[#86A881]"></span>
-          <span>01 Sub bass</span>
-        </div>
-        <div class="col-span-2 text-[#86A881]">Synth / MIDI</div>
-        <div class="col-span-4 text-[#FFFFFF]/70 text-[11px]">PolySynth &gt; Filter &gt; Distortion</div>
-        <div class="col-span-3 text-right text-[#86A881] text-[11px] font-mono">
-          [||||||||||||....] -4.2 dB
-        </div>
-      </div>
-
-      <div class="grid grid-cols-12 gap-3 items-center border-b border-[#1F1F1F]/60 pb-3">
-        <div class="col-span-3 text-[#FFFFFF] flex items-center gap-2">
-          <span class="w-2 h-2 bg-[#8FB8D8]"></span>
-          <span>02 Drum stem</span>
-        </div>
-        <div class="col-span-2 text-[#8FB8D8]">Audio wave</div>
-        <div class="col-span-4 text-[#FFFFFF]/70 text-[11px]">Compressor &gt; Parametric EQ &gt; Limiter</div>
-        <div class="col-span-3 text-right text-[#86A881] text-[11px] font-mono">
-          [||||||||||||||..] -1.8 dB
-        </div>
-      </div>
-
-      <div class="grid grid-cols-12 gap-3 items-center border-b border-[#1F1F1F]/60 pb-3">
-        <div class="col-span-3 text-[#FFFFFF] flex items-center gap-2">
-          <span class="w-2 h-2 bg-[#D9B26F]"></span>
-          <span>03 Lead pluck</span>
-        </div>
-        <div class="col-span-2 text-[#D9B26F]">Synth / MIDI</div>
-        <div class="col-span-4 text-[#FFFFFF]/70 text-[11px]">PolySynth &gt; Chorus &gt; Tape Delay &gt; Reverb</div>
-        <div class="col-span-3 text-right text-[#86A881] text-[11px] font-mono">
-          [||||||||........] -8.4 dB
-        </div>
-      </div>
-
-      <div class="grid grid-cols-12 gap-3 items-center">
-        <div class="col-span-3 text-[#FFFFFF] flex items-center gap-2">
-          <span class="w-2 h-2 bg-[#C87D55]"></span>
-          <span>04 Master</span>
-        </div>
-        <div class="col-span-2 text-[#C87D55]">Bus</div>
-        <div class="col-span-4 text-[#FFFFFF]/70 text-[11px]">Bus Compressor &gt; Master Limiter</div>
-        <div class="col-span-3 text-right text-[#86A881] text-[11px] font-mono">
-          [|||||||||||||||.] -0.3 dB
-        </div>
-      </div>
     </div>
   </section>
 
   <section id="features" class="space-y-12">
     <div class="flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-[#262626] pb-6">
       <div class="space-y-2">
-        <div class="text-xs text-[#86A881] uppercase tracking-widest">
-          Features
+        <div class="inline-flex items-center gap-2 text-xs text-[#86A881] uppercase tracking-widest">
+          <Icon icon="pixelarticons:sliders" class="w-4 h-4" />
+          <span>Features</span>
         </div>
         <h2 class="text-2xl sm:text-3xl uppercase tracking-tight">Everything you need to write and perform</h2>
       </div>
@@ -175,9 +117,12 @@
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
       {#each features as feature}
         <div class="bg-[#1F1F1F] border border-[#262626] p-6 space-y-4 hover:border-[#86A881]/50 transition-colors">
-          <div class="space-y-1">
-            <h3 class="text-sm font-medium tracking-wide text-[#FFFFFF]">{feature.title}</h3>
-            <div class="text-xs text-[#86A881] tracking-wide">{feature.summary}</div>
+          <div class="flex items-start justify-between gap-4">
+            <div class="space-y-1">
+              <h3 class="text-sm font-medium tracking-wide text-[#FFFFFF]">{feature.title}</h3>
+              <div class="text-xs text-[#86A881] tracking-wide">{feature.summary}</div>
+            </div>
+            <Icon icon={feature.icon} class="w-5 h-5 text-[#86A881] shrink-0" />
           </div>
           <p class="text-xs text-[#FFFFFF]/70 leading-relaxed">
             {feature.description}
@@ -187,10 +132,11 @@
     </div>
   </section>
 
-  <section class="space-y-8 border-t border-[#262626] pt-16">
+  <section id="effects" class="space-y-8 border-t border-[#262626] pt-16">
     <div class="space-y-2">
-      <div class="text-xs text-[#86A881] uppercase tracking-widest">
-        DSP effects
+      <div class="inline-flex items-center gap-2 text-xs text-[#86A881] uppercase tracking-widest">
+        <Icon icon="pixelarticons:audio-device" class="w-4 h-4" />
+        <span>DSP effects</span>
       </div>
       <h2 class="text-2xl sm:text-3xl uppercase tracking-tight">Built-in stereo processing suite</h2>
     </div>
@@ -201,7 +147,8 @@
 
     <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 gap-3 pt-2">
       {#each effectsList as effect}
-        <div class="border border-[#262626] bg-[#1F1F1F] p-4 text-center">
+        <div class="border border-[#262626] bg-[#1F1F1F] p-4 text-center hover:border-[#86A881]/40 transition-colors flex items-center justify-center gap-2">
+          <Icon icon="pixelarticons:sliders" class="w-3.5 h-3.5 text-[#86A881]/70" />
           <span class="text-xs uppercase tracking-widest text-[#FFFFFF]">{effect}</span>
         </div>
       {/each}
@@ -210,29 +157,39 @@
 
   <section id="architecture" class="space-y-8 border-t border-[#262626] pt-16">
     <div class="space-y-2">
-      <div class="text-xs text-[#86A881] uppercase tracking-widest">
-        Stability
+      <div class="inline-flex items-center gap-2 text-xs text-[#86A881] uppercase tracking-widest">
+        <Icon icon="pixelarticons:code" class="w-4 h-4" />
+        <span>Stability</span>
       </div>
       <h2 class="text-2xl sm:text-3xl uppercase tracking-tight">Built so your audio never drops</h2>
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
       <div class="bg-[#1F1F1F] border border-[#262626] p-6 space-y-3">
-        <div class="text-xs text-[#86A881] uppercase tracking-widest">Dedicated audio thread</div>
+        <div class="flex items-center justify-between">
+          <div class="text-xs text-[#86A881] uppercase tracking-widest">Dedicated audio thread</div>
+          <Icon icon="pixelarticons:cpu" class="w-4 h-4 text-[#86A881]" />
+        </div>
         <p class="text-xs text-[#FFFFFF]/70 leading-relaxed">
           The rendering loop runs isolated from the interface. It owns synthesis voices, audio streams, and effect calculations, communicating through lock-free ring buffers.
         </p>
       </div>
 
       <div class="bg-[#1F1F1F] border border-[#262626] p-6 space-y-3">
-        <div class="text-xs text-[#86A881] uppercase tracking-widest">Zero garbage collection</div>
+        <div class="flex items-center justify-between">
+          <div class="text-xs text-[#86A881] uppercase tracking-widest">Zero garbage collection</div>
+          <Icon icon="pixelarticons:server" class="w-4 h-4 text-[#86A881]" />
+        </div>
         <p class="text-xs text-[#FFFFFF]/70 leading-relaxed">
           Buffers are pre-allocated upfront. Moving tracks, firing clips, or tweaking filters triggers zero runtime memory allocations on the audio path.
         </p>
       </div>
 
       <div class="bg-[#1F1F1F] border border-[#262626] p-6 space-y-3">
-        <div class="text-xs text-[#86A881] uppercase tracking-widest">Non-blocking UI</div>
+        <div class="flex items-center justify-between">
+          <div class="text-xs text-[#86A881] uppercase tracking-widest">Non-blocking UI</div>
+          <Icon icon="pixelarticons:device-laptop" class="w-4 h-4 text-[#86A881]" />
+        </div>
         <p class="text-xs text-[#FFFFFF]/70 leading-relaxed">
           The visual interface runs as an independent surface. Heavy UI updates or animations never delay audio callbacks by even a fraction of a millisecond.
         </p>
@@ -242,8 +199,9 @@
 
   <section id="specs" class="space-y-8 border-t border-[#262626] pt-16">
     <div class="space-y-2">
-      <div class="text-xs text-[#86A881] uppercase tracking-widest">
-        Technical specifications
+      <div class="inline-flex items-center gap-2 text-xs text-[#86A881] uppercase tracking-widest">
+        <Icon icon="pixelarticons:checklist" class="w-4 h-4" />
+        <span>Technical specifications</span>
       </div>
       <h2 class="text-2xl sm:text-3xl uppercase tracking-tight">Engine and platform targets</h2>
     </div>
@@ -258,19 +216,32 @@
     </div>
   </section>
 
-  <section class="border border-[#86A881] bg-[#1F1F1F] p-8 sm:p-12 space-y-6 text-center">
-    <div class="text-xs text-[#86A881] uppercase tracking-widest">Get started</div>
-    <h2 class="text-3xl sm:text-4xl uppercase tracking-tight">Ready to make music</h2>
-    <p class="text-xs sm:text-sm text-[#FFFFFF]/70 max-w-xl mx-auto leading-relaxed">
-      Download the installer for your operating system or build from source. Free, open source, and lightweight.
-    </p>
-    <div>
-      <a
-        href="/download"
-        class="inline-flex items-center gap-3 bg-[#86A881] text-[#0B0B0B] px-8 py-4 text-xs uppercase tracking-widest hover:bg-[#FFFFFF] transition-colors"
-      >
-        <span>&gt; Go to downloads</span>
-      </a>
+  <section id="get-started">
+    <div class="bg-[#86A881] text-[#000000] p-8 md:p-12 flex flex-col justify-between space-y-8">
+      <div class="space-y-4">
+        <div class="text-xs uppercase tracking-widest text-[#000000]/70">
+          Get started
+        </div>
+        <h2 class="text-3xl sm:text-5xl uppercase leading-tight font-normal">
+          Ready to make music
+        </h2>
+        <p class="text-xs sm:text-sm leading-relaxed text-[#000000]/80 max-w-2xl">
+          Download the installer for your operating system or build from source. Free, open source, and lightweight.
+        </p>
+      </div>
+
+      <div class="space-y-3">
+        <a
+          href="/download"
+          class="inline-flex items-center justify-center gap-2.5 w-full sm:w-auto bg-[#000000] text-[#FFFFFF] hover:bg-[#FFFFFF] hover:text-[#000000] px-8 py-4 text-xs sm:text-sm uppercase tracking-widest text-center no-underline transition-colors leading-none"
+        >
+          <Icon
+            icon="pixelarticons:download"
+            class="w-5 h-5 shrink-0 translate-y-[1px]"
+          />
+          <span class="leading-none">&gt; Go to downloads</span>
+        </a>
+      </div>
     </div>
   </section>
 </div>

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import Icon from "@iconify/svelte";
 
   let { data } = $props();
 
@@ -11,12 +12,14 @@
   const platforms: {
     os: Os;
     name: string;
+    icon: string;
     files: { label: string; asset: string }[];
     notes: string[];
   }[] = [
     {
       os: "windows",
       name: "WINDOWS",
+      icon: "pixelarticons:device-laptop",
       files: [
         {
           label: "Windows Installer (.exe)",
@@ -32,6 +35,7 @@
     {
       os: "macos",
       name: "MACOS",
+      icon: "pixelarticons:devices",
       files: [
         {
           label: "Disk Image Universal (.dmg)",
@@ -47,6 +51,7 @@
     {
       os: "linux",
       name: "LINUX",
+      icon: "pixelarticons:terminal",
       files: [
         {
           label: "Standalone AppImage (.AppImage)",
@@ -89,7 +94,7 @@
       : platforms
   );
 
-  const version = $derived<string>(data.version || "0.15.3");
+  const version = $derived<string>(data.version || "0.16.0");
   const notesUrl = $derived<string>(data.url ?? releasesUrl);
 </script>
 
@@ -103,8 +108,9 @@
 
 <div class="max-w-6xl mx-auto px-6 pt-12 pb-24 space-y-16">
   <section class="space-y-4">
-    <div class="text-xs text-[#86A881] uppercase tracking-widest">
-      CASSETTE DAW · V{version}
+    <div class="inline-flex items-center gap-2 text-xs text-[#86A881] uppercase tracking-widest">
+      <span class="inline-block w-2 h-2 bg-[#86A881]"></span>
+      <span>CASSETTE DAW · V{version}</span>
     </div>
     <h1 class="text-3xl md:text-5xl uppercase tracking-tight">DOWNLOAD</h1>
     <p class="text-sm text-[#FFFFFF]/70 max-w-2xl leading-relaxed">
@@ -116,9 +122,10 @@
         href={notesUrl}
         target="_blank"
         rel="noreferrer"
-        class="inline-block text-xs uppercase tracking-widest text-[#86A881] hover:text-[#FFFFFF] transition-colors"
+        class="inline-flex items-center gap-1.5 text-xs uppercase tracking-widest text-[#86A881] hover:text-[#FFFFFF] transition-colors"
       >
-        RELEASE NOTES ON GITHUB ↗
+        <span>RELEASE NOTES ON GITHUB</span>
+        <Icon icon="pixelarticons:external-link" class="w-3.5 h-3.5" />
       </a>
     </div>
   </section>
@@ -133,6 +140,7 @@
       >
         <div class="md:col-span-5 space-y-4">
           <div class="flex items-center gap-3">
+            <Icon icon={platform.icon} class="w-5 h-5 text-[#86A881]" />
             <h2 class="text-lg uppercase tracking-wide">{platform.name}</h2>
             {#if primary}
               <span class="bg-[#86A881] text-[#0B0B0B] px-2 py-0.5 text-[10px] uppercase tracking-widest">
@@ -149,7 +157,10 @@
                   ? 'bg-[#86A881] text-[#0B0B0B] hover:bg-[#FFFFFF]'
                   : 'border border-[#333333] text-[#FFFFFF] hover:border-[#86A881] hover:text-[#86A881]'}"
               >
-                <span>&gt; {file.label}</span>
+                <span class="inline-flex items-center gap-2">
+                  <Icon icon="pixelarticons:download" class="w-4 h-4 shrink-0" />
+                  <span>&gt; {file.label}</span>
+                </span>
                 <span class="text-[10px] opacity-60">X64</span>
               </a>
             {/each}
@@ -163,7 +174,7 @@
           <ul class="space-y-2 text-xs text-[#FFFFFF]/75">
             {#each platform.notes as note}
               <li class="leading-relaxed flex items-start gap-2">
-                <span class="text-[#86A881] select-none">+</span>
+                <Icon icon="pixelarticons:check" class="w-3.5 h-3.5 text-[#86A881] shrink-0 mt-0.5" />
                 <span>{note}</span>
               </li>
             {/each}
@@ -175,7 +186,10 @@
 
   <section class="space-y-6 pt-4 border-t border-[#262626]">
     <div class="flex flex-col md:flex-row md:items-end justify-between gap-3">
-      <h2 class="text-xl md:text-2xl uppercase tracking-wide">VERIFY INTEGRITY</h2>
+      <div class="flex items-center gap-2">
+        <Icon icon="pixelarticons:debug-check" class="w-5 h-5 text-[#86A881]" />
+        <h2 class="text-xl md:text-2xl uppercase tracking-wide">VERIFY INTEGRITY</h2>
+      </div>
       <span class="text-[11px] uppercase tracking-widest text-[#FFFFFF]/50">
         SHA-256 SECURE HASHES
       </span>
@@ -197,7 +211,10 @@
 
   <section class="space-y-6 pt-4 border-t border-[#262626]">
     <div class="flex flex-col md:flex-row md:items-end justify-between gap-3">
-      <h2 class="text-xl md:text-2xl uppercase tracking-wide">BUILD FROM SOURCE</h2>
+      <div class="flex items-center gap-2">
+        <Icon icon="pixelarticons:code" class="w-5 h-5 text-[#86A881]" />
+        <h2 class="text-xl md:text-2xl uppercase tracking-wide">BUILD FROM SOURCE</h2>
+      </div>
       <span class="text-[11px] uppercase tracking-widest text-[#FFFFFF]/50">
         DEVELOPER WORKFLOW
       </span>
@@ -205,8 +222,11 @@
 
     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
       <div class="bg-[#1F1F1F] border border-[#262626] p-6 space-y-4">
-        <div class="text-[11px] uppercase tracking-widest text-[#86A881]">
-          Audio engine tests (Cargo)
+        <div class="flex items-center justify-between">
+          <div class="text-[11px] uppercase tracking-widest text-[#86A881]">
+            Audio engine tests (Cargo)
+          </div>
+          <Icon icon="pixelarticons:code" class="w-4 h-4 text-[#86A881]" />
         </div>
         <p class="text-xs text-[#FFFFFF]/70 leading-relaxed">
           Run the test suite across the audio core, synthesis models, and real-time buffers:
@@ -219,8 +239,11 @@
       </div>
 
       <div class="bg-[#1F1F1F] border border-[#262626] p-6 space-y-4">
-        <div class="text-[11px] uppercase tracking-widest text-[#86A881]">
-          Desktop build (Mise)
+        <div class="flex items-center justify-between">
+          <div class="text-[11px] uppercase tracking-widest text-[#86A881]">
+            Desktop build (Mise)
+          </div>
+          <Icon icon="pixelarticons:terminal" class="w-4 h-4 text-[#86A881]" />
         </div>
         <p class="text-xs text-[#FFFFFF]/70 leading-relaxed">
           Compile and launch the full desktop application in development mode:
@@ -242,9 +265,10 @@
       href="https://github.com/saravenpi/cassette/releases"
       target="_blank"
       rel="noreferrer"
-      class="text-[#86A881] hover:text-[#FFFFFF] uppercase tracking-widest transition-colors"
+      class="inline-flex items-center gap-1.5 text-[#86A881] hover:text-[#FFFFFF] uppercase tracking-widest transition-colors"
     >
-      ALL RELEASES ON GITHUB ↗
+      <span>ALL RELEASES ON GITHUB</span>
+      <Icon icon="pixelarticons:external-link" class="w-3.5 h-3.5" />
     </a>
   </section>
 </div>
