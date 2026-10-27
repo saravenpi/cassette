@@ -1,0 +1,132 @@
+name: desktop
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to attach installers to (empty builds without publishing)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  bundle:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-x64
+            runner: windows-latest
+            rust_targets: x86_64-pc-windows-msvc
+            tauri_args: ""
+            bundle_dir: app/src-tauri/target/release/bundle
+          - name: macos-universal
+            runner: macos-latest
+            rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
+            tauri_args: --target universal-apple-darwin
+            bundle_dir: app/src-tauri/target/universal-apple-darwin/release/bundle
+          - name: linux-x64
+            runner: ubuntu-22.04
+            rust_targets: x86_64-unknown-linux-gnu
+            tauri_args: ""
+            bundle_dir: app/src-tauri/target/release/bundle
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_targets }}
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev patchelf libssl-dev libasound2-dev
+
+      - name: Build frontend
+        run: |
+          cd app && bun install --frozen-lockfile && bun run build
+
+      - name: Build Tauri desktop app
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          cd app && bunx @tauri-apps/cli@2 build ${{ matrix.tauri_args }}
+
+      - name: Name the installers
+        run: |
+          mkdir -p out
+          bundle="${{ matrix.bundle_dir }}"
+          case "${{ matrix.name }}" in
+            windows-x64)
+              cp "$bundle"/nsis/*-setup.exe out/Cassette-windows-x64-setup.exe
+              for sig in "$bundle"/nsis/*-setup.exe.sig; do
+                [ -f "$sig" ] && cp "$sig" out/Cassette-windows-x64-setup.exe.sig
+              done
+              ;;
+            macos-universal)
+              cp "$bundle"/dmg/*.dmg out/Cassette-macos-universal.dmg
+              cp "$bundle"/macos/*.app.tar.gz out/Cassette-macos-universal.app.tar.gz
+              for sig in "$bundle"/macos/*.app.tar.gz.sig; do
+                [ -f "$sig" ] && cp "$sig" out/Cassette-macos-universal.app.tar.gz.sig
+              done
+              ;;
+            linux-x64)
+              cp "$bundle"/appimage/*.AppImage out/Cassette-linux-x64.AppImage
+              for sig in "$bundle"/appimage/*.AppImage.sig; do
+                [ -f "$sig" ] && cp "$sig" out/Cassette-linux-x64.AppImage.sig
+              done
+              cp "$bundle"/deb/*.deb out/Cassette-linux-x64.deb
+              for sig in "$bundle"/deb/*.deb.sig; do
+                [ -f "$sig" ] && cp "$sig" out/Cassette-linux-x64.deb.sig
+              done
+              ;;
+          esac
+          ls -l out
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: desktop-${{ matrix.name }}
+          path: out/*
+          retention-days: 1
+
+  publish:
+    name: attach to the release
+    needs: bundle
+    if: github.ref_type == 'tag' || inputs.tag != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: out
+          merge-multiple: true
+
+      - name: Upload installers, signatures and checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          cd out
+          sha256sum Cassette-* > desktop-checksums.txt
+          cat desktop-checksums.txt
+          gh release create "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$RELEASE_TAG" \
+            --generate-notes || true
+          gh release upload "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber \
+            Cassette-* desktop-checksums.txt
