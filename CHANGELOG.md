@@ -451,3 +451,14 @@ Loop points, frame-accurate note starts, and a review pass over v0.9.0.
 - Effect clipboard and duplication: `Ctrl/Cmd+C` copies the selected effect including its parameter values and state, `Ctrl/Cmd+V` pastes after the selection or at the end of the chain, and `Ctrl/Cmd+D` duplicates the effect, with matching options in the device context menu.
 - Multi-platform desktop release workflow: GitHub Actions workflow building and packaging Windows x64 setup installers, macOS Universal DMGs, and Linux x64 AppImage/deb packages with SHA-256 checksums.
 - Cassette official website: SvelteKit landing page and download portal with live GitHub release detection, styled with the Kono design system and deployed to `cassette.facile.studio`.
+
+## [0.16.1] - 2026-10-27
+
+### Changed
+
+- Landing page design aligned with Vitrine studio style: solid green callout section with borderless layout, dark action button, and streamlined typography.
+- Pixelarticons integration: replaced plain text symbols with pixelarticons across navigation, feature cards, downloads, and technical specifications.
+
+### Removed
+
+- Live session view simulation block from the landing page.
