@@ -20,6 +20,12 @@
 	);
 	const countIn = $derived(formatCountIn(snapshot?.countInBeatsLeft ?? 0));
 	const isMac = typeof navigator !== 'undefined' && /Macintosh|Mac OS X/.test(navigator.userAgent);
+	const exportProgress = $derived(session.snapshot?.exportProgress ?? session.exportProgress);
+	const exportPercent = $derived(
+		exportProgress !== null && exportProgress !== undefined
+			? Math.round(exportProgress * 100)
+			: null
+	);
 
 	function openMetronomeMenu(event: MouseEvent): void {
 		const button = event.currentTarget;
@@ -112,14 +118,41 @@
 	</div>
 
 	<div class="group" role="group" aria-label="Project">
-		<button onclick={() => session.exportAudio()}>Export</button>
+		<button
+			class="export-btn"
+			class:loading={session.exporting}
+			disabled={session.exporting}
+			onclick={() => session.exportAudio()}
+		>
+			{#if session.exporting}
+				<span class="spinner" aria-hidden="true"></span>
+				Exporting…{#if exportPercent !== null} {exportPercent}%{/if}
+			{:else}
+				Export
+			{/if}
+			{#if session.exporting && exportPercent !== null}
+				<span class="progress-bar" style="width: {exportPercent}%"></span>
+			{/if}
+		</button>
 		<div class="save-pair">
-			<button onclick={() => session.saveProject()}>Save</button>
+			<button
+				class:loading={session.saving}
+				disabled={session.saving}
+				onclick={() => session.saveProject()}
+			>
+				{#if session.saving}
+					<span class="spinner" aria-hidden="true"></span>
+					Saving…
+				{:else}
+					Save
+				{/if}
+			</button>
 			<button
 				class="step"
 				aria-label="Save options"
 				aria-haspopup="menu"
 				title="Save options"
+				disabled={session.saving}
 				onclick={openSaveMenu}
 			>
 				&#9662;
@@ -203,6 +236,38 @@
 
 	.wide {
 		min-width: 64px;
+	}
+
+	.export-btn {
+		position: relative;
+		overflow: hidden;
+	}
+
+	.progress-bar {
+		position: absolute;
+		bottom: 0;
+		left: 0;
+		height: 2px;
+		background: var(--green);
+		transition: width 0.1s linear;
+	}
+
+	.spinner {
+		display: inline-block;
+		width: 8px;
+		height: 8px;
+		margin-right: 4px;
+		border: 1.5px solid var(--text-subtle);
+		border-top-color: var(--green);
+		border-radius: 50%;
+		animation: spin 0.8s linear infinite;
+		vertical-align: middle;
+	}
+
+	@keyframes spin {
+		to {
+			transform: rotate(360deg);
+		}
 	}
 
 	.save-pair {

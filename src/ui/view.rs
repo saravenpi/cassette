@@ -212,6 +212,8 @@ pub struct UiState {
     /// Whether the song changed since it was last saved or loaded.
     pub project_dirty: bool,
     pub clipboard: Option<ClipboardView>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub export_progress: Option<f32>,
 }
 
 impl UiState {
@@ -313,6 +315,7 @@ mod tests {
             project_path: None,
             project_dirty: false,
             clipboard: None,
+            export_progress: None,
         }
     }
 

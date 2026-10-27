@@ -403,3 +403,24 @@ Loop points, frame-accurate note starts, and a review pass over v0.9.0.
 - Live keyboard notes were cut off when the playback loop wrapped around: loop wrap now uses `release_timeline_notes()` to cut only sequenced timeline notes while held keyboard notes continue to sound.
 - Piano roll zoom was previously clamped to timeline scale (256 px/beat), preventing deep zoom on short notes.
 - Nobody has heard the new effects, instruments, metronome or sidechain in a running window.
+
+## [0.15.1] - 2026-10-27
+
+### Added
+
+- Arrow key navigation in arrangement: ArrowUp and ArrowDown navigate tracks or nudge the selected block; ArrowLeft and ArrowRight seek the playhead or nudge the selected block by grid steps.
+- Export progress indicator: progress percentage and progress bar during audio export, with disabled loading state on the Export button.
+- Save loading status: disabled loading indicator on the Save button while saving project files.
+
+### Changed
+
+- Widened the left sidebar tab bar from 248 px to 280 px with nowrap labels so the Effects tab text is never clipped.
+- Piano roll scrolling: scrolling over the note grid scrolls the view normally; Ctrl/Cmd+scroll zooms; Alt+scroll over a note adjusts its velocity.
+
+### Fixed
+
+- Voice release on note cut: synth voices now track active note updates and release immediately when a MIDI block or note is cut, split, or shortened during playback.
+- Block drag and ghost selection overlay: block dragging no longer spawns a stationary selection rectangle over the lane that blocked clicks or lost drag focus.
+- Selection band z-index: arrangement selection band and resize handles now render below sticky track headers and ruler instead of painting over the track UI at the right.
+- Double-click to open MIDI blocks: double-clicking a block reliably opens the piano roll.
+- Double-click reset on controls: double-clicking track volume/pan faders, voice envelope/gain/octave sliders, or tone and effect knobs resets them to their default values.

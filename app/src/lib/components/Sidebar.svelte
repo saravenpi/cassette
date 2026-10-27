@@ -69,7 +69,7 @@
 <style>
 	aside {
 		flex: none;
-		width: 248px;
+		width: 280px;
 		display: flex;
 		flex-direction: column;
 		min-height: 0;
@@ -91,6 +91,7 @@
 		padding: 0 8px;
 		font-size: 11px;
 		letter-spacing: 0.14em;
+		white-space: nowrap;
 		color: var(--text-subtle);
 		background: transparent;
 		box-shadow: inset 0 -2px 0 transparent;

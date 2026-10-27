@@ -54,12 +54,17 @@ export function laneUnder(
 	clientY: number,
 	zoom: number
 ): { track: number; beats: number } | null {
-	const hit = document.elementFromPoint(clientX, clientY);
-	const lane = hit instanceof Element ? hit.closest('[data-lane-track]') : null;
-	if (!(lane instanceof HTMLElement)) return null;
-	const track = Number(lane.dataset.laneTrack);
-	if (!Number.isInteger(track)) return null;
-	return { track, beats: pxToBeats(clientX - lane.getBoundingClientRect().left, zoom) };
+	const elements = typeof document !== 'undefined' && document.elementsFromPoint ? document.elementsFromPoint(clientX, clientY) : [];
+	for (const hit of elements) {
+		const lane = hit instanceof Element ? hit.closest('[data-lane-track]') : null;
+		if (lane instanceof HTMLElement) {
+			const track = Number(lane.dataset.laneTrack);
+			if (Number.isInteger(track)) {
+				return { track, beats: pxToBeats(clientX - lane.getBoundingClientRect().left, zoom) };
+			}
+		}
+	}
+	return null;
 }
 
 /** Tracks the block drags, and holds the one that is running. */

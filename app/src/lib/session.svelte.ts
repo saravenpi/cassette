@@ -17,7 +17,7 @@ import {
 import { paramKey } from './chain';
 import { detail } from './detail.svelte';
 import { DragController } from './drag.svelte';
-import { ZOOM_DEFAULT, clampZoom, gridStep, zoomBy } from './geometry';
+import { ZOOM_DEFAULT, clampZoom, gridStep, snapBeats, zoomBy } from './geometry';
 import { attachKeyboard } from './keyboard';
 import { NoteCache } from './noteCache';
 import { NOTE_GRID, locateBlock } from './pianoRoll';
@@ -73,6 +73,9 @@ class Session {
 	scrollRequest = $state(0);
 	roll = $state<OpenBlock | null>(null);
 	hover = $state<Hover | null>(null);
+	exporting = $state(false);
+	exportProgress = $state<number | null>(null);
+	saving = $state(false);
 	drag: DragController;
 
 	private errorFrom: 'poll' | 'send' | null = null;
@@ -269,6 +272,23 @@ class Session {
 	copySelection(): void {
 		if (selection.range !== null) {
 			this.dispatch({ copyRange: { range: selection.range } });
+		} else {
+			const cursor = this.snapshot?.cursor;
+			if (cursor !== undefined) {
+				const block = this.snapshot?.tracks[cursor.track]?.blocks[cursor.block];
+				if (block !== undefined) {
+					this.dispatch({
+						copyRange: {
+							range: {
+								firstTrack: cursor.track,
+								lastTrack: cursor.track,
+								startBeats: block.startBeats,
+								endBeats: block.startBeats + block.lengthBeats
+							}
+						}
+					});
+				}
+			}
 		}
 	}
 
@@ -277,7 +297,57 @@ class Session {
 		if (selection.range !== null) {
 			this.dispatch({ cutRange: { range: selection.range } });
 			selection.clear();
+		} else {
+			const cursor = this.snapshot?.cursor;
+			if (cursor !== undefined) {
+				const block = this.snapshot?.tracks[cursor.track]?.blocks[cursor.block];
+				if (block !== undefined) {
+					this.dispatch({
+						cutRange: {
+							range: {
+								firstTrack: cursor.track,
+								lastTrack: cursor.track,
+								startBeats: block.startBeats,
+								endBeats: block.startBeats + block.lengthBeats
+							}
+						}
+					});
+				}
+			}
 		}
+	}
+
+	/** Move the selected block by tracks and beats, returning true if moved. */
+	nudgeSelectedBlock(deltaTrack: number, deltaBeats: number): boolean {
+		const cursor = this.snapshot?.cursor;
+		if (cursor === undefined) return false;
+		const track = cursor.track;
+		const blockIndex = cursor.block;
+		const blocks = this.snapshot?.tracks[track]?.blocks ?? [];
+		if (blockIndex >= blocks.length) return false;
+		const current = blocks[blockIndex];
+		if (!current) return false;
+		const tracksCount = this.snapshot?.tracks.length ?? 1;
+		const targetTrack = Math.max(0, Math.min(tracksCount - 1, track + deltaTrack));
+		const step = deltaBeats * gridStep(this.zoom);
+		const startBeats = Math.max(0, current.startBeats + step);
+		this.dispatch({
+			placeBlock: {
+				track,
+				block: blockIndex,
+				targetTrack,
+				startBeats
+			}
+		});
+		return true;
+	}
+
+	/** Seek playhead by relative direction in grid steps. */
+	seekCursor(direction: number): void {
+		const pos = this.snapshot?.transportPositionBeats ?? 0;
+		const step = direction * gridStep(this.zoom);
+		const next = Math.max(0, snapBeats(pos + step, gridStep(this.zoom)));
+		this.dispatch({ seek: { beats: next } });
 	}
 
 	/** Paste clipboard contents at the marker on the selected track. */
@@ -433,8 +503,13 @@ class Session {
 	/** Save the project to its remembered path, or ask for one if never saved. */
 	async saveProject(pick: (name?: string) => Promise<string | null> = pickSaveProject): Promise<void> {
 		try {
-			const event = await resolveSaveAction(this.snapshot?.projectPath ?? null, () => pick());
-			if (event !== null) await this.send(event);
+			this.saving = true;
+			try {
+				const event = await resolveSaveAction(this.snapshot?.projectPath ?? null, () => pick());
+				if (event !== null) await this.send(event);
+			} finally {
+				this.saving = false;
+			}
 		} catch (error) {
 			this.fail(error, 'send');
 		}
@@ -443,8 +518,13 @@ class Session {
 	/** Save the project under a new path selected via dialog. */
 	async saveProjectAs(pick: (name?: string) => Promise<string | null> = pickSaveProject): Promise<void> {
 		try {
-			const event = await resolveSaveAsAction(() => pick());
-			if (event !== null) await this.send(event);
+			this.saving = true;
+			try {
+				const event = await resolveSaveAsAction(() => pick());
+				if (event !== null) await this.send(event);
+			} finally {
+				this.saving = false;
+			}
 		} catch (error) {
 			this.fail(error, 'send');
 		}
@@ -454,7 +534,15 @@ class Session {
 	async exportAudio(pick: (name?: string) => Promise<string | null> = pickExportWav): Promise<void> {
 		try {
 			const path = await pick();
-			if (path !== null) await this.send({ exportAudio: { path } });
+			if (path === null) return;
+			this.exporting = true;
+			this.exportProgress = 0;
+			try {
+				await this.send({ exportAudio: { path } });
+			} finally {
+				this.exporting = false;
+				this.exportProgress = null;
+			}
 		} catch (error) {
 			this.fail(error, 'send');
 		}
@@ -498,6 +586,10 @@ class Session {
 				return;
 			}
 			this.clear('poll');
+			if (this.snapshot?.exportProgress !== undefined && this.snapshot?.exportProgress !== null) {
+				this.exportProgress = this.snapshot.exportProgress;
+				this.exporting = true;
+			}
 			this.followRoll();
 			this.backoff = 0;
 			this.resumeAt = 0;

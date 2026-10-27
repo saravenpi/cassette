@@ -26,11 +26,23 @@
 	let renaming = $state(false);
 	let renameText = $state('');
 
+	const DEFAULT_VOLUME = 0.8;
+	const DEFAULT_PAN = 0.0;
+
 	const color = $derived(trackColor(track.colorIndex));
 	const selected = $derived(session.snapshot?.cursor.track === index);
 	const level = $derived(Math.round(Math.min(1, Math.max(0, track.level)) * 100));
 	const volume = $derived(draggedVolume ?? track.volume);
 	const pan = $derived(draggedPan ?? track.pan);
+
+	$effect(() => {
+		if (draggedVolume !== null && Math.abs(track.volume - draggedVolume) < 0.001) {
+			draggedVolume = null;
+		}
+		if (draggedPan !== null && Math.abs(track.pan - draggedPan) < 0.001) {
+			draggedPan = null;
+		}
+	});
 
 	$effect(() => {
 		if (renaming && renameInput) {
@@ -77,6 +89,17 @@
 
 	function mix(nextVolume: number, nextPan: number, muted: boolean, solo: boolean): void {
 		session.queueMix(index, nextVolume, nextPan, muted, solo);
+	}
+
+	function resetFader(which: 'volume' | 'pan'): void {
+		session.dispatch('checkpoint');
+		if (which === 'volume') {
+			draggedVolume = DEFAULT_VOLUME;
+			mix(DEFAULT_VOLUME, pan, track.muted, track.solo);
+		} else {
+			draggedPan = DEFAULT_PAN;
+			mix(volume, DEFAULT_PAN, track.muted, track.solo);
+		}
 	}
 
 	function onContextMenu(event: MouseEvent): void {
@@ -163,7 +186,14 @@
 			value={volume}
 			style="--filled: {rangePercent(volume, 0, 1)}"
 			aria-label="Volume of {track.name}"
-			onpointerdown={() => session.dispatch('checkpoint')}
+			onpointerdown={(event) => {
+				if (event.detail === 2) {
+					resetFader('volume');
+				} else {
+					session.dispatch('checkpoint');
+				}
+			}}
+			ondblclick={() => resetFader('volume')}
 			oninput={(event) => onFader(event, 'volume')}
 			onchange={releaseFaders}
 			onblur={releaseFaders}
@@ -177,7 +207,14 @@
 			value={pan}
 			style="--filled: {rangePercent(pan, -1, 1)}"
 			aria-label="Pan of {track.name}"
-			onpointerdown={() => session.dispatch('checkpoint')}
+			onpointerdown={(event) => {
+				if (event.detail === 2) {
+					resetFader('pan');
+				} else {
+					session.dispatch('checkpoint');
+				}
+			}}
+			ondblclick={() => resetFader('pan')}
 			oninput={(event) => onFader(event, 'pan')}
 			onchange={releaseFaders}
 			onblur={releaseFaders}

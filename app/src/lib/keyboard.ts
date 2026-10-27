@@ -31,6 +31,8 @@ interface KeyboardHost {
 	delete(): void;
 	loopSelection(): void;
 	clearSelection(): boolean;
+	nudgeSelectedBlock(deltaTrack: number, deltaBeats: number): boolean;
+	seekCursor(direction: number): void;
 }
 
 /** Controls that keep Shift+Tab for moving focus back, so the keymap leaves it to them. */
@@ -117,6 +119,28 @@ export function attachKeyboard(host: KeyboardHost): () => void {
 				if (!event.repeat) host.pasteSelection();
 			} else if (local === 'loopSelection') {
 				if (!event.repeat) host.loopSelection();
+			}
+
+			if (!inInputOrGrid && (event.key === 'ArrowUp' || event.key === 'ArrowDown' || event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+				if (event.key === 'ArrowUp') {
+					if (!host.nudgeSelectedBlock(-1, 0)) {
+						host.dispatch({ moveTrack: -1 });
+					}
+				} else if (event.key === 'ArrowDown') {
+					if (!host.nudgeSelectedBlock(1, 0)) {
+						host.dispatch({ moveTrack: 1 });
+					}
+				} else if (event.key === 'ArrowLeft') {
+					if (!host.nudgeSelectedBlock(0, event.altKey ? -0.25 : -1)) {
+						host.seekCursor(event.altKey ? -0.25 : -1);
+					}
+				} else if (event.key === 'ArrowRight') {
+					if (!host.nudgeSelectedBlock(0, event.altKey ? 0.25 : 1)) {
+						host.seekCursor(event.altKey ? 0.25 : 1);
+					}
+				}
+				event.preventDefault();
+				return;
 			}
 
 			const intent = intentFor(event, host.renaming);

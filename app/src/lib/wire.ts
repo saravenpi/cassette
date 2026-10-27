@@ -171,6 +171,7 @@ export interface UiState {
 	projectPath: string | null;
 	projectDirty: boolean;
 	clipboard: ClipboardView | null;
+	exportProgress?: number | null;
 }
 
 /** One audio file as a block draws it: its peaks and its length in seconds. */

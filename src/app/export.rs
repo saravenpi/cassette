@@ -19,6 +19,13 @@ const EXPORT_SAMPLE_RATE: u32 = 44_100;
 const MAX_EXPORT_SECONDS: f32 = 600.0;
 
 impl App {
+    fn report_export_progress(&mut self, progress: Option<f32>) {
+        self.export_progress = progress;
+        if let Some(reporter) = &self.progress_reporter {
+            reporter(progress);
+        }
+    }
+
     pub(crate) fn export_audio(&mut self, target_path: Option<String>) {
         let path = target_path
             .map(PathBuf::from)
@@ -35,6 +42,7 @@ impl App {
             ),
             Err(error) => format!("export audio failed: {error:#}"),
         };
+        self.report_export_progress(None);
     }
 
     fn render_to(&mut self, path: &Path) -> Result<bool> {
@@ -80,9 +88,12 @@ impl App {
         core.apply(RtCommand::Seek { beats: 0.0 });
         core.apply(RtCommand::Play);
 
+        self.report_export_progress(Some(0.0));
+
         let mut output = Vec::with_capacity(total_frames * 2);
         let mut buffer = [0.0f32; 1024];
         let mut frames_rendered = 0;
+        let mut last_pct = 0;
 
         while frames_rendered < total_frames {
             let chunk_frames = (total_frames - frames_rendered).min(buffer.len() / 2);
@@ -91,6 +102,14 @@ impl App {
             core.process(slice);
             output.extend_from_slice(slice);
             frames_rendered += chunk_frames;
+
+            if total_frames > 0 {
+                let pct = (frames_rendered * 100 / total_frames) as u32;
+                if pct != last_pct {
+                    last_pct = pct;
+                    self.report_export_progress(Some(pct as f32 / 100.0));
+                }
+            }
         }
 
         write_atomic(path, |temp| {

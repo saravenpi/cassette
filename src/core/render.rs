@@ -453,6 +453,7 @@ impl RenderCore {
         *len = kept;
         self.refresh_song_end();
         self.follow_sample(track);
+        self.follow_notes(track);
     }
 
     /// Point a playing sample voice at the block that now covers the playhead.
@@ -475,6 +476,16 @@ impl RenderCore {
         }
     }
 
+    fn follow_notes(&mut self, track: usize) {
+        if track >= MAX_TRACKS {
+            return;
+        }
+        let beats = self.transport.position_beats_exact();
+        let frames_per_beat = self.transport.frames_per_beat();
+        let notes = &self.notes[track][..self.note_lens[track]];
+        self.synth.follow_notes(track, beats, frames_per_beat, notes);
+    }
+
     /// Replace one track's note mirror, keeping at most [`MAX_NOTES`] notes.
     /// Copies into fixed storage, so it neither allocates nor frees.
     pub fn set_notes(&mut self, track: usize, notes: impl AsRef<[MirroredNote]>) {
@@ -486,6 +497,7 @@ impl RenderCore {
         let kept = notes.len().min(MAX_NOTES);
         slot[..kept].copy_from_slice(&notes[..kept]);
         *len = kept;
+        self.follow_notes(track);
     }
 
     fn refresh_song_end(&mut self) {
@@ -1821,5 +1833,26 @@ mod tests {
         };
         assert!(block.covers(2.0));
         assert!(!block.covers(6.0));
+    }
+
+    #[test]
+    fn cutting_notes_releases_or_shortens_sounding_voices() {
+        let song = Song::new();
+        let mut core = RenderCore::new(&song, DEFAULT_SAMPLE_RATE);
+        core.set_notes(
+            0,
+            &[MirroredNote {
+                start_beats: 0.0,
+                end_beats: 4.0,
+                pitch: 60,
+                velocity: 100,
+            }],
+        );
+        core.apply(RtCommand::Play);
+        render(&mut core, 256);
+        assert!(core.synth.active_voices() > 0);
+        core.set_notes(0, &[]);
+        render(&mut core, 44100);
+        assert_eq!(core.synth.active_voices(), 0);
     }
 }

@@ -59,14 +59,14 @@
 	const DEFAULT_GAIN = 0.45;
 
 
-	const SLIDERS: { id: keyof Voice; label: string; min: number; max: number; step: number; unit: string }[] =
+	const SLIDERS: { id: keyof Voice; label: string; min: number; max: number; step: number; unit: string; default: number }[] =
 		[
-			{ id: 'gain', label: 'Gain', min: 0, max: 1, step: 0.01, unit: '' },
-			{ id: 'octave', label: 'Octave', min: -3, max: 3, step: 1, unit: '' },
-			{ id: 'attack', label: 'Attack', min: 0, max: 2, step: 0.005, unit: 's' },
-			{ id: 'decay', label: 'Decay', min: 0, max: 2, step: 0.005, unit: 's' },
-			{ id: 'sustain', label: 'Sustain', min: 0, max: 1, step: 0.01, unit: '' },
-			{ id: 'release', label: 'Release', min: 0, max: 3, step: 0.005, unit: 's' }
+			{ id: 'gain', label: 'Gain', min: 0, max: 1, step: 0.01, unit: '', default: 0.45 },
+			{ id: 'octave', label: 'Octave', min: -3, max: 3, step: 1, unit: '', default: 0 },
+			{ id: 'attack', label: 'Attack', min: 0, max: 2, step: 0.005, unit: 's', default: 0.01 },
+			{ id: 'decay', label: 'Decay', min: 0, max: 2, step: 0.005, unit: 's', default: 0.12 },
+			{ id: 'sustain', label: 'Sustain', min: 0, max: 1, step: 0.01, unit: '', default: 0.6 },
+			{ id: 'release', label: 'Release', min: 0, max: 3, step: 0.005, unit: 's', default: 0.15 }
 		];
 
 	interface Props {
@@ -131,6 +131,14 @@
 		session.queueVoice(index, { gain, ...voice });
 	}
 
+	function resetSlider(id: keyof Voice): void {
+		const spec = SLIDERS.find((s) => s.id === id);
+		if (!spec) return;
+		session.dispatch('checkpoint');
+		onSlider(id, String(spec.default));
+		editing = false;
+	}
+
 	function onToneChange(which: 'cutoff' | 'resonance' | 'detune' | 'sub', value: number): void {
 		const cutoff = which === 'cutoff' ? value : track.cutoff;
 		const resonance = which === 'resonance' ? value : track.resonance;
@@ -172,7 +180,14 @@
 					value={valueOf(slider.id)}
 					style="--filled: {rangePercent(valueOf(slider.id), slider.min, slider.max)}"
 					oninput={(event) => onSlider(slider.id, event.currentTarget.value)}
-					onpointerdown={() => (editing = true)}
+					onpointerdown={(event) => {
+						if (event.detail === 2) {
+							resetSlider(slider.id);
+						} else {
+							editing = true;
+						}
+					}}
+					ondblclick={() => resetSlider(slider.id)}
 					onfocus={() => (editing = true)}
 					onblur={() => (editing = false)}
 				/>

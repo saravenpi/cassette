@@ -86,6 +86,8 @@ pub struct App {
     pub(crate) edit_revision: u64,
     pub(crate) saved_revision: u64,
     pub(crate) clipboard: Option<clipboard::Clipboard>,
+    pub(crate) export_progress: Option<f32>,
+    pub(crate) progress_reporter: Option<Box<dyn Fn(Option<f32>) + Send>>,
 }
 
 impl App {
@@ -106,6 +108,10 @@ impl App {
         let song = Song::new();
         let engine = AudioEngine::start_silent(&song).context("starting the silent engine")?;
         Ok(Self::with(song, engine))
+    }
+
+    pub fn set_progress_reporter(&mut self, reporter: impl Fn(Option<f32>) + Send + 'static) {
+        self.progress_reporter = Some(Box::new(reporter));
     }
 
     fn with(song: Song, mut engine: AudioEngine) -> Self {
@@ -147,6 +153,8 @@ impl App {
             edit_revision: 0,
             saved_revision: 0,
             clipboard: None,
+            export_progress: None,
+            progress_reporter: None,
         }
     }
 
@@ -532,6 +540,7 @@ impl App {
             backend: self.engine.backend_name().to_string(),
             backend_note: self.engine.note().to_string(),
             sample_rate: self.engine.sample_rate(),
+            export_progress: self.export_progress,
         }
     }
 }

@@ -452,26 +452,32 @@
 	.ruler-row {
 		position: sticky;
 		top: 0;
-		z-index: 5;
+		z-index: 20;
 		background: var(--surface);
 		border-bottom: 1px solid var(--border-subtle);
 	}
 
-	.corner,
-	.slot {
+	.corner {
 		position: sticky;
 		right: 0;
 		flex: none;
-		z-index: 3;
+		z-index: 21;
 		background: var(--surface);
 		border-left: 1px solid var(--border-subtle);
-	}
-
-	.corner {
 		display: flex;
 		flex-direction: column;
 		justify-content: space-between;
 		padding: 8px 10px 6px;
+	}
+
+	.slot {
+		position: sticky;
+		right: 0;
+		flex: none;
+		z-index: 10;
+		background: var(--surface);
+		border-left: 1px solid var(--border-subtle);
+		display: flex;
 	}
 
 	.hover-at {
@@ -529,10 +535,6 @@
 		font-variant-numeric: tabular-nums;
 	}
 
-	.slot {
-		display: flex;
-	}
-
 	.row-resize-handle {
 		position: absolute;
 		bottom: -3px;
@@ -540,7 +542,7 @@
 		right: 0;
 		height: 6px;
 		cursor: row-resize;
-		z-index: 8;
+		z-index: 15;
 	}
 
 	.row-resize-handle:hover,
@@ -596,7 +598,7 @@
 		position: absolute;
 		border: 1px solid var(--green);
 		background: color-mix(in srgb, var(--green) 18%, transparent);
-		pointer-events: auto;
+		pointer-events: none;
 		z-index: 4;
 		box-sizing: border-box;
 	}
@@ -610,6 +612,7 @@
 		border: 0;
 		background: transparent;
 		cursor: ew-resize;
+		pointer-events: auto;
 		z-index: 5;
 	}
 

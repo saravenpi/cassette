@@ -577,9 +577,8 @@
 	function onWheel(event: WheelEvent): void {
 		const point = pointIn(event);
 		if (point === null || roll === null) return;
-		const isZoom = event.ctrlKey || event.metaKey || event.altKey;
-		const hit = isZoom ? null : hitNote(notes, point.x, point.y, zoom);
-		if (isZoom || hit === null) {
+		const isZoom = event.ctrlKey || event.metaKey;
+		if (isZoom) {
 			const delta = event.deltaY !== 0 ? event.deltaY : event.deltaX;
 			if (delta === 0) return;
 			event.preventDefault();
@@ -587,28 +586,32 @@
 			applyZoom(nextZoom, point.x);
 			return;
 		}
-		const delta = event.shiftKey && event.deltaY === 0 ? event.deltaX : event.deltaY;
-		if (delta === 0) return;
-		event.preventDefault();
-		const targetIndices = selection.has(hit.note) ? Array.from(selection) : [hit.note];
-		const edits: NoteEdit[] = [];
-		const nextPending = new Map(pendingVelocities);
-		const now = performance.now();
-		for (const idx of targetIndices) {
-			const n = notes[idx];
-			if (n === undefined) continue;
-			const v = velocityStep(n.velocity, delta, event.shiftKey);
-			edits.push({
-				note: idx,
-				pitch: n.pitch,
-				startBeats: n.startBeats,
-				lengthBeats: n.lengthBeats,
-				velocity: v
-			});
-			nextPending.set(idx, { velocity: v, sentAt: now });
+		const isVelocity = event.altKey;
+		const hit = isVelocity ? hitNote(notes, point.x, point.y, zoom) : null;
+		if (hit !== null) {
+			const delta = event.shiftKey && event.deltaY === 0 ? event.deltaX : event.deltaY;
+			if (delta === 0) return;
+			event.preventDefault();
+			const targetIndices = selection.has(hit.note) ? Array.from(selection) : [hit.note];
+			const edits: NoteEdit[] = [];
+			const nextPending = new Map(pendingVelocities);
+			const now = performance.now();
+			for (const idx of targetIndices) {
+				const n = notes[idx];
+				if (n === undefined) continue;
+				const v = velocityStep(n.velocity, delta, event.shiftKey);
+				edits.push({
+					note: idx,
+					pitch: n.pitch,
+					startBeats: n.startBeats,
+					lengthBeats: n.lengthBeats,
+					velocity: v
+				});
+				nextPending.set(idx, { velocity: v, sentAt: now });
+			}
+			pendingVelocities = nextPending;
+			session.dispatch({ editNotes: { track: roll.track, block: roll.block, edits } });
 		}
-		pendingVelocities = nextPending;
-		session.dispatch({ editNotes: { track: roll.track, block: roll.block, edits } });
 	}
 
 	function onKeyDown(event: KeyboardEvent): void {

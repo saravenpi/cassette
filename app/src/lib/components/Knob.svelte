@@ -68,6 +68,11 @@
 
 	function onPointerDown(event: PointerEvent): void {
 		if (event.button !== 0 || disabled) return;
+		if (event.detail === 2) {
+			event.preventDefault();
+			onDoubleClick();
+			return;
+		}
 		const element = event.currentTarget;
 		if (!(element instanceof HTMLElement)) return;
 		event.preventDefault();
@@ -125,7 +130,7 @@
 	}
 </script>
 
-<div class="knob" class:disabled>
+<div class="knob" class:disabled role="group" aria-label={label} ondblclick={onDoubleClick}>
 	<span class="name" aria-hidden="true">{spec.name}</span>
 	<div
 		class="dial"

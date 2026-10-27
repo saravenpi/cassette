@@ -306,6 +306,14 @@ fn default_app() -> App {
 /// Own the engine for the life of the process, in a thread it never leaves.
 fn engine_thread(commands: Receiver<Event>, snapshot: Snapshot) {
     let mut app = start_app();
+    let published = snapshot.clone();
+    app.set_progress_reporter(move |progress| {
+        if let Ok(mut slot) = published.lock() {
+            if let Some(ref mut state) = *slot {
+                state.export_progress = progress;
+            }
+        }
+    });
     let publish = |app: &App| {
         if let Ok(mut slot) = snapshot.lock() {
             *slot = Some(app.ui_state());

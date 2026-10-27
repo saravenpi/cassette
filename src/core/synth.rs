@@ -521,6 +521,10 @@ impl SynthEngine {
         self.sample_rate as u32
     }
 
+    pub fn active_voices(&self) -> usize {
+        self.active_voices
+    }
+
     /// Number of tracks currently audible.
     pub fn track_count(&self) -> usize {
         self.track_count
@@ -879,6 +883,42 @@ impl SynthEngine {
             }
         }
         self.release_all_samples();
+        self.recompute_active_voices();
+    }
+
+    pub fn follow_notes(
+        &mut self,
+        track: usize,
+        beats: f64,
+        frames_per_beat: f64,
+        active_notes: &[crate::core::render::MirroredNote],
+    ) {
+        if track >= self.track_count {
+            return;
+        }
+        for voice in &mut self.tracks[track].voices {
+            if voice.is_idle() || voice.gate_left == HELD {
+                continue;
+            }
+            let covering = active_notes.iter().find(|n| {
+                n.pitch == voice.note
+                    && f64::from(n.start_beats) <= beats
+                    && beats < f64::from(n.end_beats)
+            });
+            match covering {
+                Some(note) => {
+                    let remaining_beats = f64::from(note.end_beats) - beats;
+                    let remaining_frames =
+                        (remaining_beats * frames_per_beat).round().max(0.0) as u32;
+                    if remaining_frames < voice.gate_left {
+                        voice.gate_left = remaining_frames;
+                    }
+                }
+                None => {
+                    voice.gate_left = 0;
+                }
+            }
+        }
         self.recompute_active_voices();
     }
 
