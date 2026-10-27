@@ -20,6 +20,7 @@
 	} from '$lib/geometry';
 	import { trackColor } from '$lib/palette';
 	import { previewRange, velocityOpacity } from '$lib/pianoRoll';
+	import { selection } from '$lib/selection.svelte';
 	import { session } from '$lib/session.svelte';
 	import type { BlockView, Waveform } from '$lib/wire';
 
@@ -90,6 +91,7 @@
 		const grab = pxToBeats(event.clientX - element.getBoundingClientRect().left, session.zoom);
 		element.setPointerCapture(event.pointerId);
 		session.dispatch({ selectBlock: { track, block: index } });
+		selection.selectBlockSpan(track, block.startBeats, block.lengthBeats);
 		session.drag.beginMove(track, index, block, grab);
 	}
 
@@ -99,6 +101,7 @@
 		const element = event.currentTarget;
 		if (element instanceof HTMLElement) element.setPointerCapture(event.pointerId);
 		session.dispatch({ selectBlock: { track, block: index } });
+		selection.selectBlockSpan(track, block.startBeats, block.lengthBeats);
 		session.drag.beginResize(track, index, block, event.shiftKey);
 	}
 
@@ -108,6 +111,7 @@
 		const element = event.currentTarget;
 		if (element instanceof HTMLElement) element.setPointerCapture(event.pointerId);
 		session.dispatch({ selectBlock: { track, block: index } });
+		selection.selectBlockSpan(track, block.startBeats, block.lengthBeats);
 		session.drag.beginTrim(track, index, block);
 	}
 
@@ -122,6 +126,7 @@
 		if (!(element instanceof HTMLElement)) return;
 		const at = beatUnder(block.startBeats, event.clientX - element.getBoundingClientRect().left, session.zoom);
 		session.dispatch({ selectBlock: { track, block: index } });
+		selection.selectBlockSpan(track, block.startBeats, block.lengthBeats);
 		menu.open(event.clientX, event.clientY, blockMenu(session, track, index, block, at, gridStep(session.zoom), event.altKey));
 	}
 </script>

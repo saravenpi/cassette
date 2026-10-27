@@ -15,6 +15,7 @@ import { attachKeyboard } from './keyboard';
 import { NoteCache } from './noteCache';
 import { NOTE_GRID, locateBlock } from './pianoRoll';
 import { KeyedQueue, nextBackoff } from './queue';
+import { selection } from './selection.svelte';
 import type { EffectKind, EngineEvent, UiState } from './wire';
 
 /** A track's voice, as the effects pane edits it. */
@@ -255,9 +256,88 @@ class Session {
 		this.dispatch({ duplicateBlock: { track: cursor.track, block: cursor.block } });
 	}
 
+	/** Copy the current time selection to the clipboard. */
+	copySelection(): void {
+		if (selection.range !== null) {
+			this.dispatch({ copyRange: { range: selection.range } });
+		}
+	}
+
+	/** Cut the current time selection to the clipboard and clear the selection. */
+	cutSelection(): void {
+		if (selection.range !== null) {
+			this.dispatch({ cutRange: { range: selection.range } });
+			selection.clear();
+		}
+	}
+
+	/** Paste clipboard contents at the marker on the selected track. */
+	pasteSelection(): void {
+		const track = this.snapshot?.cursor.track ?? 0;
+		const startBeats = this.snapshot?.transportPositionBeats ?? 0;
+		this.dispatch({ pasteRange: { track, startBeats } });
+	}
+
+	/** Duplicate either the active time selection or the selected block. */
+	duplicate(): void {
+		if (selection.range !== null) {
+			this.dispatch({ duplicateRange: { range: selection.range } });
+		} else {
+			this.duplicateSelected();
+		}
+	}
+
+	/** Delete either the active time selection or the block under the cursor. */
+	delete(): void {
+		if (selection.range !== null) {
+			this.dispatch({ deleteRange: { range: selection.range } });
+			selection.clear();
+		} else {
+			this.dispatch('deleteBlock');
+		}
+	}
+
+	/** Toggle or set looping over the active selection or song. */
+	loopSelection(): void {
+		const range = selection.range;
+		const snapshot = this.snapshot;
+		if (range !== null && range.startBeats < range.endBeats) {
+			const region = snapshot?.loopRegion;
+			const matches =
+				region !== null &&
+				region !== undefined &&
+				region.startBeats === range.startBeats &&
+				region.endBeats === range.endBeats;
+			if (snapshot?.looping && matches) {
+				this.dispatch('toggleLoop');
+				return;
+			}
+			this.dispatch({
+				setLoopRegion: { startBeats: range.startBeats, endBeats: range.endBeats }
+			});
+			if (!snapshot?.looping) {
+				this.dispatch('toggleLoop');
+			}
+		} else {
+			if (snapshot?.looping) {
+				this.dispatch('toggleLoop');
+			}
+			this.dispatch({ setLoopRegion: { startBeats: 0, endBeats: 0 } });
+		}
+	}
+
 	/** Close the piano roll. */
 	closeRoll(): void {
 		this.roll = null;
+	}
+
+	/** Clear the active time selection, returning true if one was cleared. */
+	clearSelection(): boolean {
+		if (selection.range !== null) {
+			selection.clear();
+			return true;
+		}
+		return false;
 	}
 
 	/** Move a note of the open block, collapsed to one message per frame. */

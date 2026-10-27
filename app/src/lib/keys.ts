@@ -60,7 +60,14 @@ type LocalIntent =
 	| 'splitAtPointer'
 	| 'duplicate'
 	| 'toggleDetail'
-	| 'quantize';
+	| 'quantize'
+	| 'copy'
+	| 'cut'
+	| 'paste'
+	| 'loopSelection'
+	| 'save'
+	| 'saveAs'
+	| 'open';
 
 /**
  * The minus and equals keys already nudge the volume, so the zoom pair sits on
@@ -86,13 +93,19 @@ const LOCAL: Record<string, LocalIntent> = {
 const CHORDS: Record<string, LocalIntent> = {
 	KeyE: 'splitAtPlayhead',
 	KeyD: 'duplicate',
-	KeyU: 'quantize'
+	KeyU: 'quantize',
+	KeyC: 'copy',
+	KeyX: 'cut',
+	KeyV: 'paste',
+	KeyL: 'loopSelection',
+	KeyO: 'open'
 };
 
-/** Chords that carry an engine intent: undo, and redo on Shift+Z or on Y. */
+/** Chords that carry an engine intent: undo, redo, and add track. */
 function chordIntent(event: KeyboardEvent): EngineEvent | null {
 	if (event.code === 'KeyZ') return event.shiftKey ? 'redo' : 'undo';
 	if (event.code === 'KeyY') return 'redo';
+	if (event.code === 'KeyT') return { addTrack: { kind: event.shiftKey ? 'midi' : 'audio' } };
 	return null;
 }
 
@@ -139,13 +152,18 @@ export function noteFor(event: KeyboardEvent, octave: number): number | null {
 
 /** Whether holding the key down should fire this intent again. */
 export function repeats(intent: EngineEvent): boolean {
-	return typeof intent === 'string' ? !ONCE_PER_PRESS.has(intent) : true;
+	if (typeof intent === 'string') return !ONCE_PER_PRESS.has(intent);
+	if (typeof intent === 'object' && intent !== null && 'addTrack' in intent) return false;
+	return true;
 }
 
 /** The interface-only intent a key carries, or null while nothing is being typed. */
 export function localFor(event: KeyboardEvent, renaming: boolean): LocalIntent | null {
 	if (renaming) return null;
-	if (isChord(event)) return CHORDS[event.code] ?? null;
+	if (isChord(event)) {
+		if (event.code === 'KeyS') return event.shiftKey ? 'saveAs' : 'save';
+		return CHORDS[event.code] ?? null;
+	}
 	if (event.shiftKey && event.code === 'Equal') return 'zoomIn';
 	if (event.shiftKey && event.code === 'Minus') return 'zoomOut';
 	if (event.shiftKey && event.code === 'Tab') return 'toggleDetail';

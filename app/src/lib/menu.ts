@@ -6,7 +6,7 @@
  */
 
 import { DEFAULT_LENGTH_BEATS, MIN_LENGTH_BEATS, pxToBeats, snapBeats } from './geometry';
-import type { BlockView, EngineEvent, TrackKind, TrackView } from './wire';
+import type { BeatRange, BlockView, ClipboardView, EngineEvent, TrackKind, TrackView } from './wire';
 
 /** One choice in a menu. */
 export interface MenuItem {
@@ -236,6 +236,54 @@ export function trackMenu(
 		item('Add block at end', () => chain(host, select, 'addBlock'), {
 			shortcut: 'N'
 		})
+	];
+}
+
+
+/** The choices for a right-clicked time selection band. */
+export function selectionMenu(
+	host: MenuHost,
+	range: BeatRange,
+	clipboard: ClipboardView | null,
+	selectedTrack: number,
+	markerBeat: number,
+	looping: boolean,
+	onClear: () => void
+): MenuEntry[] {
+	return [
+		item('Cut', () => void host.request({ cutRange: { range } }), {
+			shortcut: 'Ctrl+X'
+		}),
+		item('Copy', () => void host.request({ copyRange: { range } }), {
+			shortcut: 'Ctrl+C'
+		}),
+		item(
+			'Paste',
+			() => void host.request({ pasteRange: { track: selectedTrack, startBeats: markerBeat } }),
+			{
+				shortcut: 'Ctrl+V',
+				disabled: clipboard === null
+			}
+		),
+		item('Duplicate', () => void host.request({ duplicateRange: { range } }), {
+			shortcut: 'Ctrl+D'
+		}),
+		item('Delete', () => void host.request({ deleteRange: { range } }), {
+			shortcut: 'Del',
+			danger: true
+		}),
+		separator,
+		item(
+			'Loop selection',
+			() => {
+				void host.request({
+					setLoopRegion: { startBeats: range.startBeats, endBeats: range.endBeats }
+				});
+				if (!looping) void host.request('toggleLoop');
+			},
+			{ shortcut: 'Ctrl+L' }
+		),
+		item('Clear selection', onClear, { shortcut: 'Esc' })
 	];
 }
 

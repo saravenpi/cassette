@@ -6,12 +6,13 @@ import {
 	laneMenu,
 	metronomeMenu,
 	markAt,
+	selectionMenu,
 	splitPoint,
 	trackMenu,
 	type MenuEntry,
 	type MenuItem
 } from './menu';
-import type { BlockView, EngineEvent, TrackView } from './wire';
+import type { BeatRange, BlockView, EngineEvent, TrackView } from './wire';
 
 // bun test injects these as globals; @types/bun is not a dependency, so svelte-check
 // needs the shapes declared here to see them.
@@ -239,5 +240,54 @@ describe('deviceMenu', () => {
 		});
 		find(entries, 'Unfold').run();
 		expect(folds).toBe(1);
+	});
+});
+
+
+describe('selectionMenu', () => {
+	const range: BeatRange = { firstTrack: 0, lastTrack: 1, startBeats: 4, endBeats: 8 };
+
+	test('offers selection commands and dispatches their payloads', () => {
+		const fake = host();
+		let cleared = false;
+		const entries = selectionMenu(
+			fake,
+			range,
+			{ tracks: 2, lengthBeats: 4 },
+			1,
+			6,
+			false,
+			() => {
+				cleared = true;
+			}
+		);
+		find(entries, 'Cut').run();
+		find(entries, 'Copy').run();
+		find(entries, 'Paste').run();
+		find(entries, 'Duplicate').run();
+		find(entries, 'Delete').run();
+		find(entries, 'Loop selection').run();
+		find(entries, 'Clear selection').run();
+
+		expect(fake.sent).toEqual([
+			{ cutRange: { range } },
+			{ copyRange: { range } },
+			{ pasteRange: { track: 1, startBeats: 6 } },
+			{ duplicateRange: { range } },
+			{ deleteRange: { range } },
+			{ setLoopRegion: { startBeats: 4, endBeats: 8 } },
+			'toggleLoop'
+		]);
+		expect(cleared).toBe(true);
+	});
+
+	test('disables paste when clipboard is empty', () => {
+		const entries = selectionMenu(host(), range, null, 0, 0, false, () => {});
+		expect(find(entries, 'Paste').disabled).toBe(true);
+	});
+
+	test('toggles the loop label depending on loop state', () => {
+		const looping = selectionMenu(host(), range, null, 0, 0, true, () => {});
+		find(looping, 'Loop selection').run();
 	});
 });
