@@ -1,6 +1,6 @@
 [package]
 name = "cassette-app"
-version = "0.16.1"
+version = "0.16.2"
 description = "cassette: the desktop shell (Tauri) around the audio engine"
 license = "MIT"
 edition = "2024"

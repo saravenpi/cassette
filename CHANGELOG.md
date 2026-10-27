@@ -462,3 +462,11 @@ Loop points, frame-accurate note starts, and a review pass over v0.9.0.
 ### Removed
 
 - Live session view simulation block from the landing page.
+
+## [0.16.2] - 2026-10-27
+
+### Changed
+
+- Typography consistency: enforced the Undefined font universally across all elements and code blocks on the website and desktop application.
+- Desktop application identity: updated app icon across macOS, Windows, Linux, iOS, and Android to `pixelarticons:keyboard-music` in `#88A888` on `#000000`.
+- Website branding: updated website logo and primary green theme color to `#88A888` on `#000000` background.

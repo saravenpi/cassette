@@ -64,8 +64,8 @@
 
 <div class="max-w-6xl mx-auto px-4 sm:px-6 pt-12 sm:pt-16 pb-20 sm:pb-24 space-y-16 sm:space-y-24">
   <section class="space-y-6 pt-4">
-    <div class="inline-flex items-center gap-2 text-xs text-[#86A881] uppercase tracking-widest">
-      <span class="inline-block w-2 h-2 bg-[#86A881]"></span>
+    <div class="inline-flex items-center gap-2 text-xs text-[#88A888] uppercase tracking-widest">
+      <span class="inline-block w-2 h-2 bg-[#88A888]"></span>
       <span>Open source audio workstation</span>
     </div>
 
@@ -81,7 +81,7 @@
     <div class="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 pt-4">
       <a
         href="/download"
-        class="inline-flex items-center justify-center gap-3 bg-[#86A881] text-[#0B0B0B] px-6 py-3.5 text-xs uppercase tracking-widest hover:bg-[#FFFFFF] transition-colors w-full sm:w-auto"
+        class="inline-flex items-center justify-center gap-3 bg-[#88A888] text-[#000000] px-6 py-3.5 text-xs uppercase tracking-widest hover:bg-[#FFFFFF] transition-colors w-full sm:w-auto"
       >
         <Icon icon="pixelarticons:download" class="w-4 h-4 shrink-0" />
         <span>Download Cassette</span>
@@ -91,7 +91,7 @@
         href="https://github.com/saravenpi/cassette"
         target="_blank"
         rel="noreferrer"
-        class="inline-flex items-center justify-center gap-3 border border-[#333333] text-[#FFFFFF] px-6 py-3.5 text-xs uppercase tracking-widest hover:border-[#86A881] hover:text-[#86A881] transition-colors w-full sm:w-auto"
+        class="inline-flex items-center justify-center gap-3 border border-[#333333] text-[#FFFFFF] px-6 py-3.5 text-xs uppercase tracking-widest hover:border-[#88A888] hover:text-[#88A888] transition-colors w-full sm:w-auto"
       >
         <Icon icon="pixelarticons:github" class="w-4 h-4 shrink-0" />
         <span>GitHub repository</span>
@@ -102,7 +102,7 @@
   <section id="features" class="space-y-8 sm:space-y-12">
     <div class="flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b border-[#262626] pb-6">
       <div class="space-y-2">
-        <div class="inline-flex items-center gap-2 text-xs text-[#86A881] uppercase tracking-widest">
+        <div class="inline-flex items-center gap-2 text-xs text-[#88A888] uppercase tracking-widest">
           <Icon icon="pixelarticons:sliders" class="w-4 h-4" />
           <span>Features</span>
         </div>
@@ -115,13 +115,13 @@
 
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
       {#each features as feature}
-        <div class="bg-[#1F1F1F] border border-[#262626] p-5 sm:p-6 space-y-4 hover:border-[#86A881]/50 transition-colors">
+        <div class="bg-[#1F1F1F] border border-[#262626] p-5 sm:p-6 space-y-4 hover:border-[#88A888]/50 transition-colors">
           <div class="flex items-start justify-between gap-4">
             <div class="space-y-1">
               <h3 class="text-sm font-medium tracking-wide text-[#FFFFFF]">{feature.title}</h3>
-              <div class="text-xs text-[#86A881] tracking-wide">{feature.summary}</div>
+              <div class="text-xs text-[#88A888] tracking-wide">{feature.summary}</div>
             </div>
-            <Icon icon={feature.icon} class="w-5 h-5 text-[#86A881] shrink-0" />
+            <Icon icon={feature.icon} class="w-5 h-5 text-[#88A888] shrink-0" />
           </div>
           <p class="text-xs text-[#FFFFFF]/70 leading-relaxed">
             {feature.description}
@@ -133,7 +133,7 @@
 
   <section id="effects" class="space-y-6 sm:space-y-8 border-t border-[#262626] pt-12 sm:pt-16">
     <div class="space-y-2">
-      <div class="inline-flex items-center gap-2 text-xs text-[#86A881] uppercase tracking-widest">
+      <div class="inline-flex items-center gap-2 text-xs text-[#88A888] uppercase tracking-widest">
         <Icon icon="pixelarticons:audio-device" class="w-4 h-4" />
         <span>DSP effects</span>
       </div>
@@ -146,8 +146,8 @@
 
     <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 gap-2.5 sm:gap-3 pt-2">
       {#each effectsList as effect}
-        <div class="border border-[#262626] bg-[#1F1F1F] p-3 sm:p-4 text-center hover:border-[#86A881]/40 transition-colors flex items-center justify-center gap-1.5 sm:gap-2">
-          <Icon icon="pixelarticons:sliders" class="w-3.5 h-3.5 text-[#86A881]/70 shrink-0" />
+        <div class="border border-[#262626] bg-[#1F1F1F] p-3 sm:p-4 text-center hover:border-[#88A888]/40 transition-colors flex items-center justify-center gap-1.5 sm:gap-2">
+          <Icon icon="pixelarticons:sliders" class="w-3.5 h-3.5 text-[#88A888]/70 shrink-0" />
           <span class="text-[11px] sm:text-xs uppercase tracking-widest text-[#FFFFFF] truncate">{effect}</span>
         </div>
       {/each}
@@ -156,7 +156,7 @@
 
   <section id="architecture" class="space-y-6 sm:space-y-8 border-t border-[#262626] pt-12 sm:pt-16">
     <div class="space-y-2">
-      <div class="inline-flex items-center gap-2 text-xs text-[#86A881] uppercase tracking-widest">
+      <div class="inline-flex items-center gap-2 text-xs text-[#88A888] uppercase tracking-widest">
         <Icon icon="pixelarticons:code" class="w-4 h-4" />
         <span>Stability</span>
       </div>
@@ -166,8 +166,8 @@
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
       <div class="bg-[#1F1F1F] border border-[#262626] p-5 sm:p-6 space-y-3">
         <div class="flex items-center justify-between">
-          <div class="text-xs text-[#86A881] uppercase tracking-widest">Dedicated audio thread</div>
-          <Icon icon="pixelarticons:cpu" class="w-4 h-4 text-[#86A881]" />
+          <div class="text-xs text-[#88A888] uppercase tracking-widest">Dedicated audio thread</div>
+          <Icon icon="pixelarticons:cpu" class="w-4 h-4 text-[#88A888]" />
         </div>
         <p class="text-xs text-[#FFFFFF]/70 leading-relaxed">
           The rendering loop runs isolated from the interface. It owns synthesis voices, audio streams, and effect calculations, communicating through lock-free ring buffers.
@@ -176,8 +176,8 @@
 
       <div class="bg-[#1F1F1F] border border-[#262626] p-5 sm:p-6 space-y-3">
         <div class="flex items-center justify-between">
-          <div class="text-xs text-[#86A881] uppercase tracking-widest">Zero garbage collection</div>
-          <Icon icon="pixelarticons:server" class="w-4 h-4 text-[#86A881]" />
+          <div class="text-xs text-[#88A888] uppercase tracking-widest">Zero garbage collection</div>
+          <Icon icon="pixelarticons:server" class="w-4 h-4 text-[#88A888]" />
         </div>
         <p class="text-xs text-[#FFFFFF]/70 leading-relaxed">
           Buffers are pre-allocated upfront. Moving tracks, firing clips, or tweaking filters triggers zero runtime memory allocations on the audio path.
@@ -186,8 +186,8 @@
 
       <div class="bg-[#1F1F1F] border border-[#262626] p-5 sm:p-6 space-y-3">
         <div class="flex items-center justify-between">
-          <div class="text-xs text-[#86A881] uppercase tracking-widest">Non-blocking UI</div>
-          <Icon icon="pixelarticons:device-laptop" class="w-4 h-4 text-[#86A881]" />
+          <div class="text-xs text-[#88A888] uppercase tracking-widest">Non-blocking UI</div>
+          <Icon icon="pixelarticons:device-laptop" class="w-4 h-4 text-[#88A888]" />
         </div>
         <p class="text-xs text-[#FFFFFF]/70 leading-relaxed">
           The visual interface runs as an independent surface. Heavy UI updates or animations never delay audio callbacks by even a fraction of a millisecond.
@@ -198,7 +198,7 @@
 
   <section id="specs" class="space-y-6 sm:space-y-8 border-t border-[#262626] pt-12 sm:pt-16">
     <div class="space-y-2">
-      <div class="inline-flex items-center gap-2 text-xs text-[#86A881] uppercase tracking-widest">
+      <div class="inline-flex items-center gap-2 text-xs text-[#88A888] uppercase tracking-widest">
         <Icon icon="pixelarticons:checklist" class="w-4 h-4" />
         <span>Technical specifications</span>
       </div>
@@ -209,14 +209,14 @@
       {#each specs as spec}
         <div class="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-2 text-xs">
           <span class="text-[#FFFFFF]/50 uppercase tracking-widest">{spec.label}</span>
-          <span class="text-[#FFFFFF] font-mono text-[11px] sm:text-xs break-words sm:break-normal">{spec.value}</span>
+          <span class="text-[#FFFFFF] text-[11px] sm:text-xs break-words sm:break-normal">{spec.value}</span>
         </div>
       {/each}
     </div>
   </section>
 
   <section id="get-started">
-    <div class="bg-[#86A881] text-[#000000] p-6 sm:p-8 md:p-12 flex flex-col justify-between space-y-6 sm:space-y-8">
+    <div class="bg-[#88A888] text-[#000000] p-6 sm:p-8 md:p-12 flex flex-col justify-between space-y-6 sm:space-y-8">
       <div class="space-y-3 sm:space-y-4">
         <div class="text-xs uppercase tracking-widest text-[#000000]/70">
           Get started

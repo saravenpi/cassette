@@ -1,11 +1,13 @@
 @import "tailwindcss";
 
 @theme {
+  --font-mono: "Undefined", monospace;
+  --font-sans: "Undefined", monospace;
   --color-surface: #1F1F1F;
   --color-surface-hover: #262626;
   --color-border: #262626;
   --color-border-subtle: #333333;
-  --color-accent: #86A881;
+  --color-accent: #88A888;
 }
 
 @font-face {
@@ -17,13 +19,13 @@
 }
 
 :root {
-  --bg: #0B0B0B;
+  --bg: #000000;
   --fg: #FFFFFF;
   --surface: #1F1F1F;
   --surface-hover: #262626;
   --border: #262626;
   --border-subtle: #333333;
-  --accent: #86A881;
+  --accent: #88A888;
   --accent-hover: #FFFFFF;
   --muted: rgba(255, 255, 255, 0.65);
 }
@@ -31,10 +33,21 @@
 @layer base {
   *,
   *::before,
-  *::after {
+  *::after,
+  html,
+  body,
+  input,
+  button,
+  textarea,
+  select,
+  code,
+  pre,
+  kbd,
+  samp {
     margin: 0;
     padding: 0;
     box-sizing: border-box;
+    font-family: "Undefined", monospace !important;
     font-weight: normal !important;
     font-synthesis: none !important;
   }
@@ -42,15 +55,15 @@
   html {
     scroll-behavior: smooth;
     scroll-padding-top: 5rem;
-    background: #0B0B0B;
+    background: #000000;
     color: #FFFFFF;
-    font-family: "Undefined", ui-monospace, monospace;
+    font-family: "Undefined", monospace !important;
   }
 
   body {
-    background: #0B0B0B;
+    background: #000000;
     color: #FFFFFF;
-    font-family: "Undefined", ui-monospace, monospace;
+    font-family: "Undefined", monospace !important;
     line-height: 1.6;
     overflow-x: hidden;
   }
@@ -64,17 +77,20 @@
   h4,
   h5,
   h6 {
+    font-family: "Undefined", monospace !important;
     font-weight: normal !important;
   }
 
   button {
     font: inherit;
+    font-family: "Undefined", monospace !important;
     color: inherit;
     cursor: pointer;
   }
 
   a {
     color: inherit;
+    font-family: "Undefined", monospace !important;
     text-decoration: none !important;
   }
 

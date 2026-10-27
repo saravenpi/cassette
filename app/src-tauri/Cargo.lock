@@ -321,7 +321,7 @@ dependencies = [
 
 [[package]]
 name = "cassette"
-version = "0.16.1"
+version = "0.16.2"
 dependencies = [
  "anyhow",
  "assert_no_alloc",
@@ -335,7 +335,7 @@ dependencies = [
 
 [[package]]
 name = "cassette-app"
-version = "0.16.1"
+version = "0.16.2"
 dependencies = [
  "cassette",
  "crossbeam",
