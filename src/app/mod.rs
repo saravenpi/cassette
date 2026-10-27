@@ -388,6 +388,8 @@ impl App {
                 param,
                 value,
             } => self.set_effect_param(track, index, param, value),
+            Event::SetMasterVolume { volume } => self.set_master_volume(volume),
+            Event::ExportStems { dir } => self.export_stems(dir),
             Event::ExportProject { path } => self.export_project(path),
             Event::LoadProject { path } => self.load_project(path),
         }
@@ -414,6 +416,14 @@ impl App {
             self.push_effects(track);
         }
         self.send(RtCommand::SetMetronome { on: self.metronome });
+    }
+
+    pub(crate) fn set_master_volume(&mut self, volume: f32) {
+        self.song.set_master_volume(volume);
+    }
+
+    pub(crate) fn export_stems(&mut self, _dir: Option<String>) {
+        self.status = "exporting stems...".into();
     }
 
     /// Push a whole mixer strip for one track.
@@ -552,6 +562,27 @@ impl App {
             backend_note: self.engine.note().to_string(),
             sample_rate: self.engine.sample_rate(),
             export_progress: self.export_progress,
+            master_volume: self.song.master_volume,
+            master_level: 0.0,
+            master_effects: self
+                .song
+                .master_effects
+                .iter()
+                .map(|effect| crate::ui::view::EffectView {
+                    id: effect.id,
+                    kind: effect.kind,
+                    name: effect.kind.name().to_string(),
+                    enabled: effect.enabled,
+                    params: effect
+                        .kind
+                        .spec()
+                        .iter()
+                        .zip(effect.params)
+                        .map(|(_, v)| v)
+                        .collect(),
+                    sidechain: None,
+                })
+                .collect(),
         }
     }
 }

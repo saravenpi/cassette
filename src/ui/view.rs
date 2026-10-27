@@ -214,6 +214,12 @@ pub struct UiState {
     pub clipboard: Option<ClipboardView>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub export_progress: Option<f32>,
+    #[serde(default = "crate::models::song::default_master_volume")]
+    pub master_volume: f32,
+    #[serde(default)]
+    pub master_level: f32,
+    #[serde(default)]
+    pub master_effects: Vec<EffectView>,
 }
 
 impl UiState {
@@ -316,6 +322,9 @@ mod tests {
             project_dirty: false,
             clipboard: None,
             export_progress: None,
+            master_volume: 0.85,
+            master_level: 0.0,
+            master_effects: Vec::new(),
         }
     }
 

@@ -197,7 +197,14 @@ export function attachKeyboard(host: KeyboardHost): () => void {
 			}
 		}
 
-		if (isAppKey(event, host.renaming) && !ignoresArrangementKeys(event.target)) event.preventDefault();
+		const isSpace = event.code === 'Space' || event.key === ' ';
+		const inTextInput =
+			event.target instanceof Element &&
+			event.target.closest('input:not([type="range"]):not([type="checkbox"]), textarea, [contenteditable="true"]') !== null;
+
+		if (isAppKey(event, host.renaming) && (!ignoresArrangementKeys(event.target) || (isSpace && !inTextInput))) {
+			event.preventDefault();
+		}
 	}
 
 	function onKeyUp(event: KeyboardEvent): void {
@@ -208,7 +215,14 @@ export function attachKeyboard(host: KeyboardHost): () => void {
 
 		// A focused control runs its Space activation as the default action of
 		// keyup, so cancelling only the keydown leaves it free to fire twice.
-		if (isAppKey(event, host.renaming) && !ignoresArrangementKeys(event.target)) event.preventDefault();
+		const isSpace = event.code === 'Space' || event.key === ' ';
+		const inTextInput =
+			event.target instanceof Element &&
+			event.target.closest('input:not([type="range"]):not([type="checkbox"]), textarea, [contenteditable="true"]') !== null;
+
+		if (isAppKey(event, host.renaming) && (!ignoresArrangementKeys(event.target) || (isSpace && !inTextInput))) {
+			event.preventDefault();
+		}
 	}
 
 	function onBlur(): void {

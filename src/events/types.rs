@@ -378,6 +378,15 @@ pub enum Event {
         param: usize,
         value: f32,
     },
+    /// Set master output volume.
+    SetMasterVolume {
+        volume: f32,
+    },
+    /// Export each track as a separate WAV stem into `dir`.
+    ExportStems {
+        #[serde(default)]
+        dir: Option<String>,
+    },
     /// Export the project structure to a JSON file.
     ExportProject {
         path: Option<String>,

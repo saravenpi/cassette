@@ -616,7 +616,11 @@
 
 	function onKeyDown(event: KeyboardEvent): void {
 		if (session.renaming) return;
-		if (event.key === ' ' || event.code === 'Space') return;
+		if (event.key === ' ' || event.code === 'Space') {
+			event.preventDefault();
+			session.dispatch('togglePlay');
+			return;
+		}
 
 		if (event.ctrlKey || event.metaKey) {
 			if (event.key === 'z' || event.key === 'Z') return;

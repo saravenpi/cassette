@@ -42,6 +42,7 @@ enum Gesture {
     Bpm,
     Take,
     EffectParam(usize, usize, usize),
+    MasterVolume,
 }
 
 /// How an event takes part in the history.
@@ -148,6 +149,7 @@ fn kind(event: &Event, cursor_track: usize, recording: bool) -> Kind {
         Event::SetTrackMix { track, .. } => Kind::Stream(Gesture::Mix(*track)),
         Event::SetInstrument { track, .. } => Kind::Stream(Gesture::Instrument(*track)),
         Event::SetInstrumentTone { track, .. } => Kind::Stream(Gesture::InstrumentTone(*track)),
+        Event::SetMasterVolume { .. } => Kind::Stream(Gesture::MasterVolume),
         Event::VolumeDelta(_) => Kind::Stream(Gesture::Volume(cursor_track)),
         Event::PanDelta(_) => Kind::Stream(Gesture::Pan(cursor_track)),
         Event::BpmDelta(_) => Kind::Stream(Gesture::Bpm),

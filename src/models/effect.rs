@@ -117,10 +117,22 @@ const FILTER: [ParamSpec; 3] = [
     param("Resonance", 0.0, 1.0, 0.2, ParamUnit::Percent, false),
 ];
 
-const SATURATOR: [ParamSpec; 3] = [
+const SATURATOR_MODES: &[&str] = &["Tape", "Tube", "Console", "Diode"];
+
+const SATURATOR: [ParamSpec; 5] = [
     param("Drive", 0.0, 36.0, 6.0, ParamUnit::Decibels, false),
     param("Output", -24.0, 6.0, 0.0, ParamUnit::Decibels, false),
     param("Mix", 0.0, 1.0, 1.0, ParamUnit::Percent, false),
+    ParamSpec {
+        name: "Model",
+        min: 0.0,
+        max: 3.0,
+        default: 0.0,
+        unit: ParamUnit::Choice,
+        log: false,
+        choices: SATURATOR_MODES,
+    },
+    param("Tone", -12.0, 12.0, 0.0, ParamUnit::Decibels, false),
 ];
 
 const COMPRESSOR: [ParamSpec; 5] = [

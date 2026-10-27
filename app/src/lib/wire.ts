@@ -5,6 +5,9 @@
 
 export type TrackKind = 'midi' | 'audio';
 
+/** Sentinel track index representing the master bus. */
+export const MASTER_TRACK = 999;
+
 /** Which block of which track the engine's cursor sits on. */
 export interface Cursor {
 	block: number;
@@ -172,6 +175,9 @@ export interface UiState {
 	projectDirty: boolean;
 	clipboard: ClipboardView | null;
 	exportProgress?: number | null;
+	masterVolume?: number;
+	masterLevel?: number;
+	masterEffects?: EffectView[];
 }
 
 /** One audio file as a block draws it: its peaks and its length in seconds. */
@@ -294,6 +300,8 @@ export type EngineEvent =
 	| { moveEffect: { track: number; from: number; to: number } }
 	| { setEffectEnabled: { track: number; index: number; enabled: boolean } }
 	| { setEffectParam: { track: number; index: number; param: number; value: number } }
+	| { setMasterVolume: { volume: number } }
+	| { exportStems: { dir?: string | null } }
 	| { exportAudio: { path: string | null } }
 	| { exportProject: { path: string | null } }
 	| { loadProject: { path: string | null } }

@@ -4,8 +4,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::{MAX_BLOCKS, MAX_TRACKS};
 use crate::models::track::TrackKind;
-use crate::models::{Block, Instrument, MAX_START_BEATS, Track};
+use crate::models::{Block, Effect, Instrument, MAX_START_BEATS, Track};
 use crate::utils::time::Tempo;
+
+/// Sentinel track index representing the master bus in effect commands.
+pub const MASTER_TRACK: usize = 999;
 
 /// Project file format version this build writes and understands.
 pub const PROJECT_VERSION: u32 = 1;
@@ -16,6 +19,10 @@ fn default_version() -> u32 {
 
 fn default_next_effect_id() -> u32 {
     1
+}
+
+pub fn default_master_volume() -> f32 {
+    0.85
 }
 
 /// The stretch of the timeline the transport loops over, in beats.
@@ -56,6 +63,10 @@ pub struct Song {
     loop_region: Option<LoopRegion>,
     #[serde(default = "default_next_effect_id")]
     next_effect_id: u32,
+    #[serde(default = "default_master_volume")]
+    pub master_volume: f32,
+    #[serde(default)]
+    pub master_effects: Vec<Effect>,
 }
 
 impl Default for Song {
@@ -84,6 +95,8 @@ impl Song {
             ],
             loop_region: None,
             next_effect_id: 1,
+            master_volume: default_master_volume(),
+            master_effects: Vec::new(),
         }
     }
 
@@ -102,6 +115,14 @@ impl Song {
     /// Set the tempo, clamped to a usable range.
     pub fn set_bpm(&mut self, bpm: f32) {
         self.bpm = bpm.clamp(20.0, 400.0);
+    }
+
+    pub fn master_volume(&self) -> f32 {
+        self.master_volume
+    }
+
+    pub fn set_master_volume(&mut self, volume: f32) {
+        self.master_volume = volume.clamp(0.0, 1.0);
     }
 
     /// Where the transport loops, or `None` for the whole song.
