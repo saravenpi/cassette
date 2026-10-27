@@ -350,7 +350,7 @@ Loop points, frame-accurate note starts, and a review pass over v0.9.0.
 
 - Sliders drew the webview's rounded native thumb and track; they are now square, with a 2 px track that fills green up to the value and a square green thumb.
 
-## [Unreleased]
+## [0.14.0] - 2026-10-27
 
 ### Added
 
