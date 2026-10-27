@@ -82,6 +82,9 @@ pub struct App {
     loaded_samples: HashMap<u8, std::sync::Arc<[f32]>>,
     producer: Option<Producer<SampleMsg>>,
     history: History,
+    pub(crate) project_path: Option<std::path::PathBuf>,
+    pub(crate) edit_revision: u64,
+    pub(crate) saved_revision: u64,
     pub(crate) clipboard: Option<clipboard::Clipboard>,
 }
 
@@ -140,6 +143,9 @@ impl App {
             loaded_samples: HashMap::new(),
             producer,
             history: History::default(),
+            project_path: None,
+            edit_revision: 0,
+            saved_revision: 0,
             clipboard: None,
         }
     }
@@ -487,8 +493,8 @@ impl App {
         let length_beats = ruler_length(&tracks);
 
         UiState {
-            project_path: None,
-            project_dirty: false,
+            project_path: self.project_path.as_ref().map(|p| p.display().to_string()),
+            project_dirty: self.edit_revision != self.saved_revision,
             clipboard: self
                 .clipboard
                 .as_ref()

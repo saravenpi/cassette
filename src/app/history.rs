@@ -171,7 +171,12 @@ impl App {
             Kind::Stream(gesture) => Some(gesture),
         };
         if gesture.is_some() && self.history.gesture == gesture {
-            return self.apply(event);
+            let before = self.song.clone();
+            self.apply(event);
+            if self.song != before {
+                self.edit_revision += 1;
+            }
+            return;
         }
         let before = Step {
             song: self.song.clone(),
@@ -179,6 +184,7 @@ impl App {
         };
         self.apply(event);
         if self.song != before.song {
+            self.edit_revision += 1;
             self.history.record(before, gesture);
         } else {
             self.history.gesture = None;
@@ -194,6 +200,7 @@ impl App {
         };
         let current = self.restore(step);
         self.history.redo.push(current);
+        self.edit_revision += 1;
         self.status = format!("undo ({} more)", self.history.undo.len());
     }
 
@@ -206,6 +213,7 @@ impl App {
         };
         let current = self.restore(step);
         self.history.undo.push(current);
+        self.edit_revision += 1;
         self.status = format!("redo ({} more)", self.history.redo.len());
     }
 
