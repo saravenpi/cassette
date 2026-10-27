@@ -1,6 +1,8 @@
 <script lang="ts">
   import Icon from "@iconify/svelte";
 
+  let activeTab = $state<"devices" | "pianoroll">("devices");
+
   const features = [
     {
       title: "Glitch-free playback",
@@ -96,6 +98,51 @@
         <Icon icon="pixelarticons:github" class="w-4 h-4 shrink-0" />
         <span>GitHub repository</span>
       </a>
+    </div>
+  </section>
+
+  <section id="preview" class="space-y-4">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#262626] pb-3">
+      <div class="flex items-center gap-2">
+        <span class="inline-block w-2 h-2 bg-[#88A888]"></span>
+        <span class="text-xs uppercase tracking-widest text-[#FFFFFF]/70">Session preview</span>
+      </div>
+      <div class="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          class="inline-flex items-center gap-2 px-3 sm:px-4 py-2 text-[11px] sm:text-xs uppercase tracking-widest transition-colors {activeTab === 'devices' ? 'bg-[#88A888] text-[#000000]' : 'border border-[#262626] text-[#FFFFFF]/70 hover:text-[#FFFFFF] hover:border-[#88A888]/50'}"
+          onclick={() => (activeTab = "devices")}
+        >
+          <Icon icon="pixelarticons:sliders" class="w-3.5 h-3.5 shrink-0" />
+          <span>Devices & Instruments</span>
+        </button>
+        <button
+          type="button"
+          class="inline-flex items-center gap-2 px-3 sm:px-4 py-2 text-[11px] sm:text-xs uppercase tracking-widest transition-colors {activeTab === 'pianoroll' ? 'bg-[#88A888] text-[#000000]' : 'border border-[#262626] text-[#FFFFFF]/70 hover:text-[#FFFFFF] hover:border-[#88A888]/50'}"
+          onclick={() => (activeTab = "pianoroll")}
+        >
+          <Icon icon="pixelarticons:grid" class="w-3.5 h-3.5 shrink-0" />
+          <span>Piano Roll & Effects</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="border border-[#262626] bg-[#000000] p-2 sm:p-4 overflow-hidden">
+      {#if activeTab === "devices"}
+        <img
+          src="/screenshot-devices.png"
+          alt="Cassette DAW session view with synth browser, arrangement timeline, and stereo DSP devices rack"
+          class="w-full h-auto block object-contain shadow-2xl"
+          loading="eager"
+        />
+      {:else}
+        <img
+          src="/screenshot-piano-roll.png"
+          alt="Cassette DAW piano roll with velocity editing, MIDI notes, and audio effects rack"
+          class="w-full h-auto block object-contain shadow-2xl"
+          loading="eager"
+        />
+      {/if}
     </div>
   </section>
 

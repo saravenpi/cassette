@@ -8,6 +8,8 @@ The audio engine is Rust and does all the timing and synthesis. The interface is
 SvelteKit, served by a thin Tauri shell. The webview only draws: it sends intent
 and reads a snapshot the engine publishes once a frame.
 
+![Cassette DAW session view](website/static/screenshot-devices.png)
+
 ```
 cassette/
 ├── src/              the engine and the app logic (crate: cassette)

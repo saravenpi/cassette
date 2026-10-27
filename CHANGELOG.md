@@ -470,3 +470,15 @@ Loop points, frame-accurate note starts, and a review pass over v0.9.0.
 - Typography consistency: enforced the Undefined font universally across all elements and code blocks on the website and desktop application.
 - Desktop application identity: updated app icon across macOS, Windows, Linux, iOS, and Android to `pixelarticons:keyboard-music` in `#88A888` on `#000000`.
 - Website branding: updated website logo and primary green theme color to `#88A888` on `#000000` background.
+
+## [0.16.3] - 2026-10-27
+
+### Added
+
+- Interactive application preview on the website showcasing the Devices & Instruments rack and Piano Roll & Effects editor.
+- High-resolution session screenshots in the repository README and website static assets.
+- Morphing responsive top navigation matching Kono Vitrine with scroll transitions and slide-out mobile drawer.
+
+### Fixed
+
+- Top right action button styling: removed duplicate icon artifact and streamlined layout.

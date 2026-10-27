@@ -98,3 +98,26 @@
     text-decoration: none !important;
   }
 }
+
+@keyframes navReveal {
+  from {
+    opacity: 0;
+    transform: translateY(-16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.reveal-nav {
+  animation: navReveal 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.1s both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal-nav {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
