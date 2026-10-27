@@ -95,24 +95,74 @@ impl App {
 
     /// Snap every note start in a MIDI block to the timeline grid of
     /// `grid_beats`, keeping each length where the block has room for it.
-    pub(crate) fn add_notes(&mut self, _track: usize, _block: usize, _notes: &[Note]) {}
+    pub(crate) fn add_notes(&mut self, track: usize, block: usize, notes: &[Note]) {
+        let Some(target) = self.midi_block(track, block) else {
+            return;
+        };
+        if target.notes.len() + notes.len() > MAX_NOTES_PER_BLOCK {
+            self.status = format!(
+                "adding {} notes would exceed limit of {MAX_NOTES_PER_BLOCK}",
+                notes.len()
+            );
+            return;
+        }
+        let limit = target.length_beats;
+        for note in notes {
+            let mut note = *note;
+            note.clamp_to(limit);
+            target.notes.push(note);
+        }
+        let count = notes.len();
+        self.finish_note_edit(track, block, format!("{count} notes added"));
+    }
 
     pub(crate) fn edit_notes(
         &mut self,
-        _track: usize,
-        _block: usize,
-        _edits: &[crate::events::NoteEdit],
+        track: usize,
+        block: usize,
+        edits: &[crate::events::NoteEdit],
     ) {
+        let Some(target) = self.midi_block(track, block) else {
+            return;
+        };
+        let limit = target.length_beats;
+        let mut count = 0;
+        for edit in edits {
+            if let Some(note) = target.notes.get_mut(edit.note) {
+                note.pitch = edit.pitch;
+                note.start_beats = edit.start_beats;
+                note.length_beats = edit.length_beats;
+                note.velocity = edit.velocity;
+                note.clamp_to(limit);
+                count += 1;
+            }
+        }
+        self.finish_note_edit(track, block, format!("{count} notes edited"));
     }
 
-    pub(crate) fn delete_notes(&mut self, _track: usize, _block: usize, _notes: &[usize]) {}
+    pub(crate) fn delete_notes(&mut self, track: usize, block: usize, notes: &[usize]) {
+        let Some(target) = self.midi_block(track, block) else {
+            return;
+        };
+        let mut indices: Vec<usize> = notes.to_vec();
+        indices.sort_unstable();
+        indices.dedup();
+        let mut count = 0;
+        for &idx in indices.iter().rev() {
+            if idx < target.notes.len() {
+                target.notes.remove(idx);
+                count += 1;
+            }
+        }
+        self.finish_note_edit(track, block, format!("{count} notes deleted"));
+    }
 
     pub(crate) fn quantize_block(
         &mut self,
         track: usize,
         block: usize,
         grid_beats: f32,
-        _notes: &[usize],
+        notes: &[usize],
     ) {
         if !(grid_beats.is_finite() && grid_beats >= Note::MIN_LENGTH_BEATS) {
             self.status = format!(
@@ -125,12 +175,28 @@ impl App {
             return;
         };
         let (offset, limit) = (target.start_beats, target.length_beats);
-        for note in &mut target.notes {
-            note.start_beats =
-                ((offset + note.start_beats) / grid_beats).round() * grid_beats - offset;
-            note.clamp_to(limit);
-        }
-        let count = target.notes.len();
+        let count = if notes.is_empty() {
+            for note in &mut target.notes {
+                note.start_beats =
+                    ((offset + note.start_beats) / grid_beats).round() * grid_beats - offset;
+                note.clamp_to(limit);
+            }
+            target.notes.len()
+        } else {
+            let mut indices: Vec<usize> = notes.to_vec();
+            indices.sort_unstable();
+            indices.dedup();
+            let mut modified = 0;
+            for idx in indices {
+                if let Some(note) = target.notes.get_mut(idx) {
+                    note.start_beats =
+                        ((offset + note.start_beats) / grid_beats).round() * grid_beats - offset;
+                    note.clamp_to(limit);
+                    modified += 1;
+                }
+            }
+            modified
+        };
         let status = format!("quantized {count} notes to {}", grid_name(grid_beats));
         self.finish_note_edit(track, block, status);
     }
@@ -416,5 +482,100 @@ mod tests {
         });
         assert_eq!(notes(&app).len(), 2);
         assert!(app.status.contains("no block"), "status: {}", app.status);
+    }
+
+    #[test]
+    fn batch_notes_add_edit_and_delete() {
+        use crate::events::NoteEdit;
+        let mut app = app_with_block();
+        let new_notes = vec![
+            Note {
+                pitch: 60,
+                start_beats: 0.0,
+                length_beats: 1.0,
+                velocity: 100,
+            },
+            Note {
+                pitch: 64,
+                start_beats: 1.0,
+                length_beats: 5.0,
+                velocity: 100,
+            },
+        ];
+        app.handle(Event::AddNotes {
+            track: 0,
+            block: 0,
+            notes: new_notes,
+        });
+        assert_eq!(notes(&app).len(), 2);
+        assert_eq!(notes(&app)[1].length_beats, 3.0);
+        assert_eq!(app.status, "2 notes added");
+
+        app.handle(Event::EditNotes {
+            track: 0,
+            block: 0,
+            edits: vec![
+                NoteEdit {
+                    note: 0,
+                    pitch: 62,
+                    start_beats: 0.5,
+                    length_beats: 1.0,
+                    velocity: 90,
+                },
+                NoteEdit {
+                    note: 99,
+                    pitch: 70,
+                    start_beats: 0.0,
+                    length_beats: 1.0,
+                    velocity: 100,
+                },
+            ],
+        });
+        assert_eq!(notes(&app)[0].pitch, 62);
+        assert_eq!(notes(&app)[0].start_beats, 0.5);
+        assert_eq!(app.status, "1 notes edited");
+
+        app.handle(Event::EditNotes {
+            track: 0,
+            block: 0,
+            edits: vec![NoteEdit {
+                note: 0,
+                pitch: 63,
+                start_beats: 0.5,
+                length_beats: 1.0,
+                velocity: 90,
+            }],
+        });
+        assert_eq!(notes(&app)[0].pitch, 63);
+
+        app.handle(Event::Undo);
+        assert_eq!(notes(&app)[0].pitch, 60);
+
+        app.handle(Event::DeleteNotes {
+            track: 0,
+            block: 0,
+            notes: vec![1, 0, 1, 99],
+        });
+        assert!(notes(&app).is_empty());
+        assert_eq!(app.status, "2 notes deleted");
+    }
+
+    #[test]
+    fn quantizing_a_subset_only_moves_named_notes() {
+        let mut app = app_with_block();
+        add(&mut app, 60, 0.2, 1.0, 100);
+        add(&mut app, 64, 1.2, 1.0, 100);
+        add(&mut app, 67, 2.2, 1.0, 100);
+
+        app.handle(Event::QuantizeBlock {
+            track: 0,
+            block: 0,
+            grid_beats: 1.0,
+            notes: vec![1],
+        });
+        assert_eq!(notes(&app)[0].start_beats, 0.2);
+        assert_eq!(notes(&app)[1].start_beats, 1.0);
+        assert_eq!(notes(&app)[2].start_beats, 2.2);
+        assert_eq!(app.status, "quantized 1 notes to 1/4");
     }
 }
