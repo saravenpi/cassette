@@ -107,7 +107,7 @@ checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
 name = "cassette"
-version = "0.15.3"
+version = "0.16.0"
 dependencies = [
  "anyhow",
  "assert_no_alloc",

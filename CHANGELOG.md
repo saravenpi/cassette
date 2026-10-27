@@ -438,3 +438,16 @@ Loop points, frame-accurate note starts, and a review pass over v0.9.0.
 
 - Track deletion playback continuity: deleting a track while playback is active preserves sounding voices, sample playback, and effect chains on surviving tracks instead of cutting audio off.
 - Transport stop and lock during export: audio export stops active playback and disables transport controls during rendering to avoid concurrent playback collisions.
+
+## [0.16.0] - 2026-10-27
+
+### Added
+
+- Track drag-and-drop reordering: drag tracks vertically by their grip handle in the track header list to reorder, with a visual drop seam indicator and zero-allocation in-place audio mirror rotation that preserves active audio playback without stops or glitches.
+- Persistent track color customization: tracks initialize with order-based colors from the 8-color Kono palette and store their color across moves and session saves.
+- Track recoloring context menu and keybind: right-click any track header to select from the 8-color palette swatches, or press `Alt+C` to quickly open the recolor options for the selected track.
+- Effect card selection highlighting: clicking or focusing an effect device highlights its outline in Kono green.
+- Slider and dial arrow key navigation: `ArrowUp`, `ArrowRight`, `ArrowDown`, and `ArrowLeft` adjust focused volume/pan faders, voice envelope sliders, and device dials without triggering DAW global transport or block navigation.
+- Effect clipboard and duplication: `Ctrl/Cmd+C` copies the selected effect including its parameter values and state, `Ctrl/Cmd+V` pastes after the selection or at the end of the chain, and `Ctrl/Cmd+D` duplicates the effect, with matching options in the device context menu.
+- Multi-platform desktop release workflow: GitHub Actions workflow building and packaging Windows x64 setup installers, macOS Universal DMGs, and Linux x64 AppImage/deb packages with SHA-256 checksums.
+- Cassette official website: SvelteKit landing page and download portal with live GitHub release detection, styled with the Kono design system and deployed to `cassette.facile.studio`.
