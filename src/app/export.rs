@@ -679,6 +679,83 @@ mod tests {
         );
     }
 
+    #[test]
+    fn an_added_sidechain_compressor_ducks_the_export() {
+        let mut app = headless_app();
+        app.submit(crate::events::Event::CreateBlock {
+            track: 0,
+            start_beats: 0.0,
+            length_beats: 1.0,
+        });
+        add_note(&mut app, 0.0);
+        app.submit(crate::events::Event::SetTrackMix {
+            track: 0,
+            volume: 1.0,
+            pan: 0.0,
+            muted: true,
+            solo: false,
+        });
+
+        app.submit(crate::events::Event::CreateBlock {
+            track: 1,
+            start_beats: 0.0,
+            length_beats: 4.0,
+        });
+        app.submit(crate::events::Event::AddNote {
+            track: 1,
+            block: 0,
+            pitch: 60,
+            start_beats: 0.0,
+            length_beats: 4.0,
+            velocity: 100,
+        });
+        app.submit(crate::events::Event::AddEffect {
+            track: 1,
+            kind: crate::models::EffectKind::Compressor,
+            index: None,
+        });
+        app.submit(crate::events::Event::SetEffectSidechain {
+            track: 1,
+            index: 0,
+            source: Some(0),
+        });
+        app.submit(crate::events::Event::SetEffectParam {
+            track: 1,
+            index: 0,
+            param: 0,
+            value: -20.0,
+        });
+        app.submit(crate::events::Event::SetEffectParam {
+            track: 1,
+            index: 0,
+            param: 1,
+            value: 10.0,
+        });
+        app.submit(crate::events::Event::SetEffectParam {
+            track: 1,
+            index: 0,
+            param: 2,
+            value: 0.1,
+        });
+        app.submit(crate::events::Event::SetEffectParam {
+            track: 1,
+            index: 0,
+            param: 3,
+            value: 50.0,
+        });
+
+        let dir = TempDir::new();
+        app.export_audio(dir.arg("out.wav"));
+        let sample = wav::decode(&dir.file("out.wav"), usize::MAX).expect("decode export");
+        let frames_per_beat = (EXPORT_SAMPLE_RATE as f32 * 60.0 / app.song.bpm()) as usize;
+        let ducked = &sample.frames[frames_per_beat / 4..frames_per_beat];
+        let recovered = &sample.frames[2 * frames_per_beat..3 * frames_per_beat];
+        let peak_ducked = ducked.iter().fold(0.0f32, |peak, v| peak.max(v.abs()));
+        let peak_recovered = recovered.iter().fold(0.0f32, |peak, v| peak.max(v.abs()));
+        assert!(peak_recovered > 0.05);
+        assert!(peak_ducked < peak_recovered * 0.7);
+    }
+
     fn audible_span(wav_path: &Path) -> (usize, usize, usize) {
         let sample = wav::decode(wav_path, usize::MAX).expect("decode export");
         let frames = &sample.frames;
