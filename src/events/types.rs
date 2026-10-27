@@ -227,7 +227,7 @@ pub enum Event {
         track: usize,
         index: usize,
     },
-    /// Move an effect to another place in its chain.
+    /// Move an effect to another place in its chain; `to` is its index after the move.
     MoveEffect {
         track: usize,
         from: usize,

@@ -17,7 +17,7 @@ Tauri shell; keys and clicks both drive it.
 | Phase 5 | Session view and blocks | Superseded by Phase 6 (2026-09-24) |
 | Phase 6 | Timeline and the sample path | Done (v0.7.0, 2026-09-26) |
 | Phase 7 | Note data in MIDI blocks | Done (v0.9.0, 2026-10-26) |
-| Phase 8 | Devices, metronome, quantize | In progress (2026-10-26) |
+| Phase 8 | Devices, metronome, quantize | Done (v0.14.0, 2026-10-27) |
 
 The engine crate builds with no webview and no audio headers, plays the
 polyphonic synth from the keyboard, and starts a sample when the playhead
@@ -591,7 +591,20 @@ Step B measures the serialized size and trims to the selected block if it hurts.
 The piano roll cannot be exercised by an automated test beyond the geometry
 helpers, so it needs a hand pass in the running window.
 
-## Phase 8: Devices, metronome, quantize (in progress)
+## Phase 8: Devices, metronome, quantize (done, v0.14.0)
+
+Shipped as planned below, with these departures:
+
+- The engine preallocates every effect kind on every track: about 1.5 MB per
+  track, mostly the 4-second delay buffer, so about 24 MB for 16 tracks at
+  44.1 kHz.
+- Muted and non-solo tracks still run their chains and discard the output, so
+  a tail does not jump back when a track is unmuted.
+- `Shift+Tab` switches views only when focus is not on a control, so reverse
+  tabbing still works.
+- The Instrument card has no activator: no event bypasses the voice.
+- Nobody has heard the effects, the metronome or the count-in in a running
+  window yet.
 
 ### Goal
 

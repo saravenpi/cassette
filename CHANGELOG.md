@@ -356,11 +356,18 @@ Loop points, frame-accurate note starts, and a review pass over v0.9.0.
 
 - MIDI recording: `F9` or the Rec button arms it and starts the transport. Played notes land in the MIDI block under the playhead, or in a new block that starts on the note's bar and grows bar by bar as the take continues. A take is one undo step, and a hardware MIDI keyboard records the same way.
 - A marker, like Ableton's insert marker: double-clicking an empty spot on a lane selects that track and puts the marker on the snapped beat. Play starts from the marker, `Stop` returns to it, and a second `Stop` goes back to the top.
+- A detail pane under the timeline, modelled on Ableton's Detail View. It has a Clip view (the piano roll) and a Devices view (the selected track's device chain). `Shift+Tab` switches between them. Selecting a track shows its devices, and opening a MIDI block shows its clip. Drag the top edge to resize the pane; the size and the open state are remembered.
+- Six built-in insert effects: EQ Three, Filter, Saturator, Compressor, Delay (tempo-synced) and Reverb (Freeverb). Each device card has an on/off activator, fold, delete, and dials. Drag a dial or scroll over it, `Shift` gives fine steps, and a double-click resets it. Drag a device's title bar to reorder the chain. Each kind can appear once per track. The chain is saved with the project, rendered in export, and every edit is undoable (one step per dial drag).
+- The sidebar's Effects tab is now the effect browser. Double-click an effect to add it to the selected track, or drag it into the chain.
+- A metronome (`Metro`) clicks on every beat, accented on the downbeat. It is never part of an export. Its `▾` menu sets the count-in (none, 1, 2 or 4 bars; 1 by default) and record quantize (off, 1/4, 1/8, 1/16).
+- Recording from stop counts in first. The position readout shows the beats left, and notes played before the downbeat are not recorded.
+- Quantize: `Ctrl+U` (`Cmd+U` on macOS) or the piano roll's Quantize button snaps note starts to the grid and keeps their lengths.
 
 ### Changed
 
 - Double-clicking an empty lane places the marker instead of creating a block; the lane's right-click menu still has "New block here".
 - The Rec button records notes. It used to bounce the project to a WAV, which `Export` already does.
+- The voice editor moved from the sidebar into the Instrument device, the first card of a MIDI track's chain.
 
 ### Fixed
 

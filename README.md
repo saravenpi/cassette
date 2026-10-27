@@ -74,6 +74,8 @@ cargo clippy --all-targets
 | `L` | toggle looping |
 | `F9` | arm MIDI recording into the selected MIDI track; starts the transport |
 | double-click an empty lane | select the track and put the marker there; play starts from it and stop returns to it |
+| `shift` `tab` | switch the detail pane between Clip and Devices |
+| `ctrl` `U` (`cmd` on macOS) | quantize the open clip, or the selected MIDI block, to the grid |
 | `up` `down` | move between tracks |
 | `left` `right` | move between blocks on the selected track |
 | `N` / `enter` | add a block to the selected track |
