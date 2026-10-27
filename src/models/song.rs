@@ -14,6 +14,10 @@ fn default_version() -> u32 {
     PROJECT_VERSION
 }
 
+fn default_next_effect_id() -> u32 {
+    1
+}
+
 /// The stretch of the timeline the transport loops over, in beats.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -50,6 +54,8 @@ pub struct Song {
     /// Where the transport loops; the whole song when `None`.
     #[serde(default)]
     loop_region: Option<LoopRegion>,
+    #[serde(default = "default_next_effect_id")]
+    next_effect_id: u32,
 }
 
 impl Default for Song {
@@ -73,7 +79,15 @@ impl Song {
                 audio("Audio 2"),
             ],
             loop_region: None,
+            next_effect_id: 1,
         }
+    }
+
+    /// Next unique effect id in the song.
+    pub fn next_effect_id(&mut self) -> u32 {
+        let id = self.next_effect_id.max(1);
+        self.next_effect_id = id.saturating_add(1);
+        id
     }
 
     /// Current tempo in beats per minute.
@@ -130,6 +144,54 @@ impl Song {
         }
         for track in &mut self.tracks {
             problems.extend(track.sanitize(MAX_BLOCKS)?);
+        }
+        let mut max_id: u32 = 0;
+        let mut seen_ids = std::collections::HashSet::new();
+        let mut fix_needed = false;
+        for track in &self.tracks {
+            for effect in &track.effects {
+                if effect.id == 0 || !seen_ids.insert(effect.id) {
+                    fix_needed = true;
+                }
+                max_id = max_id.max(effect.id);
+            }
+        }
+        self.next_effect_id = self.next_effect_id.max(max_id.saturating_add(1)).max(1);
+        if fix_needed {
+            let mut seen = std::collections::HashSet::new();
+            let mut next_id = self.next_effect_id;
+            for track in &mut self.tracks {
+                for effect in &mut track.effects {
+                    if effect.id == 0 || !seen.insert(effect.id) {
+                        let id = next_id.max(1);
+                        next_id = id.saturating_add(1);
+                        effect.id = id;
+                        seen.insert(effect.id);
+                    }
+                }
+            }
+            self.next_effect_id = next_id;
+            problems.push("assigned unique effect ids".into());
+        }
+        let track_count = self.tracks.len();
+        for (i, track) in self.tracks.iter_mut().enumerate() {
+            for effect in &mut track.effects {
+                if !effect.kind.takes_sidechain() {
+                    if effect.sidechain.is_some() {
+                        effect.sidechain = None;
+                        problems.push(format!(
+                            "track {:?}: sidechain removed from {}",
+                            track.name,
+                            effect.kind.name()
+                        ));
+                    }
+                } else if let Some(source) = effect.sidechain
+                    && (source as usize >= track_count || source as usize == i)
+                {
+                    effect.sidechain = None;
+                    problems.push(format!("track {:?}: invalid sidechain removed", track.name));
+                }
+            }
         }
         if let Some(region) = self.loop_region {
             let kept = LoopRegion::between(region.start_beats, region.end_beats);

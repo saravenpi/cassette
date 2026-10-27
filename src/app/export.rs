@@ -110,9 +110,17 @@ impl App {
     }
 
     pub(crate) fn export_project(&mut self, target_path: Option<String>) {
-        let path = target_path
-            .map(PathBuf::from)
-            .unwrap_or_else(|| default_export_path("project", "json"));
+        let path = if let Some(target) = target_path {
+            let mut p = PathBuf::from(target);
+            if p.extension().is_none() {
+                p.set_extension("cassette");
+            }
+            p
+        } else if let Some(remembered) = self.project_path.clone() {
+            remembered
+        } else {
+            default_export_path("project", "cassette")
+        };
         let json = match serde_json::to_string_pretty(&self.song) {
             Ok(json) => json,
             Err(error) => {
@@ -123,13 +131,36 @@ impl App {
         self.status = match write_atomic(&path, |temp| {
             std::fs::write(temp, json).with_context(|| format!("writing {}", temp.display()))
         }) {
-            Ok(()) => format!("exported project to {}", path.display()),
+            Ok(()) => {
+                self.project_path = Some(path.clone());
+                self.saved_revision = self.edit_revision;
+                let file_name = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("project.cassette");
+                format!("saved {file_name}")
+            }
             Err(error) => format!("export project failed: {error:#}"),
         };
     }
 
     pub(crate) fn load_project(&mut self, target_path: Option<String>) {
-        let path = target_path.map(PathBuf::from).or_else(latest_project_path);
+        let path = if let Some(target) = target_path {
+            let mut p = PathBuf::from(target);
+            if p.extension().is_none() {
+                if !p.exists()
+                    && !p.with_extension("cassette").exists()
+                    && p.with_extension("json").exists()
+                {
+                    p.set_extension("json");
+                } else {
+                    p.set_extension("cassette");
+                }
+            }
+            Some(p)
+        } else {
+            latest_project_path()
+        };
         let Some(path) = path else {
             self.status = "no saved project found to load".into();
             return;
@@ -177,7 +208,14 @@ impl App {
 
         self.resync();
 
-        let mut status = format!("loaded project from {}", path.display());
+        self.project_path = Some(path.clone());
+        self.saved_revision = self.edit_revision;
+
+        let file_name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("project.cassette");
+        let mut status = format!("loaded {file_name}");
         if !problems.is_empty() {
             status.push_str(&format!("; fixed: {}", problems.join(", ")));
         }
@@ -264,7 +302,7 @@ fn latest_project_path() -> Option<PathBuf> {
             let path = e.path();
             let name = path.file_name()?.to_str()?;
             if (name.starts_with("cassette-project-") || name.starts_with("zboub69-project-"))
-                && name.ends_with(".json")
+                && (name.ends_with(".cassette") || name.ends_with(".json"))
             {
                 let mtime = e.metadata().ok()?.modified().ok()?;
                 Some((mtime, path))
@@ -347,7 +385,7 @@ mod tests {
         assert!(content.contains("tracks"));
         assert!(content.contains("bpm"));
         assert!(content.contains("\"version\""));
-        assert!(app.status.contains("exported project to"));
+        assert!(app.status.contains("saved p.json"));
     }
 
     #[test]
@@ -361,7 +399,7 @@ mod tests {
         assert_eq!(fresh.song.bpm(), 120.0);
         fresh.load_project(dir.arg("p.json"));
         assert_eq!(fresh.song.bpm(), 142.0);
-        assert!(fresh.status.contains("loaded project from"));
+        assert!(fresh.status.contains("loaded p.json"));
     }
 
     #[test]
@@ -678,5 +716,49 @@ mod tests {
         assert!((seconds - 1.0).abs() < 0.05, "played for {seconds} s");
         let hertz = crossings as f32 / 2.0 / seconds;
         assert!((hertz - 441.0).abs() < 15.0, "pitch was {hertz} Hz");
+    }
+
+    #[test]
+    fn project_path_dirty_flag_and_cassette_extension() {
+        let mut app = headless_app();
+        let state = app.ui_state();
+        assert_eq!(state.project_path, None);
+        assert!(!state.project_dirty, "fresh app is clean");
+
+        app.submit(crate::events::Event::CreateBlock {
+            track: 0,
+            start_beats: 0.0,
+            length_beats: 4.0,
+        });
+        assert!(app.ui_state().project_dirty, "dirty after edit");
+
+        let dir = TempDir::new();
+        let base_name = dir.arg("my_session");
+        app.export_project(base_name.clone());
+        assert_eq!(app.status, "saved my_session.cassette");
+        let expected_path = dir.file("my_session.cassette");
+        assert!(expected_path.exists());
+        assert_eq!(app.project_path, Some(expected_path.clone()));
+        assert_eq!(
+            app.ui_state().project_path,
+            Some(expected_path.display().to_string())
+        );
+        assert!(!app.ui_state().project_dirty, "clean after save");
+
+        app.submit(crate::events::Event::Undo);
+        assert!(app.ui_state().project_dirty, "undo after save is dirty");
+
+        app.export_project(None);
+        assert_eq!(app.status, "saved my_session.cassette");
+        assert!(
+            !app.ui_state().project_dirty,
+            "clean after saving again to remembered path"
+        );
+
+        let mut fresh = headless_app();
+        fresh.load_project(base_name);
+        assert_eq!(fresh.status, "loaded my_session.cassette");
+        assert_eq!(fresh.project_path, Some(expected_path));
+        assert!(!fresh.ui_state().project_dirty, "clean after loading");
     }
 }

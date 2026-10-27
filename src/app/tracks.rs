@@ -4,8 +4,11 @@
 //! through the same `RtCommand` a resync would use.
 
 use super::App;
+use crate::app::effects::TrackShift;
+use crate::core::MAX_TRACKS;
+use crate::core::meter::MeterBank;
 use crate::core::render::RtCommand;
-use crate::models::Instrument;
+use crate::models::{Instrument, Track, TrackKind};
 
 /// The voice fields a `SetInstrument` intent carries.
 #[derive(Clone, Copy, Debug)]
@@ -25,24 +28,173 @@ pub(crate) struct VoiceEdit {
 }
 
 impl App {
-    pub(crate) fn add_track(&mut self, _kind: crate::models::TrackKind) {}
+    pub(crate) fn add_track(&mut self, kind: TrackKind) {
+        if self.song.tracks.len() >= MAX_TRACKS {
+            self.status = format!("the song already holds {MAX_TRACKS} tracks");
+            return;
+        }
+        let prefix = match kind {
+            TrackKind::Midi => "MIDI",
+            TrackKind::Audio => "Audio",
+        };
+        let mut n = 1;
+        loop {
+            let candidate = format!("{prefix} {n}");
+            if !self
+                .song
+                .tracks
+                .iter()
+                .any(|t| t.name.eq_ignore_ascii_case(&candidate))
+            {
+                break;
+            }
+            n += 1;
+        }
+        let name = format!("{prefix} {n}");
+        let new_track = Track::new(name.clone(), kind, kind.default_preset());
+        self.song.tracks.push(new_track);
+        self.cursor.track = self.song.tracks.len() - 1;
+        self.clamp_block();
+        self.engine.resync(&self.song);
+        self.resync();
+        self.meters = MeterBank::new(self.song.tracks.len());
+        for t in 0..self.song.tracks.len() {
+            self.touch_notes(t);
+        }
+        self.status = format!("added track {name}");
+    }
 
-    pub(crate) fn delete_track(&mut self, _track: usize) {}
+    pub(crate) fn delete_track(&mut self, track: usize) {
+        if self.song.tracks.len() <= 1 {
+            self.status = "cannot delete the last track".into();
+            return;
+        }
+        if track >= self.song.tracks.len() {
+            self.status = "no track there to delete".into();
+            return;
+        }
+        let removed = self.song.tracks.remove(track);
+        self.cursor.track = self.cursor.track.min(self.song.tracks.len() - 1);
+        self.clamp_block();
+        self.garbage_collect_samples();
+        self.remap_sidechains(TrackShift::Deleted(track));
+        self.engine.resync(&self.song);
+        self.resync();
+        self.meters = MeterBank::new(self.song.tracks.len());
+        for t in 0..self.song.tracks.len() {
+            self.touch_notes(t);
+        }
+        self.status = format!("deleted track {}", removed.name);
+    }
 
-    pub(crate) fn duplicate_track(&mut self, _track: usize) {}
+    pub(crate) fn duplicate_track(&mut self, track: usize) {
+        if track >= self.song.tracks.len() {
+            self.status = "no track there to duplicate".into();
+            return;
+        }
+        if self.song.tracks.len() >= MAX_TRACKS {
+            self.status = format!("the song already holds {MAX_TRACKS} tracks");
+            return;
+        }
+        let mut copy = self.song.tracks[track].clone();
+        copy.name = format!("{} copy", copy.name);
+        for effect in &mut copy.effects {
+            effect.id = self.song.next_effect_id();
+        }
+        let insert_index = track + 1;
+        self.song.tracks.insert(insert_index, copy);
+        self.cursor.track = insert_index;
+        self.clamp_block();
+        self.remap_sidechains(TrackShift::Inserted(insert_index));
+        self.engine.resync(&self.song);
+        self.resync();
+        self.meters = MeterBank::new(self.song.tracks.len());
+        for t in 0..self.song.tracks.len() {
+            self.touch_notes(t);
+        }
+        self.status = format!("duplicated track {}", self.song.tracks[insert_index].name);
+    }
 
-    pub(crate) fn rename_track(&mut self, _track: usize, _name: &str) {}
+    pub(crate) fn rename_track(&mut self, track: usize, name: &str) {
+        if track >= self.song.tracks.len() {
+            self.status = "no track there to rename".into();
+            return;
+        }
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            self.status = "track name cannot be empty".into();
+            return;
+        }
+        let capped: String = trimmed.chars().take(32).collect();
+        self.song.tracks[track].name = capped.clone();
+        self.status = format!("track renamed to {capped}");
+    }
 
-    pub(crate) fn set_instrument_enabled(&mut self, _track: usize, _enabled: bool) {}
+    pub(crate) fn set_instrument_enabled(&mut self, track: usize, enabled: bool) {
+        let Some(target) = self.song.tracks.get_mut(track) else {
+            self.status = "no track there to edit".into();
+            return;
+        };
+        target.instrument.enabled = enabled;
+        let instrument = target.instrument;
+        self.send(RtCommand::SetTrackInstrument {
+            track: track as u8,
+            instrument,
+        });
+        self.status = format!(
+            "track {} instrument {}",
+            track + 1,
+            if enabled { "on" } else { "off" }
+        );
+    }
 
     pub(crate) fn set_instrument_tone(
         &mut self,
-        _track: usize,
-        _cutoff: f32,
-        _resonance: f32,
-        _detune: f32,
-        _sub: f32,
+        track: usize,
+        cutoff: f32,
+        resonance: f32,
+        detune: f32,
+        sub: f32,
     ) {
+        let Some(target) = self.song.tracks.get_mut(track) else {
+            self.status = "no track there to edit".into();
+            return;
+        };
+        let cutoff = if cutoff.is_finite() {
+            cutoff.clamp(20.0, 20_000.0)
+        } else {
+            20_000.0
+        };
+        let resonance = if resonance.is_finite() {
+            resonance.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let detune = if detune.is_finite() {
+            detune.clamp(0.0, 100.0)
+        } else {
+            0.0
+        };
+        let sub = if sub.is_finite() {
+            sub.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        target.instrument.cutoff = cutoff;
+        target.instrument.resonance = resonance;
+        target.instrument.detune = detune;
+        target.instrument.sub = sub;
+        let instrument = target.instrument;
+        self.send(RtCommand::SetTrackInstrument {
+            track: track as u8,
+            instrument,
+        });
+        self.status = format!(
+            "track {} tone cutoff {:.0} Hz res {:.2}",
+            track + 1,
+            instrument.cutoff,
+            instrument.resonance
+        );
     }
 
     /// Move the track cursor by `delta`, clamped to the song.
@@ -347,5 +499,114 @@ mod tests {
         assert_eq!(instrument.octave, -2);
         assert_eq!(instrument.release, 0.3);
         assert_eq!(app.ui_state().tracks[0].preset, "Custom");
+    }
+
+    #[test]
+    fn track_management_add_delete_duplicate_and_rename() {
+        let mut app = headless_app();
+        assert_eq!(app.song.tracks.len(), 4);
+        assert_eq!(app.ui_state().tracks.len(), 4);
+
+        app.handle(Event::AddTrack {
+            kind: TrackKind::Midi,
+        });
+        assert_eq!(app.song.tracks.len(), 5);
+        assert_eq!(app.song.tracks[4].name, "MIDI 3");
+        assert_eq!(app.ui_state().tracks.len(), 5);
+
+        app.handle(Event::Undo);
+        assert_eq!(app.song.tracks.len(), 4);
+        assert_eq!(app.ui_state().tracks.len(), 4);
+
+        app.handle(Event::Redo);
+        assert_eq!(app.song.tracks.len(), 5);
+        assert_eq!(app.ui_state().tracks.len(), 5);
+
+        app.handle(Event::DuplicateTrack { track: 4 });
+        assert_eq!(app.song.tracks.len(), 6);
+        assert_eq!(app.song.tracks[5].name, "MIDI 3 copy");
+        assert_eq!(app.ui_state().tracks.len(), 6);
+
+        app.handle(Event::RenameTrack {
+            track: 5,
+            name: "  Synthesizer lead with a very very long name that exceeds thirty two chars  "
+                .into(),
+        });
+        assert_eq!(app.song.tracks[5].name, "Synthesizer lead with a very ver");
+        assert_eq!(app.song.tracks[5].name.len(), 32);
+
+        app.handle(Event::RenameTrack {
+            track: 5,
+            name: "   ".into(),
+        });
+        assert_eq!(app.song.tracks[5].name, "Synthesizer lead with a very ver");
+        assert_eq!(app.status, "track name cannot be empty");
+
+        app.handle(Event::DeleteTrack { track: 5 });
+        assert_eq!(app.song.tracks.len(), 5);
+        assert_eq!(app.ui_state().tracks.len(), 5);
+
+        app.handle(Event::Undo);
+        assert_eq!(app.song.tracks.len(), 6);
+        assert_eq!(app.ui_state().tracks.len(), 6);
+
+        for _ in 0..10 {
+            app.handle(Event::AddTrack {
+                kind: TrackKind::Audio,
+            });
+        }
+        assert_eq!(app.song.tracks.len(), MAX_TRACKS);
+        app.handle(Event::AddTrack {
+            kind: TrackKind::Midi,
+        });
+        assert_eq!(app.song.tracks.len(), MAX_TRACKS);
+        assert!(app.status.contains("already holds"));
+
+        while app.song.tracks.len() > 1 {
+            app.handle(Event::DeleteTrack { track: 0 });
+        }
+        assert_eq!(app.song.tracks.len(), 1);
+        app.handle(Event::DeleteTrack { track: 0 });
+        assert_eq!(app.song.tracks.len(), 1);
+        assert_eq!(app.status, "cannot delete the last track");
+    }
+
+    #[test]
+    fn instrument_bypass_and_tone_controls() {
+        let mut app = headless_app();
+        app.handle(Event::SetInstrumentEnabled {
+            track: 0,
+            enabled: false,
+        });
+        assert!(!app.song.tracks[0].instrument.enabled);
+        assert_eq!(app.ui_state().tracks[0].preset, "Lead");
+        assert_eq!(app.status, "track 1 instrument off");
+
+        app.handle(Event::SetInstrumentTone {
+            track: 0,
+            cutoff: 500.0,
+            resonance: 0.8,
+            detune: 25.0,
+            sub: 0.5,
+        });
+        assert_eq!(app.song.tracks[0].instrument.cutoff, 500.0);
+        assert_eq!(app.song.tracks[0].instrument.resonance, 0.8);
+        assert_eq!(app.song.tracks[0].instrument.detune, 25.0);
+        assert_eq!(app.song.tracks[0].instrument.sub, 0.5);
+
+        app.handle(Event::SetInstrumentTone {
+            track: 0,
+            cutoff: 100_000.0,
+            resonance: 5.0,
+            detune: 200.0,
+            sub: 3.0,
+        });
+        assert_eq!(app.song.tracks[0].instrument.cutoff, 20_000.0);
+        assert_eq!(app.song.tracks[0].instrument.resonance, 1.0);
+        assert_eq!(app.song.tracks[0].instrument.detune, 100.0);
+        assert_eq!(app.song.tracks[0].instrument.sub, 1.0);
+
+        app.handle(Event::Undo);
+        assert_eq!(app.song.tracks[0].instrument.cutoff, 20_000.0);
     }
 }

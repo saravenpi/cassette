@@ -33,8 +33,10 @@ enum Gesture {
     MoveNote(usize),
     ResizeNote(usize),
     NoteVelocity(usize),
+    EditNotes(usize, usize),
     Mix(usize),
     Instrument(usize),
+    InstrumentTone(usize),
     Volume(usize),
     Pan(usize),
     Bpm,
@@ -100,6 +102,8 @@ fn kind(event: &Event, cursor_track: usize, recording: bool) -> Kind {
         | Event::DuplicateBlock { .. }
         | Event::AddNote { .. }
         | Event::DeleteNote { .. }
+        | Event::AddNotes { .. }
+        | Event::DeleteNotes { .. }
         | Event::AddBlock
         | Event::DeleteBlock
         | Event::ImportSample { .. }
@@ -112,7 +116,17 @@ fn kind(event: &Event, cursor_track: usize, recording: bool) -> Kind {
         | Event::AddEffect { .. }
         | Event::RemoveEffect { .. }
         | Event::MoveEffect { .. }
-        | Event::SetEffectEnabled { .. } => Kind::Edit,
+        | Event::SetEffectEnabled { .. }
+        | Event::SetEffectSidechain { .. }
+        | Event::AddTrack { .. }
+        | Event::DeleteTrack { .. }
+        | Event::DuplicateTrack { .. }
+        | Event::RenameTrack { .. }
+        | Event::CutRange { .. }
+        | Event::DeleteRange { .. }
+        | Event::PasteRange { .. }
+        | Event::DuplicateRange { .. }
+        | Event::SetInstrumentEnabled { .. } => Kind::Edit,
         Event::SetEffectParam {
             track,
             index,
@@ -126,8 +140,10 @@ fn kind(event: &Event, cursor_track: usize, recording: bool) -> Kind {
         Event::MoveNote { note, .. } => Kind::Stream(Gesture::MoveNote(*note)),
         Event::ResizeNote { note, .. } => Kind::Stream(Gesture::ResizeNote(*note)),
         Event::SetNoteVelocity { note, .. } => Kind::Stream(Gesture::NoteVelocity(*note)),
+        Event::EditNotes { track, block, .. } => Kind::Stream(Gesture::EditNotes(*track, *block)),
         Event::SetTrackMix { track, .. } => Kind::Stream(Gesture::Mix(*track)),
         Event::SetInstrument { track, .. } => Kind::Stream(Gesture::Instrument(*track)),
+        Event::SetInstrumentTone { track, .. } => Kind::Stream(Gesture::InstrumentTone(*track)),
         Event::VolumeDelta(_) => Kind::Stream(Gesture::Volume(cursor_track)),
         Event::PanDelta(_) => Kind::Stream(Gesture::Pan(cursor_track)),
         Event::BpmDelta(_) => Kind::Stream(Gesture::Bpm),
@@ -155,7 +171,12 @@ impl App {
             Kind::Stream(gesture) => Some(gesture),
         };
         if gesture.is_some() && self.history.gesture == gesture {
-            return self.apply(event);
+            let before = self.song.clone();
+            self.apply(event);
+            if self.song != before {
+                self.edit_revision += 1;
+            }
+            return;
         }
         let before = Step {
             song: self.song.clone(),
@@ -163,6 +184,7 @@ impl App {
         };
         self.apply(event);
         if self.song != before.song {
+            self.edit_revision += 1;
             self.history.record(before, gesture);
         } else {
             self.history.gesture = None;
@@ -178,6 +200,7 @@ impl App {
         };
         let current = self.restore(step);
         self.history.redo.push(current);
+        self.edit_revision += 1;
         self.status = format!("undo ({} more)", self.history.undo.len());
     }
 
@@ -190,6 +213,7 @@ impl App {
         };
         let current = self.restore(step);
         self.history.undo.push(current);
+        self.edit_revision += 1;
         self.status = format!("redo ({} more)", self.history.redo.len());
     }
 

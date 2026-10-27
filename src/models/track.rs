@@ -439,24 +439,15 @@ impl Track {
         Ok(problems)
     }
 
-    /// Keep the first effect of each kind, at most [`MAX_EFFECTS`] of them,
-    /// with every parameter inside its spec.
+    /// Keep at most [`MAX_EFFECTS`] effects, with every parameter inside its spec.
     fn sanitize_effects(&mut self) -> Vec<String> {
         let mut problems = Vec::new();
-        let count = self.effects.len();
-        let mut seen = Vec::with_capacity(MAX_EFFECTS);
-        self.effects.retain(|effect| {
-            let first = !seen.contains(&effect.kind) && seen.len() < MAX_EFFECTS;
-            if first {
-                seen.push(effect.kind);
-            }
-            first
-        });
-        if self.effects.len() < count {
+        if self.effects.len() > MAX_EFFECTS {
+            let dropped = self.effects.len() - MAX_EFFECTS;
+            self.effects.truncate(MAX_EFFECTS);
             problems.push(format!(
-                "track {:?}: dropped {} duplicate or extra effect(s)",
-                self.name,
-                count - self.effects.len()
+                "track {:?}: dropped {dropped} effect(s) past the limit of {MAX_EFFECTS}",
+                self.name
             ));
         }
         let clamped = self
@@ -592,7 +583,7 @@ mod tests {
     }
 
     #[test]
-    fn sanitize_drops_duplicate_effects_and_clamps_params() {
+    fn sanitize_keeps_duplicate_effects_and_clamps_params() {
         use crate::models::EffectKind;
         let mut track = midi();
         let mut reverb = Effect::new(EffectKind::Reverb);
@@ -609,11 +600,16 @@ mod tests {
         let kinds: Vec<EffectKind> = track.effects.iter().map(|e| e.kind).collect();
         assert_eq!(
             kinds,
-            vec![EffectKind::Reverb, EffectKind::Delay, EffectKind::Eq]
+            vec![
+                EffectKind::Reverb,
+                EffectKind::Reverb,
+                EffectKind::Delay,
+                EffectKind::Eq
+            ]
         );
         assert_eq!(track.effects[0].params[2], 0.25);
-        assert_eq!(track.effects[1].params[1], 0.95);
-        assert_eq!(problems.len(), 2, "{problems:?}");
+        assert_eq!(track.effects[2].params[1], 0.95);
+        assert_eq!(problems.len(), 1, "{problems:?}");
     }
 
     #[test]

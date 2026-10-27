@@ -82,6 +82,10 @@ pub struct App {
     loaded_samples: HashMap<u8, std::sync::Arc<[f32]>>,
     producer: Option<Producer<SampleMsg>>,
     history: History,
+    pub(crate) project_path: Option<std::path::PathBuf>,
+    pub(crate) edit_revision: u64,
+    pub(crate) saved_revision: u64,
+    pub(crate) clipboard: Option<clipboard::Clipboard>,
 }
 
 impl App {
@@ -139,6 +143,10 @@ impl App {
             loaded_samples: HashMap::new(),
             producer,
             history: History::default(),
+            project_path: None,
+            edit_revision: 0,
+            saved_revision: 0,
+            clipboard: None,
         }
     }
 
@@ -430,11 +438,13 @@ impl App {
                 sub: track.instrument.sub,
                 name: track.name.clone(),
                 kind: track.kind,
-                preset: track
-                    .instrument
-                    .preset_index()
-                    .map(|i| Instrument::PRESETS[i].to_string())
-                    .unwrap_or_else(|| "Custom".into()),
+                preset: Instrument {
+                    enabled: true,
+                    ..track.instrument
+                }
+                .preset_index()
+                .map(|i| Instrument::PRESETS[i].to_string())
+                .unwrap_or_else(|| "Custom".into()),
                 waveform: track.instrument.waveform.name().to_string(),
                 gain: track.instrument.gain,
                 octave: track.instrument.octave,
@@ -483,9 +493,15 @@ impl App {
         let length_beats = ruler_length(&tracks);
 
         UiState {
-            project_path: None,
-            project_dirty: false,
-            clipboard: None,
+            project_path: self.project_path.as_ref().map(|p| p.display().to_string()),
+            project_dirty: self.edit_revision != self.saved_revision,
+            clipboard: self
+                .clipboard
+                .as_ref()
+                .map(|c| crate::ui::view::ClipboardView {
+                    tracks: c.lanes.len(),
+                    length_beats: c.length_beats,
+                }),
             bpm: self.song.bpm(),
             playing: self.engine.is_playing(),
             recording: self.recording,
