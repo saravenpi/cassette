@@ -9,7 +9,7 @@
 
 	import { onDestroy, onMount } from 'svelte';
 
-	import { beatsToPx, zoomBy } from '$lib/geometry';
+	import { beatsToPx } from '$lib/geometry';
 	import {
 		addSelection,
 		arrowNudge,
@@ -46,6 +46,8 @@
 		isBlackKey,
 		noteName,
 		pitchToY,
+		rollZoomBy,
+		rollZoomByWheel,
 		snapToGrid,
 		velocityOpacity,
 		velocityStep
@@ -236,6 +238,22 @@
 				editNotes: { track: trackIndex, block: blockIndex, edits: coalescedEdits }
 			});
 			coalescedEdits = null;
+		}
+	}
+
+	function applyZoom(nextZoom: number, anchorX?: number): void {
+		if (scroller === null) {
+			zoom = nextZoom;
+			return;
+		}
+		const oldZoom = zoom;
+		const focusX = anchorX ?? Math.max(0, scroller.clientWidth / 2 - KEYS_WIDTH);
+		zoom = nextZoom;
+		if (focusX > 0) {
+			scroller.scrollLeft = Math.max(
+				0,
+				scroller.scrollLeft + focusX * (nextZoom / oldZoom - 1)
+			);
 		}
 	}
 
@@ -559,9 +577,18 @@
 	function onWheel(event: WheelEvent): void {
 		const point = pointIn(event);
 		if (point === null || roll === null) return;
-		const hit = hitNote(notes, point.x, point.y, zoom);
+		const isZoom = event.ctrlKey || event.metaKey || event.altKey;
+		const hit = isZoom ? null : hitNote(notes, point.x, point.y, zoom);
+		if (isZoom || hit === null) {
+			const delta = event.deltaY !== 0 ? event.deltaY : event.deltaX;
+			if (delta === 0) return;
+			event.preventDefault();
+			const nextZoom = rollZoomByWheel(zoom, delta);
+			applyZoom(nextZoom, point.x);
+			return;
+		}
 		const delta = event.shiftKey && event.deltaY === 0 ? event.deltaX : event.deltaY;
-		if (hit === null || delta === 0) return;
+		if (delta === 0) return;
 		event.preventDefault();
 		const targetIndices = selection.has(hit.note) ? Array.from(selection) : [hit.note];
 		const edits: NoteEdit[] = [];
@@ -699,6 +726,30 @@
 			return;
 		}
 
+		if (
+			event.key === '+' ||
+			event.key === '=' ||
+			event.code === 'NumpadAdd' ||
+			(event.shiftKey && event.code === 'Equal')
+		) {
+			event.preventDefault();
+			event.stopPropagation();
+			applyZoom(rollZoomBy(zoom, 1));
+			return;
+		}
+
+		if (
+			event.key === '-' ||
+			event.key === '_' ||
+			event.code === 'NumpadSubtract' ||
+			(event.shiftKey && event.code === 'Minus')
+		) {
+			event.preventDefault();
+			event.stopPropagation();
+			applyZoom(rollZoomBy(zoom, -1));
+			return;
+		}
+
 		if (event.key === 'ArrowUp') {
 			event.preventDefault();
 			event.stopPropagation();
@@ -818,14 +869,14 @@
 		<button
 			class="icon"
 			aria-label="Zoom the piano roll out"
-			onclick={() => (zoom = zoomBy(zoom, -1))}
+			onclick={() => applyZoom(rollZoomBy(zoom, -1))}
 		>
 			&minus;
 		</button>
 		<button
 			class="icon"
 			aria-label="Zoom the piano roll in"
-			onclick={() => (zoom = zoomBy(zoom, 1))}
+			onclick={() => applyZoom(rollZoomBy(zoom, 1))}
 		>
 			+
 		</button>

@@ -4,6 +4,8 @@ import {
 	MIN_NOTE_BEATS,
 	PITCH_MAX,
 	PREVIEW_MIN_ROWS,
+	ROLL_ZOOM_MAX,
+	ROLL_ZOOM_MIN,
 	ROW_PX,
 	VELOCITY_MAX,
 	VELOCITY_MIN,
@@ -19,6 +21,8 @@ import {
 	noteName,
 	pitchToY,
 	previewRange,
+	rollZoomBy,
+	rollZoomByWheel,
 	snapToGrid,
 	velocityOpacity,
 	velocityStep,
@@ -32,6 +36,7 @@ interface Matchers {
 	toBeNull(): void;
 	toBeCloseTo(expected: number, digits?: number): void;
 	toBeLessThan(expected: number): void;
+	toBeGreaterThan(expected: number): void;
 	not: Matchers;
 }
 
@@ -238,5 +243,24 @@ describe('locateBlock', () => {
 	test('returns null once the block is gone or no longer MIDI', () => {
 		expect(locateBlock([block('a', 0)], 1, 'b', 4)).toBeNull();
 		expect(locateBlock([block('a', 0), block('b', 4, 'audio')], 1, 'b', 4)).toBeNull();
+	});
+});
+
+describe('piano roll zoom', () => {
+	test('steps up on positive direction and down on negative', () => {
+		expect(rollZoomBy(64, 1)).toBe(80);
+		expect(rollZoomBy(80, -1)).toBe(64);
+	});
+
+	test('clamps at minimum and maximum zoom bounds', () => {
+		expect(rollZoomBy(ROLL_ZOOM_MAX, 1)).toBe(ROLL_ZOOM_MAX);
+		expect(rollZoomBy(ROLL_ZOOM_MIN, -1)).toBe(ROLL_ZOOM_MIN);
+	});
+
+	test('zooms exponentially by wheel delta', () => {
+		expect(rollZoomByWheel(64, -100)).toBeGreaterThan(64);
+		expect(rollZoomByWheel(64, 100)).toBeLessThan(64);
+		expect(rollZoomByWheel(ROLL_ZOOM_MAX, -100)).toBe(ROLL_ZOOM_MAX);
+		expect(rollZoomByWheel(ROLL_ZOOM_MIN, 100)).toBe(ROLL_ZOOM_MIN);
 	});
 });

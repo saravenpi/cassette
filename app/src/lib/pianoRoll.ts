@@ -20,6 +20,11 @@ export const KEYS_WIDTH = 56;
 
 /** Pixels per beat the roll opens at. */
 export const ROLL_ZOOM_DEFAULT = 64;
+/** Deepest and widest zoom scales the piano roll allows. */
+export const ROLL_ZOOM_MIN = 16;
+export const ROLL_ZOOM_MAX = 2048;
+export const ROLL_ZOOM_STEP = 1.25;
+export const ROLL_WHEEL_ZOOM_RATE = 0.0022;
 
 /** Beats a note snaps to, unless Alt is held: one sixteenth note. */
 export const NOTE_GRID = 0.25;
@@ -41,6 +46,21 @@ const NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 
 function clamp(value: number, low: number, high: number): number {
 	return Math.min(high, Math.max(low, value));
+}
+
+/** Keep a scale inside the piano roll zoom bounds. */
+export function rollClampZoom(pxPerBeat: number): number {
+	return clamp(pxPerBeat, ROLL_ZOOM_MIN, ROLL_ZOOM_MAX);
+}
+
+/** The next piano roll scale one zoom press away, clamped. */
+export function rollZoomBy(pxPerBeat: number, direction: number): number {
+	return rollClampZoom(direction > 0 ? pxPerBeat * ROLL_ZOOM_STEP : pxPerBeat / ROLL_ZOOM_STEP);
+}
+
+/** The piano roll scale after a wheel movement of deltaY pixels, clamped. */
+export function rollZoomByWheel(pxPerBeat: number, deltaY: number): number {
+	return rollClampZoom(pxPerBeat * Math.exp(-deltaY * ROLL_WHEEL_ZOOM_RATE));
 }
 
 /** A pitch held inside the MIDI range and rounded to a whole semitone. */
