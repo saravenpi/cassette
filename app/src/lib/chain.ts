@@ -34,10 +34,15 @@ const PARAM_SLOTS = 8;
 /** The most effects one chain holds, likewise. */
 const EFFECT_SLOTS = 8;
 
-/** The catalog entries a chain does not hold yet, in catalog order. */
+/** Whether a chain has room for another effect (maximum 8). */
+export function canAddEffect(effects: readonly EffectView[]): boolean {
+	return effects.length < EFFECT_SLOTS;
+}
+
+/** The catalog entries that can be added to a chain, empty once at the limit of 8. */
 export function addableKinds(catalog: readonly EffectSpecView[], effects: readonly EffectView[]): EffectSpecView[] {
-	const present = new Set(effects.map((effect) => effect.kind));
-	return catalog.filter((spec) => !present.has(spec.kind));
+	if (!canAddEffect(effects)) return [];
+	return [...catalog];
 }
 
 /** The slot a pointer at `x` drops into: the number of cards whose middle lies left of it. */

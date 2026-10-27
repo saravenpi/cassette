@@ -22,10 +22,14 @@
 		formatPrecise,
 		gridStep,
 		pruneHeights,
+		snapBeats,
 		zoomByWheel
 	} from '$lib/geometry';
 	import { laneUnder } from '$lib/drag.svelte';
-	import { markAt } from '$lib/menu';
+	import { emptyTimelineMenu, markAt, selectionMenu } from '$lib/menu';
+	import { menu } from '$lib/menu.svelte';
+	import { formatRangeLength, rangeLength } from '$lib/selection';
+	import { selection } from '$lib/selection.svelte';
 	import { session } from '$lib/session.svelte';
 	import Playhead from './Playhead.svelte';
 	import Ruler from './Ruler.svelte';
@@ -52,6 +56,149 @@
 
 	function getHeight(index: number): number {
 		return trackHeights[index] ?? ROW_HEIGHT;
+	}
+
+	const selRange = $derived(selection.range);
+	const selLayout = $derived.by(() => {
+		if (selRange === null) return null;
+		let top = RULER_HEIGHT;
+		for (let i = 0; i < selRange.firstTrack && i < tracks.length; i += 1) {
+			top += getHeight(i);
+		}
+		let height = 0;
+		for (let i = selRange.firstTrack; i <= selRange.lastTrack && i < tracks.length; i += 1) {
+			height += getHeight(i);
+		}
+		const left = beatsToPx(selRange.startBeats, session.zoom);
+		const width = beatsToPx(selRange.endBeats - selRange.startBeats, session.zoom);
+		return { top, height, left, width };
+	});
+
+	function onGridPointerDown(event: PointerEvent): void {
+		if (event.button !== 0) return;
+		const target = event.target;
+		if (!(target instanceof Element)) return;
+		if (
+			target.closest(
+				'[data-block], .row-resize-handle, .selection-handle, button, input, .ruler, .corner, .slot'
+			)
+		) {
+			return;
+		}
+		const lane = laneUnder(event.clientX, event.clientY, session.zoom);
+		if (lane === null) return;
+		event.preventDefault();
+
+		const step = gridStep(session.zoom);
+		const snappedBeats = snapBeats(lane.beats, step, event.altKey);
+
+		if (event.shiftKey) {
+			selection.extend(lane.track, snappedBeats);
+			session.dispatch({ selectTrack: { track: lane.track } });
+			return;
+		}
+
+		selection.beginDrag(lane.track, snappedBeats);
+		let moved = false;
+		const startX = event.clientX;
+		const startY = event.clientY;
+
+		const onMove = (e: PointerEvent) => {
+			if (!moved && (Math.abs(e.clientX - startX) > 3 || Math.abs(e.clientY - startY) > 3)) {
+				moved = true;
+			}
+			const curLane = laneUnder(e.clientX, e.clientY, session.zoom);
+			if (curLane !== null) {
+				const curBeats = snapBeats(curLane.beats, gridStep(session.zoom), e.altKey);
+				selection.updateDrag(curLane.track, curBeats);
+			}
+		};
+
+		const onUp = (e: PointerEvent) => {
+			window.removeEventListener('pointermove', onMove);
+			window.removeEventListener('pointerup', onUp);
+			window.removeEventListener('pointercancel', onUp);
+			const drawn = selection.finishDrag();
+			if (!drawn && !moved) {
+				selection.clear();
+				const endLane = laneUnder(e.clientX, e.clientY, session.zoom) ?? lane;
+				const endBeats = snapBeats(endLane.beats, gridStep(session.zoom), e.altKey);
+				session.dispatch({ selectTrack: { track: endLane.track } });
+				session.dispatch({ seek: { beats: Math.max(0, endBeats) } });
+			}
+		};
+
+		window.addEventListener('pointermove', onMove);
+		window.addEventListener('pointerup', onUp);
+		window.addEventListener('pointercancel', onUp);
+	}
+
+	function startSelectionResize(event: PointerEvent, edge: 'start' | 'end'): void {
+		if (event.button !== 0) return;
+		event.preventDefault();
+		event.stopPropagation();
+		selection.beginResize(edge);
+
+		const onMove = (e: PointerEvent) => {
+			const lane = laneUnder(e.clientX, e.clientY, session.zoom);
+			if (lane !== null) {
+				const beats = snapBeats(lane.beats, gridStep(session.zoom), e.altKey);
+				selection.updateResize(beats);
+			}
+		};
+
+		const onUp = () => {
+			window.removeEventListener('pointermove', onMove);
+			window.removeEventListener('pointerup', onUp);
+			window.removeEventListener('pointercancel', onUp);
+			selection.finishResize();
+		};
+
+		window.addEventListener('pointermove', onMove);
+		window.addEventListener('pointerup', onUp);
+		window.addEventListener('pointercancel', onUp);
+	}
+
+	function onSelectionContextMenu(event: MouseEvent): void {
+		if (selRange === null) return;
+		event.preventDefault();
+		event.stopPropagation();
+		menu.open(
+			event.clientX,
+			event.clientY,
+			selectionMenu(
+				session,
+				selRange,
+				session.snapshot?.clipboard ?? null,
+				session.snapshot?.cursor.track ?? 0,
+				session.snapshot?.transportPositionBeats ?? 0,
+				session.snapshot?.looping ?? false,
+				() => selection.clear()
+			)
+		);
+	}
+
+	function openAddTrackMenu(event: MouseEvent): void {
+		const button = event.currentTarget;
+		if (!(button instanceof HTMLElement)) return;
+		const rect = button.getBoundingClientRect();
+		const entries = emptyTimelineMenu(session, tracks.length);
+		menu.open(rect.left, rect.bottom + 2, entries, button);
+	}
+
+	function onEmptySpaceContextMenu(event: MouseEvent): void {
+		if (
+			event.target instanceof Element &&
+			(event.target.closest('[data-block]') ||
+				event.target.closest('.row-resize-handle') ||
+				event.target.closest('.selection-band') ||
+				event.target.closest('.ruler') ||
+				event.target.closest('.corner'))
+		) {
+			return;
+		}
+		event.preventDefault();
+		menu.open(event.clientX, event.clientY, emptyTimelineMenu(session, tracks.length));
 	}
 
 	function startRowResize(event: PointerEvent, index: number, initialHeight: number): void {
@@ -165,12 +312,21 @@
 		onpointerleave={onPointerLeave}
 		onscroll={trackHover}
 	>
-		<div class="grid" style="width: {HEADER_WIDTH + contentWidth}px">
+		<div
+			class="grid"
+			role="presentation"
+			style="width: {HEADER_WIDTH + contentWidth}px"
+			onpointerdown={onGridPointerDown}
+		>
 			<div class="row ruler-row" style="height: {RULER_HEIGHT}px">
 				<Ruler pxPerBeat={session.zoom} {beatsPerBar} {bars} width={contentWidth} />
 				<div class="corner" style="width: {HEADER_WIDTH}px">
 					<span class="hover-at">
-						{session.hover !== null ? formatPrecise(session.hover.beats, beatsPerBar) : ''}
+						{#if selRange !== null}
+							{formatRangeLength(rangeLength(selRange), beatsPerBar)}
+						{:else if session.hover !== null}
+							{formatPrecise(session.hover.beats, beatsPerBar)}
+						{/if}
 					</span>
 					<div class="zoom-row">
 						<span class="zoom-label">Grid {gridLabel}</span>
@@ -205,6 +361,52 @@
 					></div>
 				</div>
 			{/each}
+
+			<div class="row add-track-row" role="presentation" oncontextmenu={onEmptySpaceContextMenu}>
+				<div class="empty-lane" style="width: {contentWidth}px"></div>
+				<div class="slot add-slot" style="width: {HEADER_WIDTH}px">
+					<button
+						type="button"
+						class="add-track-btn"
+						aria-label="Add track"
+						title={tracks.length >= 16 ? 'Track limit reached (16 tracks)' : 'Add track'}
+						disabled={tracks.length >= 16}
+						onclick={openAddTrackMenu}
+					>
+						+
+					</button>
+				</div>
+			</div>
+
+			<div
+				class="empty-space"
+				style="width: {HEADER_WIDTH + contentWidth}px"
+				role="presentation"
+				oncontextmenu={onEmptySpaceContextMenu}
+			></div>
+
+			{#if selLayout !== null && selRange !== null}
+				<div
+					class="selection-band"
+					role="region"
+					aria-label="Time selection: tracks {selRange.firstTrack + 1} to {selRange.lastTrack + 1}, beats {selRange.startBeats + 1} to {selRange.endBeats + 1}"
+					style="top: {selLayout.top}px; left: {selLayout.left}px; width: {selLayout.width}px; height: {selLayout.height}px"
+					oncontextmenu={onSelectionContextMenu}
+				>
+					<button
+						type="button"
+						class="selection-handle start"
+						aria-label="Adjust selection start"
+						onpointerdown={(e) => startSelectionResize(e, 'start')}
+					></button>
+					<button
+						type="button"
+						class="selection-handle end"
+						aria-label="Adjust selection end"
+						onpointerdown={(e) => startSelectionResize(e, 'end')}
+					></button>
+				</div>
+			{/if}
 
 			<Playhead
 				beats={snapshot?.transportPositionBeats ?? 0}
@@ -345,5 +547,84 @@
 	.row-resize-handle:focus-visible {
 		background: var(--green);
 		opacity: 0.5;
+	}
+
+	.add-track-row {
+		height: 32px;
+	}
+
+	.empty-lane {
+		flex: none;
+		background: var(--bg);
+		border-bottom: 1px solid var(--border-subtle);
+	}
+
+	.add-slot {
+		align-items: center;
+		justify-content: center;
+		border-bottom: 1px solid var(--border-subtle);
+	}
+
+	.add-track-btn {
+		width: 22px;
+		height: 22px;
+		padding: 0;
+		font-size: 14px;
+		letter-spacing: 0;
+		background: transparent;
+		border: 1px dashed var(--border);
+		color: var(--text-subtle);
+	}
+
+	.add-track-btn:hover:not(:disabled) {
+		filter: none;
+		border-color: var(--green);
+		color: var(--green);
+		background: var(--surface-hover);
+	}
+
+	.add-track-btn:disabled {
+		opacity: 0.3;
+	}
+
+	.empty-space {
+		min-height: 120px;
+		background: var(--bg);
+	}
+
+	.selection-band {
+		position: absolute;
+		border: 1px solid var(--green);
+		background: color-mix(in srgb, var(--green) 18%, transparent);
+		pointer-events: auto;
+		z-index: 4;
+		box-sizing: border-box;
+	}
+
+	.selection-handle {
+		position: absolute;
+		top: 0;
+		bottom: 0;
+		width: 6px;
+		padding: 0;
+		border: 0;
+		background: transparent;
+		cursor: ew-resize;
+		z-index: 5;
+	}
+
+	.selection-handle.start {
+		left: -3px;
+	}
+
+	.selection-handle.end {
+		right: -3px;
+	}
+
+	.selection-handle:hover,
+	.selection-handle:focus-visible {
+		filter: none;
+		background: var(--green);
+		opacity: 0.7;
 	}
 </style>

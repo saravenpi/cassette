@@ -6,7 +6,7 @@
  */
 
 import { DEFAULT_LENGTH_BEATS, MIN_LENGTH_BEATS, pxToBeats, snapBeats } from './geometry';
-import type { BlockView, EngineEvent, TrackKind, TrackView } from './wire';
+import type { BeatRange, BlockView, ClipboardView, EngineEvent, TrackKind, TrackView } from './wire';
 
 /** One choice in a menu. */
 export interface MenuItem {
@@ -219,8 +219,12 @@ export function trackMenu(
 	host: MenuHost,
 	index: number,
 	track: TrackView,
-	mix: (muted: boolean, solo: boolean) => void
+	mixOrTotal: ((muted: boolean, solo: boolean) => void) | number,
+	maybeMix?: (muted: boolean, solo: boolean) => void,
+	onRename?: () => void
 ): MenuEntry[] {
+	const totalTracks = typeof mixOrTotal === 'number' ? mixOrTotal : 4;
+	const mix = typeof mixOrTotal === 'function' ? mixOrTotal : (maybeMix ?? (() => {}));
 	const select: EngineEvent = { selectTrack: { track: index } };
 	return [
 		item(track.muted ? 'Unmute' : 'Mute', () => mix(!track.muted, track.solo), {
@@ -230,11 +234,84 @@ export function trackMenu(
 			shortcut: 'O'
 		}),
 		separator,
+		item('Rename', () => onRename?.(), {
+			shortcut: 'R'
+		}),
+		item('Duplicate', () => void host.request({ duplicateTrack: { track: index } }), {
+			disabled: totalTracks >= 16
+		}),
+		item('Delete', () => void host.request({ deleteTrack: { track: index } }), {
+			disabled: totalTracks <= 1,
+			danger: true
+		}),
+		separator,
 		item('Change kind', () => chain(host, select, 'cycleTrackKind'), {
 			shortcut: 'C'
 		}),
 		item('Add block at end', () => chain(host, select, 'addBlock'), {
 			shortcut: 'N'
+		})
+	];
+}
+
+/** The choices for a right-clicked time selection band. */
+export function selectionMenu(
+	host: MenuHost,
+	range: BeatRange,
+	clipboard: ClipboardView | null,
+	selectedTrack: number,
+	markerBeat: number,
+	looping: boolean,
+	onClear: () => void
+): MenuEntry[] {
+	return [
+		item('Cut', () => void host.request({ cutRange: { range } }), {
+			shortcut: 'Ctrl+X'
+		}),
+		item('Copy', () => void host.request({ copyRange: { range } }), {
+			shortcut: 'Ctrl+C'
+		}),
+		item(
+			'Paste',
+			() => void host.request({ pasteRange: { track: selectedTrack, startBeats: markerBeat } }),
+			{
+				shortcut: 'Ctrl+V',
+				disabled: clipboard === null
+			}
+		),
+		item('Duplicate', () => void host.request({ duplicateRange: { range } }), {
+			shortcut: 'Ctrl+D'
+		}),
+		item('Delete', () => void host.request({ deleteRange: { range } }), {
+			shortcut: 'Del',
+			danger: true
+		}),
+		separator,
+		item(
+			'Loop selection',
+			() => {
+				void host.request({
+					setLoopRegion: { startBeats: range.startBeats, endBeats: range.endBeats }
+				});
+				if (!looping) void host.request('toggleLoop');
+			},
+			{ shortcut: 'Ctrl+L' }
+		),
+		item('Clear selection', onClear, { shortcut: 'Esc' })
+	];
+}
+
+/** The choices for right-clicking in the empty space below tracks. */
+export function emptyTimelineMenu(host: MenuHost, trackCount: number): MenuEntry[] {
+	const disabled = trackCount >= 16;
+	return [
+		item('Add audio track', () => void host.request({ addTrack: { kind: 'audio' } }), {
+			shortcut: 'Ctrl+T',
+			disabled
+		}),
+		item('Add MIDI track', () => void host.request({ addTrack: { kind: 'midi' } }), {
+			shortcut: 'Ctrl+Shift+T',
+			disabled
 		})
 	];
 }

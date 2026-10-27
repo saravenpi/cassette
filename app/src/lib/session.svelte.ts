@@ -6,7 +6,14 @@
  * has open. Opening a block and picking a track also steer the detail pane.
  */
 
-import { pickProject, send as sendEvent, sendNow as sendWithoutWaiting, state } from './api';
+import {
+	pickExportWav,
+	pickProject,
+	pickSaveProject,
+	send as sendEvent,
+	sendNow as sendWithoutWaiting,
+	state
+} from './api';
 import { paramKey } from './chain';
 import { detail } from './detail.svelte';
 import { DragController } from './drag.svelte';
@@ -14,8 +21,10 @@ import { ZOOM_DEFAULT, clampZoom, gridStep, zoomBy } from './geometry';
 import { attachKeyboard } from './keyboard';
 import { NoteCache } from './noteCache';
 import { NOTE_GRID, locateBlock } from './pianoRoll';
+import { resolveSaveAction, resolveSaveAsAction } from './project';
 import { KeyedQueue, nextBackoff } from './queue';
-import type { EffectKind, EngineEvent, UiState } from './wire';
+import { selection } from './selection.svelte';
+import type { EffectKind, EngineEvent, TrackKind, UiState } from './wire';
 
 /** A track's voice, as the effects pane edits it. */
 export interface Voice {
@@ -75,6 +84,7 @@ class Session {
 	private noteDrag = new KeyedQueue<EngineEvent>();
 	private noteVelocity = new KeyedQueue<EngineEvent>();
 	private effectParam = new KeyedQueue<EngineEvent>();
+	private instrumentTone = new KeyedQueue<EngineEvent>();
 	private opened = 0;
 	private notes = new NoteCache();
 	private backoff = 0;
@@ -255,9 +265,132 @@ class Session {
 		this.dispatch({ duplicateBlock: { track: cursor.track, block: cursor.block } });
 	}
 
+	/** Copy the current time selection to the clipboard. */
+	copySelection(): void {
+		if (selection.range !== null) {
+			this.dispatch({ copyRange: { range: selection.range } });
+		}
+	}
+
+	/** Cut the current time selection to the clipboard and clear the selection. */
+	cutSelection(): void {
+		if (selection.range !== null) {
+			this.dispatch({ cutRange: { range: selection.range } });
+			selection.clear();
+		}
+	}
+
+	/** Paste clipboard contents at the marker on the selected track. */
+	pasteSelection(): void {
+		const track = this.snapshot?.cursor.track ?? 0;
+		const startBeats = this.snapshot?.transportPositionBeats ?? 0;
+		this.dispatch({ pasteRange: { track, startBeats } });
+	}
+
+	/** Duplicate either the active time selection or the selected block. */
+	duplicate(): void {
+		if (selection.range !== null) {
+			this.dispatch({ duplicateRange: { range: selection.range } });
+		} else {
+			this.duplicateSelected();
+		}
+	}
+
+	/** Delete either the active time selection or the block under the cursor. */
+	delete(): void {
+		if (selection.range !== null) {
+			this.dispatch({ deleteRange: { range: selection.range } });
+			selection.clear();
+		} else {
+			this.dispatch('deleteBlock');
+		}
+	}
+
+	/** Toggle or set looping over the active selection or song. */
+	loopSelection(): void {
+		const range = selection.range;
+		const snapshot = this.snapshot;
+		if (range !== null && range.startBeats < range.endBeats) {
+			const region = snapshot?.loopRegion;
+			const matches =
+				region !== null &&
+				region !== undefined &&
+				region.startBeats === range.startBeats &&
+				region.endBeats === range.endBeats;
+			if (snapshot?.looping && matches) {
+				this.dispatch('toggleLoop');
+				return;
+			}
+			this.dispatch({
+				setLoopRegion: { startBeats: range.startBeats, endBeats: range.endBeats }
+			});
+			if (!snapshot?.looping) {
+				this.dispatch('toggleLoop');
+			}
+		} else {
+			if (snapshot?.looping) {
+				this.dispatch('toggleLoop');
+			}
+			this.dispatch({ setLoopRegion: { startBeats: 0, endBeats: 0 } });
+		}
+	}
+
+	/** Add a new track of the given kind if below the maximum. */
+	addTrack(kind: TrackKind): void {
+		if ((this.snapshot?.tracks.length ?? 0) < 16) {
+			this.dispatch({ addTrack: { kind } });
+		}
+	}
+
+	/** Delete a track if more than one track remains. */
+	deleteTrack(track: number): void {
+		if ((this.snapshot?.tracks.length ?? 0) > 1) {
+			this.dispatch({ deleteTrack: { track } });
+		}
+	}
+
+	/** Duplicate a track if below the maximum track count. */
+	duplicateTrack(track: number): void {
+		if ((this.snapshot?.tracks.length ?? 0) < 16) {
+			this.dispatch({ duplicateTrack: { track } });
+		}
+	}
+
+	/** Rename a track. */
+	renameTrack(track: number, name: string): void {
+		this.dispatch({ renameTrack: { track, name } });
+	}
+
+	/** Queue an instrument tone change, collapsed to one message per frame. */
+	queueInstrumentTone(
+		track: number,
+		cutoff: number,
+		resonance: number,
+		detune: number,
+		sub: number
+	): void {
+		this.instrumentTone.set(track, {
+			setInstrumentTone: { track, cutoff, resonance, detune, sub }
+		});
+	}
+
+	/** Set an effect's sidechain audio source track, or null for self. */
+	setEffectSidechain(track: number, index: number, source: number | null): void {
+		this.dispatch({ setEffectSidechain: { track, index, source } });
+	}
+
 	/** Close the piano roll. */
 	closeRoll(): void {
 		this.roll = null;
+	}
+
+	/** Clear the active time selection, returning true if one was cleared. */
+	clearSelection(): boolean {
+		if (selection.range !== null) {
+			selection.clear();
+			return true;
+		}
+		return false;
 	}
 
 	/** Move a note of the open block, collapsed to one message per frame. */
@@ -288,10 +421,40 @@ class Session {
 	}
 
 	/** Ask for a project file and load it. */
-	async loadProjectFromDialog(): Promise<void> {
+	async loadProjectFromDialog(pick: () => Promise<string | null> = pickProject): Promise<void> {
 		try {
-			const path = await pickProject();
+			const path = await pick();
 			if (path !== null) await this.send({ loadProject: { path } });
+		} catch (error) {
+			this.fail(error, 'send');
+		}
+	}
+
+	/** Save the project to its remembered path, or ask for one if never saved. */
+	async saveProject(pick: (name?: string) => Promise<string | null> = pickSaveProject): Promise<void> {
+		try {
+			const event = await resolveSaveAction(this.snapshot?.projectPath ?? null, () => pick());
+			if (event !== null) await this.send(event);
+		} catch (error) {
+			this.fail(error, 'send');
+		}
+	}
+
+	/** Save the project under a new path selected via dialog. */
+	async saveProjectAs(pick: (name?: string) => Promise<string | null> = pickSaveProject): Promise<void> {
+		try {
+			const event = await resolveSaveAsAction(() => pick());
+			if (event !== null) await this.send(event);
+		} catch (error) {
+			this.fail(error, 'send');
+		}
+	}
+
+	/** Export audio to a WAV file picked from a dialog. */
+	async exportAudio(pick: (name?: string) => Promise<string | null> = pickExportWav): Promise<void> {
+		try {
+			const path = await pick();
+			if (path !== null) await this.send({ exportAudio: { path } });
 		} catch (error) {
 			this.fail(error, 'send');
 		}
@@ -351,7 +514,8 @@ class Session {
 			...this.voice.drain(),
 			...this.noteDrag.drain(),
 			...this.noteVelocity.drain(),
-			...this.effectParam.drain()
+			...this.effectParam.drain(),
+			...this.instrumentTone.drain()
 		];
 		for (const event of queued) await this.send(event);
 	}

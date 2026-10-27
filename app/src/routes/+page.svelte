@@ -19,6 +19,7 @@
 	import type { BlockView } from '$lib/wire';
 	import { laneUnder } from '$lib/drag.svelte';
 	import { freeStart, gridStep, snapBeats } from '$lib/geometry';
+	import { projectTitle } from '$lib/project';
 	import { session } from '$lib/session.svelte';
 
 	onMount(() => session.attachKeyboard());
@@ -26,6 +27,15 @@
 	onMount(() => {
 		session.start();
 		return () => session.stop();
+	});
+
+	$effect(() => {
+		if (typeof document !== 'undefined') {
+			document.title = projectTitle(
+				session.snapshot?.projectPath ?? null,
+				session.snapshot?.projectDirty ?? false
+			);
+		}
 	});
 
 	onMount(() => {
@@ -48,7 +58,9 @@
 				: snapBeats(freeStart(blocks), gridStep(session.zoom));
 			const audio = paths.filter((path) => AUDIO_EXTS.test(path));
 			for (const path of paths) {
-				if (path.endsWith('.json')) session.dispatch({ loadProject: { path } });
+				if (path.endsWith('.cassette') || path.endsWith('.json')) {
+					session.dispatch({ loadProject: { path } });
+				}
 			}
 			let known = new Set<string>();
 			const blockKey = (block: BlockView) => `${block.startBeats}:${block.lengthBeats}:${block.source}`;

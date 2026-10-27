@@ -408,10 +408,44 @@ describe('clip editing keys', () => {
 	});
 
 	test('leaves other chords to the webview', () => {
-		expect(intentFor(chord(press('KeyC', 'c')), false)).toBeNull();
-		expect(localFor(chord(press('KeyC', 'c')), false)).toBeNull();
-		expect(isAppKey(chord(press('KeyC', 'c')), false)).toBe(false);
+		expect(intentFor(chord(press('KeyQ', 'q')), false)).toBeNull();
+		expect(localFor(chord(press('KeyQ', 'q')), false)).toBeNull();
+		expect(isAppKey(chord(press('KeyQ', 'q')), false)).toBe(false);
 		expect(isAppKey(chord(press('KeyD', 'd')), false)).toBe(true);
+	});
+
+	test('maps arrangement editing chords: copy, cut, paste, loop', () => {
+		expect(localFor(chord(press('KeyC', 'c')), false)).toBe('copy');
+		expect(localFor(chord(press('KeyC', 'c'), 'metaKey'), false)).toBe('copy');
+		expect(localFor(chord(press('KeyX', 'x')), false)).toBe('cut');
+		expect(localFor(chord(press('KeyX', 'x'), 'metaKey'), false)).toBe('cut');
+		expect(localFor(chord(press('KeyV', 'v')), false)).toBe('paste');
+		expect(localFor(chord(press('KeyV', 'v'), 'metaKey'), false)).toBe('paste');
+		expect(localFor(chord(press('KeyL', 'l')), false)).toBe('loopSelection');
+		expect(localFor(chord(press('KeyL', 'l'), 'metaKey'), false)).toBe('loopSelection');
+	});
+
+	test('maps project chords: save, save as, open', () => {
+		expect(localFor(chord(press('KeyS', 's')), false)).toBe('save');
+		expect(localFor(chord(press('KeyS', 's'), 'metaKey'), false)).toBe('save');
+		expect(localFor(held(chord(press('KeyS', 'S'))), false)).toBe('saveAs');
+		expect(localFor(held(chord(press('KeyS', 'S'), 'metaKey')), false)).toBe('saveAs');
+		expect(localFor(chord(press('KeyO', 'o')), false)).toBe('open');
+		expect(localFor(chord(press('KeyO', 'o'), 'metaKey'), false)).toBe('open');
+	});
+
+	test('maps track add chords: Ctrl/Cmd+T and Ctrl/Cmd+Shift+T', () => {
+		expect(intentFor(chord(press('KeyT', 't')), false)).toEqual({ addTrack: { kind: 'audio' } });
+		expect(intentFor(chord(press('KeyT', 't'), 'metaKey'), false)).toEqual({
+			addTrack: { kind: 'audio' }
+		});
+		expect(intentFor(held(chord(press('KeyT', 'T'))), false)).toEqual({
+			addTrack: { kind: 'midi' }
+		});
+		expect(intentFor(held(chord(press('KeyT', 'T'), 'metaKey')), false)).toEqual({
+			addTrack: { kind: 'midi' }
+		});
+		expect(isAppKey(chord(press('KeyT', 't')), false)).toBe(true);
 	});
 
 	test('undoes on Ctrl+Z and redoes on Ctrl+Shift+Z or Ctrl+Y', () => {

@@ -3,15 +3,17 @@ import {
 	blockMenu,
 	clampToViewport,
 	deviceMenu,
+	emptyTimelineMenu,
 	laneMenu,
 	metronomeMenu,
 	markAt,
+	selectionMenu,
 	splitPoint,
 	trackMenu,
 	type MenuEntry,
 	type MenuItem
 } from './menu';
-import type { BlockView, EngineEvent, TrackView } from './wire';
+import type { BeatRange, BlockView, EngineEvent, TrackView } from './wire';
 
 // bun test injects these as globals; @types/bun is not a dependency, so svelte-check
 // needs the shapes declared here to see them.
@@ -143,6 +145,81 @@ describe('lane and track menus', () => {
 			'Mute'
 		).run();
 		expect(calls).toEqual([[true, true]]);
+	});
+
+	test('track menu duplicate and delete dispatch events and respect track limits', () => {
+		const fake = host();
+		const track = { muted: false, solo: false } as TrackView;
+		const entries = trackMenu(fake, 1, track, 4, () => {});
+		find(entries, 'Duplicate').run();
+		find(entries, 'Delete').run();
+		expect(fake.sent).toEqual([{ duplicateTrack: { track: 1 } }, { deleteTrack: { track: 1 } }]);
+
+		const oneTrackEntries = trackMenu(fake, 0, track, 1, () => {});
+		expect(find(oneTrackEntries, 'Delete').disabled).toBe(true);
+
+		const maxTracksEntries = trackMenu(fake, 0, track, 16, () => {});
+		expect(find(maxTracksEntries, 'Duplicate').disabled).toBe(true);
+	});
+});
+
+describe('selectionMenu', () => {
+	const range: BeatRange = { firstTrack: 0, lastTrack: 1, startBeats: 4, endBeats: 8 };
+
+	test('offers selection commands and dispatches their payloads', () => {
+		const fake = host();
+		let cleared = false;
+		const entries = selectionMenu(
+			fake,
+			range,
+			{ tracks: 2, lengthBeats: 4 },
+			1,
+			6,
+			false,
+			() => {
+				cleared = true;
+			}
+		);
+		find(entries, 'Cut').run();
+		find(entries, 'Copy').run();
+		find(entries, 'Paste').run();
+		find(entries, 'Duplicate').run();
+		find(entries, 'Delete').run();
+		find(entries, 'Loop selection').run();
+		find(entries, 'Clear selection').run();
+
+		expect(fake.sent).toEqual([
+			{ cutRange: { range } },
+			{ copyRange: { range } },
+			{ pasteRange: { track: 1, startBeats: 6 } },
+			{ duplicateRange: { range } },
+			{ deleteRange: { range } },
+			{ setLoopRegion: { startBeats: 4, endBeats: 8 } },
+			'toggleLoop'
+		]);
+		expect(cleared).toBe(true);
+	});
+
+	test('disables paste when clipboard is null', () => {
+		const fake = host();
+		const entries = selectionMenu(fake, range, null, 0, 0, false, () => {});
+		expect(find(entries, 'Paste').disabled).toBe(true);
+	});
+});
+
+describe('emptyTimelineMenu', () => {
+	test('dispatches addTrack for audio and midi', () => {
+		const fake = host();
+		const entries = emptyTimelineMenu(fake, 2);
+		find(entries, 'Add audio track').run();
+		find(entries, 'Add MIDI track').run();
+		expect(fake.sent).toEqual([{ addTrack: { kind: 'audio' } }, { addTrack: { kind: 'midi' } }]);
+	});
+
+	test('disables add controls at 16 tracks', () => {
+		const entries = emptyTimelineMenu(host(), 16);
+		expect(find(entries, 'Add audio track').disabled).toBe(true);
+		expect(find(entries, 'Add MIDI track').disabled).toBe(true);
 	});
 });
 

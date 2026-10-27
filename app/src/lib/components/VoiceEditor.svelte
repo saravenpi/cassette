@@ -10,7 +10,48 @@
 	import { envelopePoints, rangePercent } from '$lib/geometry';
 	import { session } from '$lib/session.svelte';
 	import type { Voice } from '$lib/session.svelte';
-	import type { TrackView } from '$lib/wire';
+	import type { ParamSpecView, TrackView } from '$lib/wire';
+	import Knob from './Knob.svelte';
+
+	const CUTOFF_SPEC: ParamSpecView = {
+		name: 'Cutoff',
+		min: 20,
+		max: 20000,
+		default: 20000,
+		unit: 'hertz',
+		log: true,
+		choices: []
+	};
+
+	const RESONANCE_SPEC: ParamSpecView = {
+		name: 'Reson',
+		min: 0,
+		max: 1,
+		default: 0,
+		unit: 'percent',
+		log: false,
+		choices: []
+	};
+
+	const DETUNE_SPEC: ParamSpecView = {
+		name: 'Detune',
+		min: 0,
+		max: 1,
+		default: 0,
+		unit: 'percent',
+		log: false,
+		choices: []
+	};
+
+	const SUB_SPEC: ParamSpecView = {
+		name: 'Sub',
+		min: 0,
+		max: 1,
+		default: 0,
+		unit: 'percent',
+		log: false,
+		choices: []
+	};
 
 	const WIDTH = 240;
 	const HEIGHT = 52;
@@ -89,6 +130,14 @@
 		else voice = { ...voice, release: value };
 		session.queueVoice(index, { gain, ...voice });
 	}
+
+	function onToneChange(which: 'cutoff' | 'resonance' | 'detune' | 'sub', value: number): void {
+		const cutoff = which === 'cutoff' ? value : track.cutoff;
+		const resonance = which === 'resonance' ? value : track.resonance;
+		const detune = which === 'detune' ? value : track.detune;
+		const sub = which === 'sub' ? value : track.sub;
+		session.queueInstrumentTone(index, cutoff, resonance, detune, sub);
+	}
 </script>
 
 <div class="voice">
@@ -133,14 +182,59 @@
 			</label>
 		{/each}
 	</div>
+
+	<div class="tone-section">
+		<h3 class="eyebrow">Tone</h3>
+		<div class="tone-knobs" role="group" aria-label="Tone of {track.name}">
+			<Knob
+				spec={CUTOFF_SPEC}
+				value={track.cutoff}
+				label="Cutoff of {track.name}"
+				onbegin={() => session.dispatch('checkpoint')}
+				oninput={(val) => onToneChange('cutoff', val)}
+			/>
+			<Knob
+				spec={RESONANCE_SPEC}
+				value={track.resonance}
+				label="Resonance of {track.name}"
+				onbegin={() => session.dispatch('checkpoint')}
+				oninput={(val) => onToneChange('resonance', val)}
+			/>
+			<Knob
+				spec={DETUNE_SPEC}
+				value={track.detune}
+				label="Detune of {track.name}"
+				onbegin={() => session.dispatch('checkpoint')}
+				oninput={(val) => onToneChange('detune', val)}
+			/>
+			<Knob
+				spec={SUB_SPEC}
+				value={track.sub}
+				label="Sub oscillator of {track.name}"
+				onbegin={() => session.dispatch('checkpoint')}
+				oninput={(val) => onToneChange('sub', val)}
+			/>
+		</div>
+	</div>
 </div>
 
 <style>
 	.voice {
 		display: grid;
-		grid-template-columns: 180px 240px;
+		grid-template-columns: 180px 240px auto;
 		gap: 16px;
 		align-items: start;
+	}
+
+	.tone-section {
+		display: flex;
+		flex-direction: column;
+	}
+
+	.tone-knobs {
+		display: flex;
+		align-items: flex-start;
+		gap: 8px;
 	}
 
 	.preset {

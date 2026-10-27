@@ -18,7 +18,7 @@
 	const trackIndex = $derived(session.snapshot?.cursor.track ?? 0);
 	const track = $derived(session.snapshot?.tracks[trackIndex] ?? null);
 	const catalog = $derived(session.snapshot?.effectCatalog ?? []);
-	const present = $derived(new Set((track?.effects ?? []).map((effect) => effect.kind)));
+	const canAdd = $derived((track?.effects.length ?? 0) < 8);
 
 	onMount(() => {
 		effectDrag.onStart = () => detail.show('devices');
@@ -30,12 +30,13 @@
 	});
 
 	function add(kind: EffectKind): void {
+		if (!canAdd) return;
 		session.addEffect(trackIndex, kind);
 		detail.show('devices');
 	}
 
 	function onKeyDown(event: KeyboardEvent, kind: EffectKind): void {
-		if (event.key !== 'Enter') return;
+		if (event.key !== 'Enter' || !canAdd) return;
 		event.preventDefault();
 		event.stopPropagation();
 		add(kind);
@@ -53,17 +54,18 @@
 					<button
 						type="button"
 						class="row"
-						class:used={present.has(spec.kind)}
-						title="Double-click or press Enter to add to the selected track, or drag into the device chain"
-						onpointerdown={(event) => effectDrag.begin(event, spec.kind, spec.name)}
+						disabled={!canAdd}
+						title={canAdd
+							? 'Double-click or press Enter to add to the selected track, or drag into the device chain'
+							: 'Track chain is full (maximum 8 effects)'}
+						onpointerdown={(event) => {
+							if (canAdd) effectDrag.begin(event, spec.kind, spec.name);
+						}}
 						ondblclick={() => add(spec.kind)}
 						onkeydown={(event) => onKeyDown(event, spec.kind)}
 					>
 						<span class="line">
 							<span class="name">{spec.name}</span>
-							{#if present.has(spec.kind)}
-								<span class="meta">on track</span>
-							{/if}
 						</span>
 						<span class="blurb">{EFFECT_BLURBS[spec.kind]}</span>
 					</button>
@@ -141,18 +143,6 @@
 	.name {
 		font-size: 12px;
 		color: var(--text);
-	}
-
-	.used .name {
-		color: var(--text-subtle);
-	}
-
-	.meta {
-		margin-left: auto;
-		font-size: 9px;
-		letter-spacing: 0.14em;
-		text-transform: uppercase;
-		color: var(--green);
 	}
 
 	.blurb {

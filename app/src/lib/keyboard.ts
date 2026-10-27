@@ -19,14 +19,31 @@ interface KeyboardHost {
 	closeRoll(): void;
 	splitSelected(): void;
 	splitAtPointer(): void;
-	duplicateSelected(): void;
+	duplicate(): void;
 	toggleDetail(): void;
 	quantizeSelected(): void;
+	saveProject(): void;
+	saveProjectAs(): void;
+	loadProjectFromDialog(): void;
+	copySelection(): void;
+	cutSelection(): void;
+	pasteSelection(): void;
+	delete(): void;
+	loopSelection(): void;
+	clearSelection(): boolean;
 }
 
 /** Controls that keep Shift+Tab for moving focus back, so the keymap leaves it to them. */
 const FOCUS_KEEPERS =
 	'button, input, select, textarea, a[href], [role="slider"], [role="button"], [role="separator"], [role="tab"]';
+
+/** Elements that own editing and clip-level shortcuts, so arrangement keys must not hijack them. */
+function ignoresArrangementKeys(target: EventTarget | null): boolean {
+	if (!(target instanceof Element)) return false;
+	if (target.closest('input, textarea, [contenteditable="true"]')) return true;
+	if (target.closest('[role="grid"]')) return true;
+	return false;
+}
 
 /** Whether Shift+Tab should move focus instead of switching the detail view. */
 function keepsShiftTab(target: EventTarget | null): boolean {
@@ -61,14 +78,17 @@ export function attachKeyboard(host: KeyboardHost): () => void {
 		if (pitch !== null) {
 			if (!event.repeat) noteOn(pitch);
 		} else {
+			const inInputOrGrid = ignoresArrangementKeys(event.target);
 			const local = localFor(event, host.renaming);
 			if (local === 'toggleDetail' && keepsShiftTab(event.target)) return;
+			if (inInputOrGrid && (local === 'copy' || local === 'cut' || local === 'paste' || local === 'duplicate' || local === 'loopSelection')) return;
+
 			if (local === 'scrollStart') {
 				if (!event.repeat) host.requestScrollStart();
 			} else if (local === 'openRoll') {
 				if (!event.repeat) host.openSelectedRoll();
 			} else if (local === 'closeRoll') {
-				host.closeRoll();
+				if (!host.clearSelection()) host.closeRoll();
 			} else if (local === 'zoomIn') {
 				host.setZoom(1);
 			} else if (local === 'zoomOut') {
@@ -78,18 +98,43 @@ export function attachKeyboard(host: KeyboardHost): () => void {
 			} else if (local === 'splitAtPointer') {
 				if (!event.repeat) host.splitAtPointer();
 			} else if (local === 'duplicate') {
-				if (!event.repeat) host.duplicateSelected();
+				if (!event.repeat) host.duplicate();
 			} else if (local === 'toggleDetail') {
 				if (!event.repeat) host.toggleDetail();
 			} else if (local === 'quantize') {
 				if (!event.repeat) host.quantizeSelected();
+			} else if (local === 'save') {
+				if (!event.repeat) host.saveProject();
+			} else if (local === 'saveAs') {
+				if (!event.repeat) host.saveProjectAs();
+			} else if (local === 'open') {
+				if (!event.repeat) host.loadProjectFromDialog();
+			} else if (local === 'copy') {
+				if (!event.repeat) host.copySelection();
+			} else if (local === 'cut') {
+				if (!event.repeat) host.cutSelection();
+			} else if (local === 'paste') {
+				if (!event.repeat) host.pasteSelection();
+			} else if (local === 'loopSelection') {
+				if (!event.repeat) host.loopSelection();
 			}
 
 			const intent = intentFor(event, host.renaming);
-			if (intent !== null && (!event.repeat || repeats(intent))) host.dispatch(intent);
+			if (intent !== null) {
+				if (inInputOrGrid && (intent === 'deleteBlock' || event.code === 'Backspace' || event.code === 'Delete')) {
+					return;
+				}
+				if (!event.repeat || repeats(intent)) {
+					if (intent === 'deleteBlock') {
+						host.delete();
+					} else {
+						host.dispatch(intent);
+					}
+				}
+			}
 		}
 
-		if (isAppKey(event, host.renaming)) event.preventDefault();
+		if (isAppKey(event, host.renaming) && !ignoresArrangementKeys(event.target)) event.preventDefault();
 	}
 
 	function onKeyUp(event: KeyboardEvent): void {
@@ -100,7 +145,7 @@ export function attachKeyboard(host: KeyboardHost): () => void {
 
 		// A focused control runs its Space activation as the default action of
 		// keyup, so cancelling only the keydown leaves it free to fire twice.
-		if (isAppKey(event, host.renaming)) event.preventDefault();
+		if (isAppKey(event, host.renaming) && !ignoresArrangementKeys(event.target)) event.preventDefault();
 	}
 
 	function onBlur(): void {

@@ -1,4 +1,4 @@
-import { addableKinds, dropIndex, indicatorX, moveTarget, paramKey, specFor } from './chain';
+import { addableKinds, canAddEffect, dropIndex, indicatorX, moveTarget, paramKey, specFor } from './chain';
 import type { EffectKind, EffectSpecView, EffectView } from './wire';
 
 // bun test injects these as globals; @types/bun is not a dependency, so svelte-check
@@ -27,18 +27,18 @@ const SPANS = [
 	{ left: 262, width: 100 }
 ];
 
-describe('addableKinds', () => {
-	test('offers every kind to an empty chain, in catalog order', () => {
+describe('addableKinds and canAddEffect', () => {
+	test('offers every kind even if already present in the chain', () => {
 		expect(addableKinds(CATALOG, []).map((spec) => spec.kind)).toEqual(KINDS);
+		const duplicate = [effect('delay'), effect('eq')];
+		expect(addableKinds(CATALOG, duplicate).map((spec) => spec.kind)).toEqual(KINDS);
+		expect(canAddEffect(duplicate)).toBe(true);
 	});
 
-	test('leaves out the kinds the chain holds', () => {
-		const left = addableKinds(CATALOG, [effect('delay'), effect('eq')]).map((spec) => spec.kind);
-		expect(left).toEqual(['filter', 'saturator', 'compressor', 'reverb']);
-	});
-
-	test('offers nothing once every kind is on the track', () => {
-		expect(addableKinds(CATALOG, KINDS.map(effect))).toEqual([]);
+	test('offers nothing once the chain reaches 8 effects', () => {
+		const full = Array.from({ length: 8 }, () => effect('delay'));
+		expect(canAddEffect(full)).toBe(false);
+		expect(addableKinds(CATALOG, full)).toEqual([]);
 	});
 });
 
