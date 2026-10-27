@@ -1,0 +1,84 @@
+@import "tailwindcss";
+
+@theme {
+  --color-surface: #1F1F1F;
+  --color-surface-hover: #262626;
+  --color-border: #262626;
+  --color-border-subtle: #333333;
+  --color-accent: #86A881;
+}
+
+@font-face {
+  font-family: "Undefined";
+  src: url("/undefined-medium.otf") format("opentype");
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --bg: #0B0B0B;
+  --fg: #FFFFFF;
+  --surface: #1F1F1F;
+  --surface-hover: #262626;
+  --border: #262626;
+  --border-subtle: #333333;
+  --accent: #86A881;
+  --accent-hover: #FFFFFF;
+  --muted: rgba(255, 255, 255, 0.65);
+}
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-weight: normal !important;
+    font-synthesis: none !important;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    scroll-padding-top: 5rem;
+    background: #0B0B0B;
+    color: #FFFFFF;
+    font-family: "Undefined", ui-monospace, monospace;
+  }
+
+  body {
+    background: #0B0B0B;
+    color: #FFFFFF;
+    font-family: "Undefined", ui-monospace, monospace;
+    line-height: 1.6;
+    overflow-x: hidden;
+  }
+
+  b,
+  strong,
+  th,
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-weight: normal !important;
+  }
+
+  button {
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none !important;
+  }
+
+  a:hover {
+    text-decoration: none !important;
+  }
+}

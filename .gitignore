@@ -2,6 +2,8 @@
 node_modules
 /app/build
 /app/.svelte-kit
+/website/build
+/website/.svelte-kit
 
 # graft's local graph cache — regenerable, not committed (run `graft build`).
 /graft/
