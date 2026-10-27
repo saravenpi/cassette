@@ -84,7 +84,7 @@
         class="inline-flex items-center gap-3 bg-[#86A881] text-[#0B0B0B] px-6 py-3.5 text-xs uppercase tracking-widest hover:bg-[#FFFFFF] transition-colors"
       >
         <Icon icon="pixelarticons:download" class="w-4 h-4 shrink-0" />
-        <span>&gt; Download Cassette</span>
+        <span>Download Cassette</span>
       </a>
 
       <a
@@ -95,7 +95,6 @@
       >
         <Icon icon="pixelarticons:github" class="w-4 h-4 shrink-0" />
         <span>GitHub repository</span>
-        <Icon icon="pixelarticons:external-link" class="w-3.5 h-3.5 shrink-0 opacity-70" />
       </a>
     </div>
   </section>
