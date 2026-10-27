@@ -94,10 +94,10 @@
 </script>
 
 <svelte:head>
-  <title>Download Cassette DAW | Modern Session Audio Workstation</title>
+  <title>Download Cassette | Session Audio Workstation</title>
   <meta
     name="description"
-    content="Download Cassette DAW for Windows, macOS, and Linux. Free, open source session DAW powered by a high-performance Rust audio engine."
+    content="Download Cassette for Windows, macOS, and Linux. Free, lightweight open source audio workstation."
   />
 </svelte:head>
 
@@ -108,8 +108,8 @@
     </div>
     <h1 class="text-3xl md:text-5xl uppercase tracking-tight">DOWNLOAD</h1>
     <p class="text-sm text-[#FFFFFF]/70 max-w-2xl leading-relaxed">
-      Cross-platform binaries compiled with release optimizations. Each package
-      bundles the native Rust audio engine, real-time scheduler, and the SvelteKit interface.
+      Standalone desktop packages for Windows, macOS, and Linux. Each installer
+      includes the complete real-time audio engine, instruments, insert effects, and editor.
     </p>
     <div>
       <a
@@ -206,10 +206,10 @@
     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
       <div class="bg-[#1F1F1F] border border-[#262626] p-6 space-y-4">
         <div class="text-[11px] uppercase tracking-widest text-[#86A881]">
-          ENGINE ONLY (CARGO)
+          Audio engine tests (Cargo)
         </div>
         <p class="text-xs text-[#FFFFFF]/70 leading-relaxed">
-          Compile and test the pure Rust audio engine without Tauri or webview dependencies:
+          Run the test suite across the audio core, synthesis models, and real-time buffers:
         </p>
         <div class="bg-[#0B0B0B] border border-[#262626] p-4 text-xs font-mono overflow-x-auto">
           <div class="text-[#86A881]">$ git clone https://github.com/saravenpi/cassette.git</div>
@@ -220,10 +220,10 @@
 
       <div class="bg-[#1F1F1F] border border-[#262626] p-6 space-y-4">
         <div class="text-[11px] uppercase tracking-widest text-[#86A881]">
-          FULL DESKTOP APP (MISE & BUN)
+          Desktop build (Mise)
         </div>
         <p class="text-xs text-[#FFFFFF]/70 leading-relaxed">
-          Launch live development mode with Vite hot-reloading and native audio callback:
+          Compile and launch the full desktop application in development mode:
         </p>
         <div class="bg-[#0B0B0B] border border-[#262626] p-4 text-xs font-mono overflow-x-auto">
           <div class="text-[#86A881]">$ mise run deps</div>

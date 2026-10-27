@@ -47,13 +47,21 @@ jobs:
         with:
           targets: ${{ matrix.rust_targets }}
 
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            app/src-tauri -> target
+
       - uses: oven-sh/setup-bun@v2
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev patchelf libssl-dev libasound2-dev
+          sudo apt-get update -y
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev patchelf libssl-dev libasound2-dev
 
       - name: Build frontend
         run: |
@@ -72,24 +80,34 @@ jobs:
           bundle="${{ matrix.bundle_dir }}"
           case "${{ matrix.name }}" in
             windows-x64)
-              cp "$bundle"/nsis/*-setup.exe out/Cassette-windows-x64-setup.exe
+              for f in "$bundle"/nsis/*-setup.exe; do
+                [ -f "$f" ] && cp "$f" out/Cassette-windows-x64-setup.exe
+              done
               for sig in "$bundle"/nsis/*-setup.exe.sig; do
                 [ -f "$sig" ] && cp "$sig" out/Cassette-windows-x64-setup.exe.sig
               done
               ;;
             macos-universal)
-              cp "$bundle"/dmg/*.dmg out/Cassette-macos-universal.dmg
-              cp "$bundle"/macos/*.app.tar.gz out/Cassette-macos-universal.app.tar.gz
+              for f in "$bundle"/dmg/*.dmg; do
+                [ -f "$f" ] && cp "$f" out/Cassette-macos-universal.dmg
+              done
+              for f in "$bundle"/macos/*.app.tar.gz; do
+                [ -f "$f" ] && cp "$f" out/Cassette-macos-universal.app.tar.gz
+              done
               for sig in "$bundle"/macos/*.app.tar.gz.sig; do
                 [ -f "$sig" ] && cp "$sig" out/Cassette-macos-universal.app.tar.gz.sig
               done
               ;;
             linux-x64)
-              cp "$bundle"/appimage/*.AppImage out/Cassette-linux-x64.AppImage
+              for f in "$bundle"/appimage/*.AppImage; do
+                [ -f "$f" ] && cp "$f" out/Cassette-linux-x64.AppImage
+              done
               for sig in "$bundle"/appimage/*.AppImage.sig; do
                 [ -f "$sig" ] && cp "$sig" out/Cassette-linux-x64.AppImage.sig
               done
-              cp "$bundle"/deb/*.deb out/Cassette-linux-x64.deb
+              for f in "$bundle"/deb/*.deb; do
+                [ -f "$f" ] && cp "$f" out/Cassette-linux-x64.deb
+              done
               for sig in "$bundle"/deb/*.deb.sig; do
                 [ -f "$sig" ] && cp "$sig" out/Cassette-linux-x64.deb.sig
               done
