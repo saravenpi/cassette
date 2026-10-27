@@ -20,6 +20,17 @@ interface KeyboardHost {
 	splitSelected(): void;
 	splitAtPointer(): void;
 	duplicateSelected(): void;
+	toggleDetail(): void;
+	quantizeSelected(): void;
+}
+
+/** Controls that keep Shift+Tab for moving focus back, so the keymap leaves it to them. */
+const FOCUS_KEEPERS =
+	'button, input, select, textarea, a[href], [role="slider"], [role="button"], [role="separator"], [role="tab"]';
+
+/** Whether Shift+Tab should move focus instead of switching the detail view. */
+function keepsShiftTab(target: EventTarget | null): boolean {
+	return target instanceof Element && target.closest(FOCUS_KEEPERS) !== null;
 }
 
 /** Velocity the on-screen keyboard plays at. */
@@ -51,6 +62,7 @@ export function attachKeyboard(host: KeyboardHost): () => void {
 			if (!event.repeat) noteOn(pitch);
 		} else {
 			const local = localFor(event, host.renaming);
+			if (local === 'toggleDetail' && keepsShiftTab(event.target)) return;
 			if (local === 'scrollStart') {
 				if (!event.repeat) host.requestScrollStart();
 			} else if (local === 'openRoll') {
@@ -67,6 +79,10 @@ export function attachKeyboard(host: KeyboardHost): () => void {
 				if (!event.repeat) host.splitAtPointer();
 			} else if (local === 'duplicate') {
 				if (!event.repeat) host.duplicateSelected();
+			} else if (local === 'toggleDetail') {
+				if (!event.repeat) host.toggleDetail();
+			} else if (local === 'quantize') {
+				if (!event.repeat) host.quantizeSelected();
 			}
 
 			const intent = intentFor(event, host.renaming);

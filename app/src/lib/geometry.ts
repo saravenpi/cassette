@@ -167,6 +167,11 @@ export function formatPosition(beats: number, beatsPerBar: number): string {
 	return `${at.bar}.${at.beat}`;
 }
 
+/** The count-in still to go as `-N` beats, rounded up, or null when none is running. */
+export function formatCountIn(beatsLeft: number): string | null {
+	return beatsLeft > 0 ? `-${Math.ceil(beatsLeft)}` : null;
+}
+
 /** A beat as `bar.beat.hundredths`, precise enough to place a cut by eye. */
 export function formatPrecise(beats: number, beatsPerBar: number): string {
 	const at = position(beats, beatsPerBar);

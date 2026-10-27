@@ -5,7 +5,9 @@
 	 * empty grid adds a note, a drag moves it or, from its right edge, resizes it,
 	 * the wheel over a note sets its velocity and Delete removes the selected one.
 	 * Edits go through the session's per-frame queues, and the edited note is drawn
-	 * from local state until the snapshot catches up.
+	 * from local state until the snapshot catches up. It fills the detail pane's
+	 * Clip view, whose header names the track and the block; the Quantize button
+	 * snaps note starts to the roll's grid.
 	 */
 
 	import { onDestroy, onMount } from 'svelte';
@@ -237,8 +239,6 @@
 
 <section class="roll" aria-label="Piano roll">
 	<header class="bar">
-		<span class="eyebrow">{track?.name ?? ''}</span>
-		<span class="title">{block?.name ?? ''}</span>
 		<span class="info" aria-live="polite">
 			{#if current !== null}
 				{noteName(current.pitch)} at beat {current.startBeats + 1}, length {current.lengthBeats},
@@ -247,6 +247,13 @@
 				{notes.length} {notes.length === 1 ? 'note' : 'notes'}
 			{/if}
 		</span>
+		<button
+			class="quantize"
+			title="Snap note starts to the sixteenth-note grid (Ctrl+U)"
+			onclick={() => session.quantizeSelected()}
+		>
+			Quantize
+		</button>
 		<button class="icon" aria-label="Zoom the piano roll out" onclick={() => (zoom = zoomBy(zoom, -1))}>
 			&minus;
 		</button>
@@ -337,11 +344,10 @@
 
 <style>
 	.roll {
-		flex: none;
-		height: 280px;
+		flex: 1;
+		min-height: 0;
 		display: flex;
 		flex-direction: column;
-		border-top: 1px solid var(--border);
 		background: var(--bg);
 	}
 
@@ -349,36 +355,34 @@
 		display: flex;
 		align-items: center;
 		gap: 10px;
-		height: 36px;
+		height: 32px;
 		flex: none;
 		padding: 0 8px 0 12px;
 		border-bottom: 1px solid var(--border-subtle);
 		background: var(--surface);
 	}
 
-	.eyebrow {
-		font-size: 11px;
-		letter-spacing: 0.14em;
-		text-transform: uppercase;
-		color: var(--text-subtle);
-		white-space: nowrap;
-	}
-
-	.title {
-		font-size: 12px;
-		color: var(--text);
-		white-space: nowrap;
-	}
-
 	.info {
 		margin-right: auto;
-		padding-left: 6px;
 		font-size: 11px;
 		color: var(--dim);
 		font-variant-numeric: tabular-nums;
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
+	}
+
+	.quantize {
+		height: 24px;
+		background: transparent;
+		border: 1px solid var(--border);
+		color: var(--text-subtle);
+	}
+
+	.quantize:hover:not(:disabled) {
+		filter: none;
+		border-color: var(--green);
+		color: var(--text);
 	}
 
 	.icon {

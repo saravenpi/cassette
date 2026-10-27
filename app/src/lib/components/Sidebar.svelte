@@ -1,6 +1,6 @@
 <script lang="ts">
 	/**
-	 * The left sidebar: the file browser, the voice picker and the voice editor,
+	 * The left sidebar: the file browser, the voice picker and the effect browser,
 	 * one visible at a time. All three stay mounted so the browser keeps its place.
 	 */
 

@@ -66,7 +66,7 @@
 	oncontextmenu={onContextMenu}
 >
 	<div class="top-row">
-		<button class="pick" aria-pressed={selected} onclick={() => session.dispatch({ selectTrack: { track: index } })}>
+		<button class="pick" aria-pressed={selected} onclick={() => session.selectTrack(index)}>
 			<span class="chip"></span>
 			<span class="name">{track.name}</span>
 			<span class="kind">{track.kind === 'midi' ? track.preset || 'Midi' : 'Audio'}</span>

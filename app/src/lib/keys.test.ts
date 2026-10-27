@@ -441,3 +441,33 @@ describe('clip editing keys', () => {
 		expect(intentFor(press('KeyB', 'b'), true)).toEqual({ textInput: 'b' });
 	});
 });
+
+describe('detail pane and quantize keys', () => {
+	test('switches the detail view on Shift+Tab and leaves plain Tab to focus', () => {
+		expect(localFor(held(press('Tab')), false)).toBe('toggleDetail');
+		expect(localFor(press('Tab'), false)).toBeNull();
+		expect(isAppKey(held(press('Tab')), false)).toBe(true);
+		expect(intentFor(held(press('Tab')), false)).toBeNull();
+	});
+
+	test('quantizes on Ctrl or Cmd plus U, and U alone still plays its note', () => {
+		expect(localFor(chord(press('KeyU', 'u')), false)).toBe('quantize');
+		expect(localFor(chord(press('KeyU', 'u'), 'metaKey'), false)).toBe('quantize');
+		expect(noteFor(chord(press('KeyU', 'u')), 0)).toBeNull();
+		expect(noteFor(press('KeyU', 'u'), 0)).toBe(70);
+		expect(isAppKey(chord(press('KeyU', 'u')), false)).toBe(true);
+	});
+
+	test('does neither while a name is being typed', () => {
+		expect(localFor(held(press('Tab')), true)).toBeNull();
+		expect(localFor(chord(press('KeyU', 'u')), true)).toBeNull();
+	});
+
+	test('binds no interface key to a note', () => {
+		for (const [code, character] of EVERY_KEY) {
+			const plain = localFor(press(code, character), false);
+			const shifted = localFor(held(press(code, character)), false);
+			if (plain !== null || shifted !== null) expect(pitchFor(code, 0)).toBeNull();
+		}
+	});
+});

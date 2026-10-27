@@ -10,6 +10,7 @@ import {
 	clampRowHeight,
 	clampZoom,
 	envelopePoints,
+	formatCountIn,
 	formatPosition,
 	formatPrecise,
 	freeStart,
@@ -145,6 +146,15 @@ describe('position', () => {
 
 	test('falls back to four beats a bar when the engine reports none', () => {
 		expect(position(4, 0)).toEqual({ bar: 2, beat: 1, fraction: 0 });
+	});
+});
+
+describe('formatCountIn', () => {
+	test('shows the beats left rounded up, or nothing when no count-in runs', () => {
+		expect(formatCountIn(4)).toBe('-4');
+		expect(formatCountIn(1.2)).toBe('-2');
+		expect(formatCountIn(0.01)).toBe('-1');
+		expect(formatCountIn(0)).toBe(null);
 	});
 });
 
