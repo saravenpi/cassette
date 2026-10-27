@@ -568,87 +568,368 @@ impl Reverb {
     }
 }
 
-/// Chorus placeholder.
-pub struct Chorus;
+/// Stereo chorus with quadrature LFO modulation.
+pub struct Chorus {
+    left: Box<[f32]>,
+    right: Box<[f32]>,
+    write: usize,
+    sample_rate: f32,
+    rate: f32,
+    depth: Smoothed,
+    delay_ms: Smoothed,
+    mix: Smoothed,
+    phase: f32,
+}
+
 impl Chorus {
-    fn new(_sample_rate: f32) -> Self {
-        Self
+    fn new(sample_rate: f32) -> Self {
+        let len = (0.050 * sample_rate).ceil() as usize + 8;
+        Self {
+            left: vec![0.0; len].into_boxed_slice(),
+            right: vec![0.0; len].into_boxed_slice(),
+            write: 0,
+            sample_rate,
+            rate: 0.8,
+            depth: Smoothed::at(0.5),
+            delay_ms: Smoothed::at(12.0),
+            mix: Smoothed::at(0.5),
+            phase: 0.0,
+        }
     }
-    fn configure(&mut self, _effect: &Effect, _sample_rate: f32) {}
-    fn reset(&mut self) {}
-    fn process(&mut self, l: f32, r: f32, _k: f32) -> (f32, f32) {
-        (l, r)
+
+    fn configure(&mut self, effect: &Effect, _sample_rate: f32) {
+        self.rate = param(effect, 0);
+        self.depth.set(param(effect, 1));
+        self.delay_ms.set(param(effect, 2));
+        self.mix.set(param(effect, 3));
     }
+
+    fn reset(&mut self) {
+        self.depth.snap();
+        self.delay_ms.snap();
+        self.mix.snap();
+        self.left.fill(0.0);
+        self.right.fill(0.0);
+        self.phase = 0.0;
+    }
+
+    fn process(&mut self, l: f32, r: f32, k: f32) -> (f32, f32) {
+        let depth = self.depth.next(k);
+        let delay_ms = self.delay_ms.next(k);
+        let mix = self.mix.next(k);
+        self.phase += self.rate / self.sample_rate;
+        if self.phase >= 1.0 {
+            self.phase -= 1.0;
+        }
+        let lfo_l = (self.phase * std::f32::consts::TAU).sin();
+        let lfo_r = (self.phase * std::f32::consts::TAU + std::f32::consts::FRAC_PI_2).sin();
+        let base_delay = delay_ms * 0.001 * self.sample_rate;
+        let mod_depth = depth * base_delay.min(self.sample_rate * 0.010);
+        let mod_l = (base_delay + mod_depth * lfo_l).clamp(1.0, (self.left.len() - 2) as f32);
+        let mod_r = (base_delay + mod_depth * lfo_r).clamp(1.0, (self.right.len() - 2) as f32);
+        let wet_l = read_behind(&self.left, self.write, mod_l);
+        let wet_r = read_behind(&self.right, self.write, mod_r);
+        self.left[self.write] = l;
+        self.right[self.write] = r;
+        self.write = (self.write + 1) % self.left.len();
+        (l * (1.0 - mix) + wet_l * mix, r * (1.0 - mix) + wet_r * mix)
+    }
+
     fn longest_frames(&self) -> f32 {
-        0.0
+        self.sample_rate * 0.050
     }
 }
 
-/// Phaser placeholder.
-pub struct Phaser;
+/// Six-stage stereo phaser with swept allpass stages.
+pub struct Phaser {
+    stages_l: [(f32, f32); 6],
+    stages_r: [(f32, f32); 6],
+    fb_l: f32,
+    fb_r: f32,
+    sample_rate: f32,
+    rate: f32,
+    depth: Smoothed,
+    feedback: Smoothed,
+    mix: Smoothed,
+    phase: f32,
+}
+
 impl Phaser {
-    fn new(_sample_rate: f32) -> Self {
-        Self
+    fn new(sample_rate: f32) -> Self {
+        Self {
+            stages_l: [(0.0, 0.0); 6],
+            stages_r: [(0.0, 0.0); 6],
+            fb_l: 0.0,
+            fb_r: 0.0,
+            sample_rate,
+            rate: 0.5,
+            depth: Smoothed::at(0.7),
+            feedback: Smoothed::at(0.5),
+            mix: Smoothed::at(0.5),
+            phase: 0.0,
+        }
     }
-    fn configure(&mut self, _effect: &Effect, _sample_rate: f32) {}
-    fn reset(&mut self) {}
-    fn process(&mut self, l: f32, r: f32, _k: f32) -> (f32, f32) {
-        (l, r)
+
+    fn configure(&mut self, effect: &Effect, _sample_rate: f32) {
+        self.rate = param(effect, 0);
+        self.depth.set(param(effect, 1));
+        self.feedback.set(param(effect, 2));
+        self.mix.set(param(effect, 3));
     }
+
+    fn reset(&mut self) {
+        self.depth.snap();
+        self.feedback.snap();
+        self.mix.snap();
+        self.stages_l = [(0.0, 0.0); 6];
+        self.stages_r = [(0.0, 0.0); 6];
+        self.fb_l = 0.0;
+        self.fb_r = 0.0;
+        self.phase = 0.0;
+    }
+
+    fn process(&mut self, l: f32, r: f32, k: f32) -> (f32, f32) {
+        let depth = self.depth.next(k);
+        let fb = self.feedback.next(k);
+        let mix = self.mix.next(k);
+        self.phase += self.rate / self.sample_rate;
+        if self.phase >= 1.0 {
+            self.phase -= 1.0;
+        }
+        let lfo_l = 0.5 * (1.0 + (self.phase * std::f32::consts::TAU).sin());
+        let lfo_r =
+            0.5 * (1.0 + (self.phase * std::f32::consts::TAU + std::f32::consts::FRAC_PI_2).sin());
+        let freq_l = 200.0 * 16.0f32.powf(depth * lfo_l);
+        let freq_r = 200.0 * 16.0f32.powf(depth * lfo_r);
+        let w_l = (std::f32::consts::PI * freq_l / self.sample_rate).tan();
+        let a_l = ((w_l - 1.0) / (w_l + 1.0)).clamp(-0.999, 0.999);
+        let w_r = (std::f32::consts::PI * freq_r / self.sample_rate).tan();
+        let a_r = ((w_r - 1.0) / (w_r + 1.0)).clamp(-0.999, 0.999);
+
+        let in_l = flush(l + self.fb_l * fb);
+        let in_r = flush(r + self.fb_r * fb);
+
+        let mut x_l = in_l;
+        for (x1, y1) in &mut self.stages_l {
+            let y = flush(-a_l * x_l + *x1 + a_l * *y1);
+            *x1 = x_l;
+            *y1 = y;
+            x_l = y;
+        }
+        self.fb_l = x_l;
+
+        let mut x_r = in_r;
+        for (x1, y1) in &mut self.stages_r {
+            let y = flush(-a_r * x_r + *x1 + a_r * *y1);
+            *x1 = x_r;
+            *y1 = y;
+            x_r = y;
+        }
+        self.fb_r = x_r;
+
+        (l * (1.0 - mix) + x_l * mix, r * (1.0 - mix) + x_r * mix)
+    }
+
     fn longest_frames(&self) -> f32 {
-        0.0
+        self.sample_rate * 0.200
     }
 }
 
-/// AutoPan placeholder.
-pub struct AutoPan;
+/// Tempo-synced auto pan and tremolo effect.
+pub struct AutoPan {
+    mode: f32,
+    rate: f32,
+    depth: Smoothed,
+    phase: f32,
+    frames_per_beat: f32,
+}
+
 impl AutoPan {
-    fn new(_sample_rate: f32) -> Self {
-        Self
+    fn new(sample_rate: f32) -> Self {
+        Self {
+            mode: 0.0,
+            rate: 1.0,
+            depth: Smoothed::at(0.5),
+            phase: 0.0,
+            frames_per_beat: sample_rate * 60.0 / DEFAULT_BPM,
+        }
     }
-    fn configure(&mut self, _effect: &Effect, _frames_per_beat: f32) {}
-    fn reset(&mut self) {}
-    fn process(&mut self, l: f32, r: f32, _k: f32) -> (f32, f32) {
-        (l, r)
+
+    fn configure(&mut self, effect: &Effect, frames_per_beat: f32) {
+        self.mode = param(effect, 0).round();
+        self.rate = param(effect, 1).max(0.001);
+        self.depth.set(param(effect, 2));
+        self.frames_per_beat = frames_per_beat.max(1.0);
+    }
+
+    fn reset(&mut self) {
+        self.depth.snap();
+    }
+
+    fn process(&mut self, l: f32, r: f32, k: f32) -> (f32, f32) {
+        let depth = self.depth.next(k);
+        let period = (self.rate * self.frames_per_beat).max(1.0);
+        self.phase += 1.0 / period;
+        if self.phase >= 1.0 {
+            self.phase -= 1.0;
+        }
+        let lfo = (self.phase * std::f32::consts::TAU).sin();
+        if self.mode >= 0.5 {
+            let gain = 1.0 - depth * 0.5 * (1.0 + lfo);
+            (l * gain, r * gain)
+        } else {
+            let pan = lfo * depth;
+            let angle = (pan + 1.0) * (std::f32::consts::PI * 0.25);
+            let gain_l = angle.cos() * std::f32::consts::SQRT_2;
+            let gain_r = angle.sin() * std::f32::consts::SQRT_2;
+            (l * gain_l, r * gain_r)
+        }
     }
 }
 
-/// BitCrusher placeholder.
-pub struct BitCrusher;
+/// Bit reduction and sample rate reduction.
+pub struct BitCrusher {
+    bits: f32,
+    downsample: f32,
+    mix: Smoothed,
+    counter: f32,
+    held_l: f32,
+    held_r: f32,
+}
+
 impl BitCrusher {
     fn new() -> Self {
-        Self
+        Self {
+            bits: 8.0,
+            downsample: 4.0,
+            mix: Smoothed::at(1.0),
+            counter: 0.0,
+            held_l: 0.0,
+            held_r: 0.0,
+        }
     }
-    fn configure(&mut self, _effect: &Effect) {}
-    fn reset(&mut self) {}
-    fn process(&mut self, l: f32, r: f32, _k: f32) -> (f32, f32) {
-        (l, r)
+
+    fn configure(&mut self, effect: &Effect) {
+        self.bits = param(effect, 0).clamp(2.0, 16.0);
+        self.downsample = param(effect, 1).clamp(1.0, 32.0);
+        self.mix.set(param(effect, 2));
+    }
+
+    fn reset(&mut self) {
+        self.mix.snap();
+        self.counter = 0.0;
+        self.held_l = 0.0;
+        self.held_r = 0.0;
+    }
+
+    fn process(&mut self, l: f32, r: f32, k: f32) -> (f32, f32) {
+        let mix = self.mix.next(k);
+        self.counter += 1.0;
+        if self.counter >= self.downsample {
+            self.counter = 0.0;
+            self.held_l = l;
+            self.held_r = r;
+        }
+        let steps = 2.0f32.powf(self.bits - 1.0);
+        let wet_l = (self.held_l * steps).round() / steps;
+        let wet_r = (self.held_r * steps).round() / steps;
+        (l * (1.0 - mix) + wet_l * mix, r * (1.0 - mix) + wet_r * mix)
     }
 }
 
-/// Utility placeholder.
-pub struct Utility;
+/// Gain, stereo width and pan utility.
+pub struct Utility {
+    gain: Smoothed,
+    width: Smoothed,
+    pan: Smoothed,
+}
+
 impl Utility {
     fn new() -> Self {
-        Self
+        Self {
+            gain: Smoothed::at(1.0),
+            width: Smoothed::at(1.0),
+            pan: Smoothed::at(0.0),
+        }
     }
-    fn configure(&mut self, _effect: &Effect) {}
-    fn reset(&mut self) {}
-    fn process(&mut self, l: f32, r: f32, _k: f32) -> (f32, f32) {
-        (l, r)
+
+    fn configure(&mut self, effect: &Effect) {
+        self.gain.set(db_to_gain(param(effect, 0)));
+        self.width.set(param(effect, 1).clamp(0.0, 2.0));
+        self.pan.set(param(effect, 2).clamp(-1.0, 1.0));
+    }
+
+    fn reset(&mut self) {
+        self.gain.snap();
+        self.width.snap();
+        self.pan.snap();
+    }
+
+    fn process(&mut self, l: f32, r: f32, k: f32) -> (f32, f32) {
+        let gain = self.gain.next(k);
+        let width = self.width.next(k);
+        let pan = self.pan.next(k);
+        let mid = (l + r) * 0.5;
+        let side = (l - r) * 0.5;
+        let side_w = side * width;
+        let ms_l = mid + side_w;
+        let ms_r = mid - side_w;
+        let pan_l = if pan > 0.0 { 1.0 - pan } else { 1.0 };
+        let pan_r = if pan < 0.0 { 1.0 + pan } else { 1.0 };
+        (ms_l * pan_l * gain, ms_r * pan_r * gain)
     }
 }
 
-/// Limiter placeholder.
-pub struct Limiter;
+/// Peak limiter with ceiling and variable release.
+pub struct Limiter {
+    gain: Smoothed,
+    ceiling_linear: f32,
+    release_coeff: f32,
+    envelope: f32,
+}
+
 impl Limiter {
-    fn new(_sample_rate: f32) -> Self {
-        Self
+    fn new(sample_rate: f32) -> Self {
+        Self {
+            gain: Smoothed::at(1.0),
+            ceiling_linear: db_to_gain(-0.3),
+            release_coeff: ms_coefficient(100.0, sample_rate),
+            envelope: 0.0,
+        }
     }
-    fn configure(&mut self, _effect: &Effect, _sample_rate: f32) {}
-    fn reset(&mut self) {}
-    fn process(&mut self, l: f32, r: f32, _k: f32) -> (f32, f32) {
-        (l, r)
+
+    fn configure(&mut self, effect: &Effect, sample_rate: f32) {
+        self.gain.set(db_to_gain(param(effect, 0)));
+        let ceiling_db = param(effect, 1).clamp(-12.0, 0.0);
+        self.ceiling_linear = db_to_gain(ceiling_db);
+        let release_ms = param(effect, 2).clamp(10.0, 1_000.0);
+        self.release_coeff = ms_coefficient(release_ms, sample_rate);
+    }
+
+    fn reset(&mut self) {
+        self.gain.snap();
+        self.envelope = 0.0;
+    }
+
+    fn process(&mut self, l: f32, r: f32, k: f32) -> (f32, f32) {
+        let in_gain = self.gain.next(k);
+        let in_l = l * in_gain;
+        let in_r = r * in_gain;
+        let peak = in_l.abs().max(in_r.abs());
+        if peak > self.envelope {
+            self.envelope = peak;
+        } else {
+            self.envelope = peak + (self.envelope - peak) * self.release_coeff;
+        }
+        let ceil = self.ceiling_linear;
+        let gr = if self.envelope > ceil {
+            ceil / self.envelope
+        } else {
+            1.0
+        };
+        let out_l = (in_l * gr).clamp(-ceil, ceil);
+        let out_r = (in_r * gr).clamp(-ceil, ceil);
+        (out_l, out_r)
     }
 }
 
@@ -1296,5 +1577,125 @@ mod tests {
         assert_eq!(return_cons.slots(), 1);
         let returned = return_cons.pop().expect("returned instance");
         assert_eq!(returned.kind(), EffectKind::Delay);
+    }
+
+    #[test]
+    fn chorus_modulates_stereo_and_has_tail() {
+        let mut ch = Effect::new(EffectKind::Chorus);
+        ch.params = [1.0, 1.0, 15.0, 1.0, 0.0];
+        let mut fx = with(&[ch]);
+        let mut different_channels = false;
+        for frame in 0..4_000 {
+            let x = sine(440.0, frame);
+            let (l, r) = fx.process(x, x);
+            if (l - r).abs() > 0.05 {
+                different_channels = true;
+            }
+        }
+        assert!(different_channels);
+        assert!(fx.is_ringing());
+    }
+
+    #[test]
+    fn phaser_sweeps_spectrum_and_has_tail() {
+        let mut ph = Effect::new(EffectKind::Phaser);
+        ph.params = [1.0, 1.0, 0.8, 1.0, 0.0];
+        let mut fx = with(&[ph]);
+        let mut peak = 0.0f32;
+        for frame in 0..2_000 {
+            let x = if frame == 0 { 1.0 } else { 0.0 };
+            let (l, r) = fx.process(x, x);
+            if frame > 10 {
+                peak = peak.max(l.abs().max(r.abs()));
+            }
+        }
+        assert!(peak > 1e-4);
+        assert!(fx.is_ringing());
+    }
+
+    #[test]
+    fn auto_pan_pans_and_tremolos() {
+        let mut pan = Effect::new(EffectKind::AutoPan);
+        pan.params = [0.0, 1.0, 1.0, 0.0, 0.0];
+        let mut fx = with(&[pan]);
+        let mut had_left_bias = false;
+        let mut had_right_bias = false;
+        for _ in 0..44_100 {
+            let (l, r) = fx.process(0.5, 0.5);
+            if l > 0.6 && r < 0.2 {
+                had_left_bias = true;
+            }
+            if r > 0.6 && l < 0.2 {
+                had_right_bias = true;
+            }
+        }
+        assert!(had_left_bias && had_right_bias);
+
+        let mut trem = Effect::new(EffectKind::AutoPan);
+        trem.params = [1.0, 1.0, 1.0, 0.0, 0.0];
+        let mut fx_trem = with(&[trem]);
+        let mut min_gain = 1.0f32;
+        let mut max_gain = 0.0f32;
+        for _ in 0..44_100 {
+            let (l, _) = fx_trem.process(1.0, 1.0);
+            min_gain = min_gain.min(l);
+            max_gain = max_gain.max(l);
+        }
+        assert!(min_gain < 0.1 && max_gain > 0.9);
+    }
+
+    #[test]
+    fn bit_crusher_downsamples_and_quantizes() {
+        let mut bc = Effect::new(EffectKind::BitCrusher);
+        bc.params = [4.0, 8.0, 1.0, 0.0, 0.0];
+        let mut fx = with(&[bc]);
+        let mut prev = (0.0, 0.0);
+        let mut held_count = 0;
+        for frame in 0..100 {
+            let x = frame as f32 * 0.01;
+            let curr = fx.process(x, x);
+            if curr == prev {
+                held_count += 1;
+            }
+            prev = curr;
+        }
+        assert!(held_count > 50);
+    }
+
+    #[test]
+    fn utility_controls_gain_width_and_pan() {
+        let mut mono = Effect::new(EffectKind::Utility);
+        mono.params = [0.0, 0.0, 0.0, 0.0, 0.0];
+        let mut fx = with(&[mono]);
+        let (l, r) = fx.process(1.0, -1.0);
+        assert!((l - r).abs() < 1e-4);
+        assert!(l.abs() < 1e-4);
+
+        let mut boost = Effect::new(EffectKind::Utility);
+        boost.params = [6.0, 1.0, 0.0, 0.0, 0.0];
+        let mut fx_boost = with(&[boost]);
+        let (l, _) = fx_boost.process(0.5, 0.5);
+        assert!((l - 1.0).abs() < 0.05);
+
+        let mut pan = Effect::new(EffectKind::Utility);
+        pan.params = [0.0, 1.0, -1.0, 0.0, 0.0];
+        let mut fx_pan = with(&[pan]);
+        let (l, r) = fx_pan.process(0.5, 0.5);
+        assert!((l - 0.5).abs() < 1e-4);
+        assert!(r.abs() < 1e-4);
+    }
+
+    #[test]
+    fn limiter_clamps_to_ceiling_and_never_exceeds() {
+        let mut lim = Effect::new(EffectKind::Limiter);
+        lim.params = [12.0, -3.0, 50.0, 0.0, 0.0];
+        let mut fx = with(&[lim]);
+        let ceil = 10f32.powf(-3.0 / 20.0);
+        for frame in 0..4_410 {
+            let x = 3.0 * sine(200.0, frame);
+            let (l, r) = fx.process(x, x);
+            assert!(l.abs() <= ceil + 1e-5, "{l} > {ceil}");
+            assert!(r.abs() <= ceil + 1e-5, "{r} > {ceil}");
+        }
     }
 }
