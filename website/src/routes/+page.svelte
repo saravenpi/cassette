@@ -62,26 +62,26 @@
   />
 </svelte:head>
 
-<div class="max-w-6xl mx-auto px-6 pt-16 pb-24 space-y-24">
+<div class="max-w-6xl mx-auto px-4 sm:px-6 pt-12 sm:pt-16 pb-20 sm:pb-24 space-y-16 sm:space-y-24">
   <section class="space-y-6 pt-4">
     <div class="inline-flex items-center gap-2 text-xs text-[#86A881] uppercase tracking-widest">
       <span class="inline-block w-2 h-2 bg-[#86A881]"></span>
       <span>Open source audio workstation</span>
     </div>
 
-    <h1 class="text-4xl sm:text-6xl uppercase tracking-tight leading-none max-w-4xl">
+    <h1 class="text-3xl sm:text-5xl md:text-6xl uppercase tracking-tight leading-tight sm:leading-none max-w-4xl">
       The session DAW that stays in time
     </h1>
 
-    <p class="text-base sm:text-lg text-[#FFFFFF]/70 max-w-2xl leading-relaxed">
+    <p class="text-sm sm:text-lg text-[#FFFFFF]/70 max-w-2xl leading-relaxed">
       A fast audio workstation for live clip launching, sequencing, and sound design.
       Starts in 200 milliseconds, runs fully offline, and never drops a sample during playback.
     </p>
 
-    <div class="flex flex-wrap items-center gap-4 pt-4">
+    <div class="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 pt-4">
       <a
         href="/download"
-        class="inline-flex items-center gap-3 bg-[#86A881] text-[#0B0B0B] px-6 py-3.5 text-xs uppercase tracking-widest hover:bg-[#FFFFFF] transition-colors"
+        class="inline-flex items-center justify-center gap-3 bg-[#86A881] text-[#0B0B0B] px-6 py-3.5 text-xs uppercase tracking-widest hover:bg-[#FFFFFF] transition-colors w-full sm:w-auto"
       >
         <Icon icon="pixelarticons:download" class="w-4 h-4 shrink-0" />
         <span>Download Cassette</span>
@@ -91,7 +91,7 @@
         href="https://github.com/saravenpi/cassette"
         target="_blank"
         rel="noreferrer"
-        class="inline-flex items-center gap-3 border border-[#333333] text-[#FFFFFF] px-6 py-3.5 text-xs uppercase tracking-widest hover:border-[#86A881] hover:text-[#86A881] transition-colors"
+        class="inline-flex items-center justify-center gap-3 border border-[#333333] text-[#FFFFFF] px-6 py-3.5 text-xs uppercase tracking-widest hover:border-[#86A881] hover:text-[#86A881] transition-colors w-full sm:w-auto"
       >
         <Icon icon="pixelarticons:github" class="w-4 h-4 shrink-0" />
         <span>GitHub repository</span>
@@ -99,8 +99,8 @@
     </div>
   </section>
 
-  <section id="features" class="space-y-12">
-    <div class="flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-[#262626] pb-6">
+  <section id="features" class="space-y-8 sm:space-y-12">
+    <div class="flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b border-[#262626] pb-6">
       <div class="space-y-2">
         <div class="inline-flex items-center gap-2 text-xs text-[#86A881] uppercase tracking-widest">
           <Icon icon="pixelarticons:sliders" class="w-4 h-4" />
@@ -113,9 +113,9 @@
       </div>
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
       {#each features as feature}
-        <div class="bg-[#1F1F1F] border border-[#262626] p-6 space-y-4 hover:border-[#86A881]/50 transition-colors">
+        <div class="bg-[#1F1F1F] border border-[#262626] p-5 sm:p-6 space-y-4 hover:border-[#86A881]/50 transition-colors">
           <div class="flex items-start justify-between gap-4">
             <div class="space-y-1">
               <h3 class="text-sm font-medium tracking-wide text-[#FFFFFF]">{feature.title}</h3>
@@ -131,7 +131,7 @@
     </div>
   </section>
 
-  <section id="effects" class="space-y-8 border-t border-[#262626] pt-16">
+  <section id="effects" class="space-y-6 sm:space-y-8 border-t border-[#262626] pt-12 sm:pt-16">
     <div class="space-y-2">
       <div class="inline-flex items-center gap-2 text-xs text-[#86A881] uppercase tracking-widest">
         <Icon icon="pixelarticons:audio-device" class="w-4 h-4" />
@@ -144,17 +144,17 @@
       Clean signal processing without licensing popups or third-party wrappers. Reorder them on the fly, copy and paste effect blocks with their settings, tweak parameters with your keyboard arrows, and route sidechain compression anywhere.
     </p>
 
-    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 gap-3 pt-2">
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 gap-2.5 sm:gap-3 pt-2">
       {#each effectsList as effect}
-        <div class="border border-[#262626] bg-[#1F1F1F] p-4 text-center hover:border-[#86A881]/40 transition-colors flex items-center justify-center gap-2">
-          <Icon icon="pixelarticons:sliders" class="w-3.5 h-3.5 text-[#86A881]/70" />
-          <span class="text-xs uppercase tracking-widest text-[#FFFFFF]">{effect}</span>
+        <div class="border border-[#262626] bg-[#1F1F1F] p-3 sm:p-4 text-center hover:border-[#86A881]/40 transition-colors flex items-center justify-center gap-1.5 sm:gap-2">
+          <Icon icon="pixelarticons:sliders" class="w-3.5 h-3.5 text-[#86A881]/70 shrink-0" />
+          <span class="text-[11px] sm:text-xs uppercase tracking-widest text-[#FFFFFF] truncate">{effect}</span>
         </div>
       {/each}
     </div>
   </section>
 
-  <section id="architecture" class="space-y-8 border-t border-[#262626] pt-16">
+  <section id="architecture" class="space-y-6 sm:space-y-8 border-t border-[#262626] pt-12 sm:pt-16">
     <div class="space-y-2">
       <div class="inline-flex items-center gap-2 text-xs text-[#86A881] uppercase tracking-widest">
         <Icon icon="pixelarticons:code" class="w-4 h-4" />
@@ -163,8 +163,8 @@
       <h2 class="text-2xl sm:text-3xl uppercase tracking-tight">Built so your audio never drops</h2>
     </div>
 
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      <div class="bg-[#1F1F1F] border border-[#262626] p-6 space-y-3">
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
+      <div class="bg-[#1F1F1F] border border-[#262626] p-5 sm:p-6 space-y-3">
         <div class="flex items-center justify-between">
           <div class="text-xs text-[#86A881] uppercase tracking-widest">Dedicated audio thread</div>
           <Icon icon="pixelarticons:cpu" class="w-4 h-4 text-[#86A881]" />
@@ -174,7 +174,7 @@
         </p>
       </div>
 
-      <div class="bg-[#1F1F1F] border border-[#262626] p-6 space-y-3">
+      <div class="bg-[#1F1F1F] border border-[#262626] p-5 sm:p-6 space-y-3">
         <div class="flex items-center justify-between">
           <div class="text-xs text-[#86A881] uppercase tracking-widest">Zero garbage collection</div>
           <Icon icon="pixelarticons:server" class="w-4 h-4 text-[#86A881]" />
@@ -184,7 +184,7 @@
         </p>
       </div>
 
-      <div class="bg-[#1F1F1F] border border-[#262626] p-6 space-y-3">
+      <div class="bg-[#1F1F1F] border border-[#262626] p-5 sm:p-6 space-y-3">
         <div class="flex items-center justify-between">
           <div class="text-xs text-[#86A881] uppercase tracking-widest">Non-blocking UI</div>
           <Icon icon="pixelarticons:device-laptop" class="w-4 h-4 text-[#86A881]" />
@@ -196,7 +196,7 @@
     </div>
   </section>
 
-  <section id="specs" class="space-y-8 border-t border-[#262626] pt-16">
+  <section id="specs" class="space-y-6 sm:space-y-8 border-t border-[#262626] pt-12 sm:pt-16">
     <div class="space-y-2">
       <div class="inline-flex items-center gap-2 text-xs text-[#86A881] uppercase tracking-widest">
         <Icon icon="pixelarticons:checklist" class="w-4 h-4" />
@@ -207,21 +207,21 @@
 
     <div class="border border-[#262626] divide-y divide-[#262626] bg-[#1F1F1F]">
       {#each specs as spec}
-        <div class="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+        <div class="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-2 text-xs">
           <span class="text-[#FFFFFF]/50 uppercase tracking-widest">{spec.label}</span>
-          <span class="text-[#FFFFFF] font-mono text-[11px] sm:text-xs">{spec.value}</span>
+          <span class="text-[#FFFFFF] font-mono text-[11px] sm:text-xs break-words sm:break-normal">{spec.value}</span>
         </div>
       {/each}
     </div>
   </section>
 
   <section id="get-started">
-    <div class="bg-[#86A881] text-[#000000] p-8 md:p-12 flex flex-col justify-between space-y-8">
-      <div class="space-y-4">
+    <div class="bg-[#86A881] text-[#000000] p-6 sm:p-8 md:p-12 flex flex-col justify-between space-y-6 sm:space-y-8">
+      <div class="space-y-3 sm:space-y-4">
         <div class="text-xs uppercase tracking-widest text-[#000000]/70">
           Get started
         </div>
-        <h2 class="text-3xl sm:text-5xl uppercase leading-tight font-normal">
+        <h2 class="text-2xl sm:text-4xl md:text-5xl uppercase leading-tight font-normal">
           Ready to make music
         </h2>
         <p class="text-xs sm:text-sm leading-relaxed text-[#000000]/80 max-w-2xl">
@@ -229,10 +229,10 @@
         </p>
       </div>
 
-      <div class="space-y-3">
+      <div class="pt-2">
         <a
           href="/download"
-          class="inline-flex items-center justify-center gap-2.5 w-full sm:w-auto bg-[#000000] text-[#FFFFFF] hover:bg-[#FFFFFF] hover:text-[#000000] px-8 py-4 text-xs sm:text-sm uppercase tracking-widest text-center no-underline transition-colors leading-none"
+          class="inline-flex items-center justify-center gap-2.5 w-full sm:w-auto bg-[#000000] text-[#FFFFFF] hover:bg-[#FFFFFF] hover:text-[#000000] px-6 sm:px-8 py-3.5 sm:py-4 text-xs sm:text-sm uppercase tracking-widest text-center no-underline transition-colors leading-none"
         >
           <Icon
             icon="pixelarticons:download"

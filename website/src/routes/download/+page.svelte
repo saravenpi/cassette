@@ -94,7 +94,7 @@
       : platforms
   );
 
-  const version = $derived<string>(data.version || "0.16.0");
+  const version = $derived<string>(data.version || "0.16.1");
   const notesUrl = $derived<string>(data.url ?? releasesUrl);
 </script>
 
@@ -106,7 +106,7 @@
   />
 </svelte:head>
 
-<div class="max-w-6xl mx-auto px-6 pt-12 pb-24 space-y-16">
+<div class="max-w-6xl mx-auto px-4 sm:px-6 pt-10 sm:pt-12 pb-20 sm:pb-24 space-y-12 sm:space-y-16">
   <section class="space-y-4">
     <div class="inline-flex items-center gap-2 text-xs text-[#86A881] uppercase tracking-widest">
       <span class="inline-block w-2 h-2 bg-[#86A881]"></span>
@@ -134,7 +134,7 @@
     {#each ordered as platform, i (platform.os)}
       {@const primary = detected !== null && i === 0}
       <div
-        class="bg-[#1F1F1F] p-6 md:p-8 grid grid-cols-1 md:grid-cols-12 gap-8 {primary
+        class="bg-[#1F1F1F] p-5 sm:p-6 md:p-8 grid grid-cols-1 md:grid-cols-12 gap-6 md:gap-8 {primary
           ? 'border border-[#86A881]'
           : 'border border-[#262626]'}"
       >
@@ -153,15 +153,15 @@
             {#each platform.files as file}
               <a
                 href={base + file.asset}
-                class="inline-flex items-center justify-between gap-3 px-5 py-3 text-xs uppercase tracking-widest transition-colors {primary
+                class="inline-flex items-center justify-between gap-3 px-4 sm:px-5 py-3 text-xs uppercase tracking-widest transition-colors {primary
                   ? 'bg-[#86A881] text-[#0B0B0B] hover:bg-[#FFFFFF]'
                   : 'border border-[#333333] text-[#FFFFFF] hover:border-[#86A881] hover:text-[#86A881]'}"
               >
-                <span class="inline-flex items-center gap-2">
+                <span class="inline-flex items-center gap-2 truncate">
                   <Icon icon="pixelarticons:download" class="w-4 h-4 shrink-0" />
-                  <span>&gt; {file.label}</span>
+                  <span class="truncate">{file.label}</span>
                 </span>
-                <span class="text-[10px] opacity-60">X64</span>
+                <span class="text-[10px] opacity-60 shrink-0">X64</span>
               </a>
             {/each}
           </div>
@@ -195,11 +195,11 @@
       </span>
     </div>
 
-    <div class="bg-[#1F1F1F] border border-[#262626] p-6 space-y-4 text-xs text-[#FFFFFF]/80">
+    <div class="bg-[#1F1F1F] border border-[#262626] p-4 sm:p-6 space-y-4 text-xs text-[#FFFFFF]/80">
       <p class="leading-relaxed">
         Verify that your downloaded binary matches the official release artifacts:
       </p>
-      <div class="bg-[#0B0B0B] border border-[#262626] p-4 text-[11px] font-mono space-y-2 overflow-x-auto text-[#FFFFFF]/90">
+      <div class="bg-[#0B0B0B] border border-[#262626] p-3 sm:p-4 text-[11px] font-mono space-y-2 overflow-x-auto text-[#FFFFFF]/90">
         <div><span class="text-[#86A881]"># Windows (PowerShell)</span></div>
         <div>Get-FileHash Cassette-windows-x64-setup.exe -Algorithm SHA256</div>
         <div class="pt-2"><span class="text-[#86A881]"># macOS & Linux</span></div>
@@ -220,8 +220,8 @@
       </span>
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-      <div class="bg-[#1F1F1F] border border-[#262626] p-6 space-y-4">
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+      <div class="bg-[#1F1F1F] border border-[#262626] p-5 sm:p-6 space-y-4">
         <div class="flex items-center justify-between">
           <div class="text-[11px] uppercase tracking-widest text-[#86A881]">
             Audio engine tests (Cargo)
@@ -231,14 +231,14 @@
         <p class="text-xs text-[#FFFFFF]/70 leading-relaxed">
           Run the test suite across the audio core, synthesis models, and real-time buffers:
         </p>
-        <div class="bg-[#0B0B0B] border border-[#262626] p-4 text-xs font-mono overflow-x-auto">
+        <div class="bg-[#0B0B0B] border border-[#262626] p-3 sm:p-4 text-xs font-mono overflow-x-auto">
           <div class="text-[#86A881]">$ git clone https://github.com/saravenpi/cassette.git</div>
           <div class="text-[#FFFFFF]/90">$ cd cassette</div>
           <div class="text-[#FFFFFF]/90">$ cargo test</div>
         </div>
       </div>
 
-      <div class="bg-[#1F1F1F] border border-[#262626] p-6 space-y-4">
+      <div class="bg-[#1F1F1F] border border-[#262626] p-5 sm:p-6 space-y-4">
         <div class="flex items-center justify-between">
           <div class="text-[11px] uppercase tracking-widest text-[#86A881]">
             Desktop build (Mise)
@@ -248,7 +248,7 @@
         <p class="text-xs text-[#FFFFFF]/70 leading-relaxed">
           Compile and launch the full desktop application in development mode:
         </p>
-        <div class="bg-[#0B0B0B] border border-[#262626] p-4 text-xs font-mono overflow-x-auto">
+        <div class="bg-[#0B0B0B] border border-[#262626] p-3 sm:p-4 text-xs font-mono overflow-x-auto">
           <div class="text-[#86A881]">$ mise run deps</div>
           <div class="text-[#FFFFFF]/90">$ mise run dev</div>
           <div class="text-[#FFFFFF]/90">$ mise run build</div>
@@ -257,7 +257,7 @@
     </div>
   </section>
 
-  <section class="border-t border-[#262626] pt-8 flex items-center justify-between text-xs text-[#FFFFFF]/60">
+  <section class="border-t border-[#262626] pt-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-xs text-[#FFFFFF]/60">
     <div>
       Need historical versions or nightly assets?
     </div>
