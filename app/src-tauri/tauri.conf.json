@@ -49,7 +49,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJEMTNBN0I2OEYzQzRCQTMKUldTalN6eVB0cWNUTFFYb1ZSME5vQzhsTkhlT1pwcmpKK2pQb2tIYTZxT3pTcjdtNXI4ZTRKVUYK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDBGNUI3NTcxQjAxQzYyMjgKUldRb1loeXdjWFZiRCtad3JKVncrOGpIU1pxQXZPOTlEVzJkMk5UTXZYYnFsMjBjSjkveHlzU1UK",
       "endpoints": [
         "https://github.com/Saravenpi/cassette/releases/latest/download/latest.json"
       ]
