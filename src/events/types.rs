@@ -6,7 +6,31 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::models::EffectKind;
+use crate::models::{EffectKind, Note, TrackKind};
+
+/// A rectangle of the arrangement: a run of tracks and a span of beats.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BeatRange {
+    /// First track of the run, inclusive.
+    pub first_track: usize,
+    /// Last track of the run, inclusive.
+    pub last_track: usize,
+    pub start_beats: f32,
+    pub end_beats: f32,
+}
+
+/// The new values of one note in a batch edit.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteEdit {
+    /// Index of the note in its block.
+    pub note: usize,
+    pub pitch: u8,
+    pub start_beats: f32,
+    pub length_beats: f32,
+    pub velocity: u8,
+}
 
 /// A single piece of user intent.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -215,6 +239,87 @@ pub enum Event {
         track: usize,
         block: usize,
         grid_beats: f32,
+        /// Notes to quantize, by index; empty quantizes every note.
+        #[serde(default)]
+        notes: Vec<usize>,
+    },
+    /// Add several notes to a MIDI block as one edit.
+    AddNotes {
+        track: usize,
+        block: usize,
+        notes: Vec<Note>,
+    },
+    /// Set several notes of a MIDI block to new values as one edit. A drag
+    /// sends a stream of these with absolute values, one gesture per block.
+    EditNotes {
+        track: usize,
+        block: usize,
+        edits: Vec<NoteEdit>,
+    },
+    /// Remove several notes of a MIDI block as one edit.
+    DeleteNotes {
+        track: usize,
+        block: usize,
+        notes: Vec<usize>,
+    },
+    /// Add a track of a kind after the last one.
+    AddTrack {
+        kind: TrackKind,
+    },
+    /// Remove a track and everything on it.
+    DeleteTrack {
+        track: usize,
+    },
+    /// Copy a track, its blocks and its devices, right after it.
+    DuplicateTrack {
+        track: usize,
+    },
+    /// Give a track a new name.
+    RenameTrack {
+        track: usize,
+        name: String,
+    },
+    /// Copy the material inside a range to the clipboard.
+    CopyRange {
+        range: BeatRange,
+    },
+    /// Copy the material inside a range to the clipboard, then clear the range.
+    CutRange {
+        range: BeatRange,
+    },
+    /// Clear the material inside a range, splitting blocks at its edges.
+    DeleteRange {
+        range: BeatRange,
+    },
+    /// Paste the clipboard with its first track on `track` and its start at
+    /// `start_beats`.
+    PasteRange {
+        track: usize,
+        start_beats: f32,
+    },
+    /// Copy the material inside a range to just after the range.
+    DuplicateRange {
+        range: BeatRange,
+    },
+    /// Drive an effect's detector from another track, or from its own input
+    /// for `None`.
+    SetEffectSidechain {
+        track: usize,
+        index: usize,
+        source: Option<usize>,
+    },
+    /// Switch a track's instrument on, or bypass it.
+    SetInstrumentEnabled {
+        track: usize,
+        enabled: bool,
+    },
+    /// Set the tone controls of a track's instrument.
+    SetInstrumentTone {
+        track: usize,
+        cutoff: f32,
+        resonance: f32,
+        detune: f32,
+        sub: f32,
     },
     /// Insert an effect into a track's chain at `index`, or at the end.
     AddEffect {

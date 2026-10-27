@@ -5,10 +5,17 @@
 //! pushed to the audio thread as one fixed-size [`EffectChain`].
 
 use super::App;
-use crate::core::render::RtCommand;
 use crate::models::{Effect, EffectChain, EffectKind, MAX_EFFECTS};
 
 impl App {
+    pub(crate) fn set_effect_sidechain(
+        &mut self,
+        _track: usize,
+        _index: usize,
+        _source: Option<usize>,
+    ) {
+    }
+
     /// Insert a fresh effect at `index`, clamped to the chain, or at the end.
     pub(crate) fn add_effect(&mut self, track: usize, kind: EffectKind, index: Option<usize>) {
         let Some(lane) = self.song.tracks.get_mut(track) else {
@@ -96,10 +103,9 @@ impl App {
             return;
         };
         let chain = EffectChain::from_effects(&lane.effects);
-        self.send(RtCommand::SetEffects {
-            track: track as u8,
-            chain,
-        });
+        if !self.engine.set_effects(track, &chain) {
+            self.resync_pending = true;
+        }
     }
 
     /// The effect an edit names, or `None` with the reason in the status.

@@ -32,7 +32,19 @@ export interface BlockView {
 	rate: number;
 }
 
-export type EffectKind = 'eq' | 'filter' | 'saturator' | 'compressor' | 'delay' | 'reverb';
+export type EffectKind =
+	| 'eq'
+	| 'filter'
+	| 'saturator'
+	| 'compressor'
+	| 'delay'
+	| 'reverb'
+	| 'chorus'
+	| 'phaser'
+	| 'autoPan'
+	| 'bitCrusher'
+	| 'utility'
+	| 'limiter';
 
 export type ParamUnit =
 	| 'decibels'
@@ -45,10 +57,12 @@ export type ParamUnit =
 
 /** One effect in a track's chain; `params` follows its kind's spec. */
 export interface EffectView {
+	id: number;
 	kind: EffectKind;
 	name: string;
 	enabled: boolean;
 	params: number[];
+	sidechain: number | null;
 }
 
 /** One parameter of an effect kind. A choice indexes `choices`. */
@@ -66,6 +80,7 @@ export interface ParamSpecView {
 export interface EffectSpecView {
 	kind: EffectKind;
 	name: string;
+	takesSidechain: boolean;
 	params: ParamSpecView[];
 }
 
@@ -90,6 +105,34 @@ export interface TrackView {
 	notesRevision: number;
 	blocks: BlockView[];
 	effects: EffectView[];
+	instrumentEnabled: boolean;
+	cutoff: number;
+	resonance: number;
+	detune: number;
+	sub: number;
+}
+
+/** A rectangle of the arrangement: a run of tracks and a span of beats. */
+export interface BeatRange {
+	firstTrack: number;
+	lastTrack: number;
+	startBeats: number;
+	endBeats: number;
+}
+
+/** The new values of one note in a batch edit. */
+export interface NoteEdit {
+	note: number;
+	pitch: number;
+	startBeats: number;
+	lengthBeats: number;
+	velocity: number;
+}
+
+/** What the clipboard holds. */
+export interface ClipboardView {
+	tracks: number;
+	lengthBeats: number;
 }
 
 /** The stretch of the timeline the transport loops over, in beats. */
@@ -125,6 +168,9 @@ export interface UiState {
 	backend: string;
 	backendNote: string;
 	sampleRate: number;
+	projectPath: string | null;
+	projectDirty: boolean;
+	clipboard: ClipboardView | null;
 }
 
 /** One audio file as a block draws it: its peaks and its length in seconds. */
@@ -213,7 +259,22 @@ export type EngineEvent =
 	| 'toggleMetronome'
 	| { setCountIn: { bars: number } }
 	| { setRecordQuantize: { gridBeats: number } }
-	| { quantizeBlock: { track: number; block: number; gridBeats: number } }
+	| { quantizeBlock: { track: number; block: number; gridBeats: number; notes: number[] } }
+	| { addNotes: { track: number; block: number; notes: NoteView[] } }
+	| { editNotes: { track: number; block: number; edits: NoteEdit[] } }
+	| { deleteNotes: { track: number; block: number; notes: number[] } }
+	| { addTrack: { kind: TrackKind } }
+	| { deleteTrack: { track: number } }
+	| { duplicateTrack: { track: number } }
+	| { renameTrack: { track: number; name: string } }
+	| { copyRange: { range: BeatRange } }
+	| { cutRange: { range: BeatRange } }
+	| { deleteRange: { range: BeatRange } }
+	| { pasteRange: { track: number; startBeats: number } }
+	| { duplicateRange: { range: BeatRange } }
+	| { setEffectSidechain: { track: number; index: number; source: number | null } }
+	| { setInstrumentEnabled: { track: number; enabled: boolean } }
+	| { setInstrumentTone: { track: number; cutoff: number; resonance: number; detune: number; sub: number } }
 	| { addEffect: { track: number; kind: EffectKind; index: number | null } }
 	| { removeEffect: { track: number; index: number } }
 	| { moveEffect: { track: number; from: number; to: number } }

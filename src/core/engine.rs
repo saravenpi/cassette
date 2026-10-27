@@ -155,6 +155,15 @@ impl AudioEngine {
 
     /// Push a command to the audio thread. Returns `false` if the queue is full
     /// (the caller should then [`AudioEngine::resync`]).
+    /// Replace one track's insert chain. The control side owns building each
+    /// effect's state, so a new effect costs the audio thread no allocation.
+    pub fn set_effects(&mut self, track: usize, chain: &EffectChain) -> bool {
+        self.send(RtCommand::SetEffects {
+            track: track as u8,
+            chain: *chain,
+        })
+    }
+
     pub fn send(&self, command: RtCommand) -> bool {
         match self.producer.lock() {
             Ok(mut producer) => producer.push(command).is_ok(),

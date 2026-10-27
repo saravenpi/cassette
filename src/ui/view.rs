@@ -45,11 +45,15 @@ pub struct BlockView {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EffectView {
+    /// The effect's stable id within its track.
+    pub id: u32,
     pub kind: EffectKind,
     pub name: String,
     pub enabled: bool,
     /// One value per entry of the kind's spec, in its units.
     pub params: Vec<f32>,
+    /// Track driving the detector, for a kind that takes a sidechain.
+    pub sidechain: Option<usize>,
 }
 
 /// One parameter of an effect kind, for drawing its dial.
@@ -71,6 +75,7 @@ pub struct ParamSpecView {
 pub struct EffectSpecView {
     pub kind: EffectKind,
     pub name: String,
+    pub takes_sidechain: bool,
     pub params: Vec<ParamSpecView>,
 }
 
@@ -82,6 +87,7 @@ impl EffectSpecView {
             .map(|kind| EffectSpecView {
                 kind: *kind,
                 name: kind.name().to_string(),
+                takes_sidechain: kind.takes_sidechain(),
                 params: kind
                     .spec()
                     .iter()
@@ -130,6 +136,21 @@ pub struct TrackView {
     pub notes_revision: u64,
     /// Insert effects, in signal order.
     pub effects: Vec<EffectView>,
+    /// Whether the instrument sounds; a bypassed one is silent.
+    pub instrument_enabled: bool,
+    pub cutoff: f32,
+    pub resonance: f32,
+    pub detune: f32,
+    pub sub: f32,
+}
+
+/// What the clipboard holds, so the interface can offer Paste.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClipboardView {
+    /// Tracks the copied range spans.
+    pub tracks: usize,
+    pub length_beats: f32,
 }
 
 impl TrackView {
@@ -185,6 +206,12 @@ pub struct UiState {
     /// Why the engine chose its backend.
     pub backend_note: String,
     pub sample_rate: u32,
+    /// Where the project was last saved or loaded from, or `None` when it has
+    /// never been saved.
+    pub project_path: Option<String>,
+    /// Whether the song changed since it was last saved or loaded.
+    pub project_dirty: bool,
+    pub clipboard: Option<ClipboardView>,
 }
 
 impl UiState {
@@ -242,6 +269,11 @@ mod tests {
             color_index: 0,
             notes_revision: 0,
             effects: Vec::new(),
+            instrument_enabled: true,
+            cutoff: 20_000.0,
+            resonance: 0.0,
+            detune: 0.0,
+            sub: 0.0,
         }
     }
 
@@ -278,6 +310,9 @@ mod tests {
             backend: "silent".into(),
             backend_note: "silent: no device".into(),
             sample_rate: 44_100,
+            project_path: None,
+            project_dirty: false,
+            clipboard: None,
         }
     }
 

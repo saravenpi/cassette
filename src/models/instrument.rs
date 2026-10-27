@@ -35,12 +35,16 @@ impl Waveform {
     }
 }
 
-/// A subtractive-synthesis instrument: one oscillator plus an ADSR envelope.
+/// A subtractive-synthesis instrument: an oscillator with optional unison,
+/// sub oscillator and FM, a resonant low-pass with its own envelope sweep, a
+/// pitch sweep for drums, and an ADSR envelope.
 ///
 /// Times are seconds; `sustain` is a level in `[0, 1]`; `octave` transposes the
-/// incoming note before it reaches the oscillator.
+/// incoming note before it reaches the oscillator. Fields after `octave` were
+/// added in v0.15.0 and default to a plain, open voice, so older projects load
+/// and sound as they did.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub struct Instrument {
     pub waveform: Waveform,
     pub attack: f32,
@@ -51,6 +55,34 @@ pub struct Instrument {
     pub gain: f32,
     /// Octave transposition applied to played notes.
     pub octave: i32,
+    /// Oscillators per voice, `1..=7`, spread by `detune`.
+    pub unison: u8,
+    /// Spread of the unison oscillators, in cents, `0..=100`.
+    pub detune: f32,
+    /// Level of a sine one octave below the oscillator, `[0, 1]`.
+    pub sub: f32,
+    /// Low-pass cutoff in Hz, `20..=20000`; `20000` leaves the voice open.
+    pub cutoff: f32,
+    /// Filter resonance, `[0, 1]`.
+    pub resonance: f32,
+    /// How far the envelope opens the filter above `cutoff`, in octaves, `0..=8`.
+    pub filter_env: f32,
+    /// Pitch sweep at note start, in semitones, `0..=48`, falling to the note.
+    pub pitch_env: f32,
+    /// Time the pitch sweep takes to fall, in seconds.
+    pub pitch_decay: f32,
+    /// Frequency ratio of the FM modulator to the carrier.
+    pub fm_ratio: f32,
+    /// FM modulation index, `0..=10`; `0` turns FM off.
+    pub fm_index: f32,
+    /// Whether the instrument sounds. A bypassed instrument is silent.
+    pub enabled: bool,
+}
+
+impl Default for Instrument {
+    fn default() -> Self {
+        Self::preset("Lead")
+    }
 }
 
 impl Instrument {
@@ -72,6 +104,17 @@ impl Instrument {
             release,
             gain,
             octave,
+            unison: 1,
+            detune: 0.0,
+            sub: 0.0,
+            cutoff: 20_000.0,
+            resonance: 0.0,
+            filter_env: 0.0,
+            pitch_env: 0.0,
+            pitch_decay: 0.05,
+            fm_ratio: 1.0,
+            fm_index: 0.0,
+            enabled: true,
         }
     }
 

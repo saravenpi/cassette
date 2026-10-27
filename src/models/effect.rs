@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 
 /// Most parameters one effect exposes.
 pub const MAX_PARAMS: usize = 5;
-/// Most effects one track's chain holds: one of each kind.
-pub const MAX_EFFECTS: usize = EffectKind::ALL.len();
+/// Most effects one track's chain holds. A kind may appear more than once.
+pub const MAX_EFFECTS: usize = 8;
 
 /// A built-in insert effect.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -18,6 +18,12 @@ pub enum EffectKind {
     Compressor,
     Delay,
     Reverb,
+    Chorus,
+    Phaser,
+    AutoPan,
+    BitCrusher,
+    Utility,
+    Limiter,
 }
 
 /// How a parameter's number reads in the interface.
@@ -144,15 +150,74 @@ const REVERB: [ParamSpec; 3] = [
     param("Mix", 0.0, 1.0, 0.25, ParamUnit::Percent, false),
 ];
 
+const CHORUS: [ParamSpec; 4] = [
+    param("Rate", 0.05, 5.0, 0.8, ParamUnit::Hertz, true),
+    param("Depth", 0.0, 1.0, 0.5, ParamUnit::Percent, false),
+    param("Delay", 2.0, 30.0, 12.0, ParamUnit::Milliseconds, false),
+    param("Mix", 0.0, 1.0, 0.5, ParamUnit::Percent, false),
+];
+
+const PHASER: [ParamSpec; 4] = [
+    param("Rate", 0.05, 5.0, 0.5, ParamUnit::Hertz, true),
+    param("Depth", 0.0, 1.0, 0.7, ParamUnit::Percent, false),
+    param("Feedback", 0.0, 0.9, 0.5, ParamUnit::Percent, false),
+    param("Mix", 0.0, 1.0, 0.5, ParamUnit::Percent, false),
+];
+
+const AUTO_PAN: [ParamSpec; 3] = [
+    ParamSpec {
+        name: "Mode",
+        min: 0.0,
+        max: 1.0,
+        default: 0.0,
+        unit: ParamUnit::Choice,
+        log: false,
+        choices: &["Pan", "Tremolo"],
+    },
+    param("Rate", 0.125, 4.0, 1.0, ParamUnit::Beats, false),
+    param("Depth", 0.0, 1.0, 0.5, ParamUnit::Percent, false),
+];
+
+const BIT_CRUSHER: [ParamSpec; 3] = [
+    param("Bits", 2.0, 16.0, 8.0, ParamUnit::Ratio, false),
+    param("Downsample", 1.0, 32.0, 4.0, ParamUnit::Ratio, true),
+    param("Mix", 0.0, 1.0, 1.0, ParamUnit::Percent, false),
+];
+
+const UTILITY: [ParamSpec; 3] = [
+    param("Gain", -36.0, 12.0, 0.0, ParamUnit::Decibels, false),
+    param("Width", 0.0, 2.0, 1.0, ParamUnit::Percent, false),
+    param("Pan", -1.0, 1.0, 0.0, ParamUnit::Percent, false),
+];
+
+const LIMITER: [ParamSpec; 3] = [
+    param("Gain", 0.0, 24.0, 0.0, ParamUnit::Decibels, false),
+    param("Ceiling", -12.0, 0.0, -0.3, ParamUnit::Decibels, false),
+    param(
+        "Release",
+        10.0,
+        1_000.0,
+        100.0,
+        ParamUnit::Milliseconds,
+        true,
+    ),
+];
+
 impl EffectKind {
     /// Every kind, in the order the effect browser lists them.
-    pub const ALL: [EffectKind; 6] = [
+    pub const ALL: [EffectKind; 12] = [
         EffectKind::Eq,
         EffectKind::Filter,
         EffectKind::Saturator,
         EffectKind::Compressor,
+        EffectKind::Limiter,
+        EffectKind::Utility,
+        EffectKind::Chorus,
+        EffectKind::Phaser,
+        EffectKind::AutoPan,
         EffectKind::Delay,
         EffectKind::Reverb,
+        EffectKind::BitCrusher,
     ];
 
     /// Name shown on the device's title bar.
@@ -164,6 +229,12 @@ impl EffectKind {
             EffectKind::Compressor => "Compressor",
             EffectKind::Delay => "Delay",
             EffectKind::Reverb => "Reverb",
+            EffectKind::Chorus => "Chorus",
+            EffectKind::Phaser => "Phaser",
+            EffectKind::AutoPan => "Auto Pan",
+            EffectKind::BitCrusher => "Redux",
+            EffectKind::Utility => "Utility",
+            EffectKind::Limiter => "Limiter",
         }
     }
 
@@ -176,12 +247,26 @@ impl EffectKind {
             EffectKind::Compressor => &COMPRESSOR,
             EffectKind::Delay => &DELAY,
             EffectKind::Reverb => &REVERB,
+            EffectKind::Chorus => &CHORUS,
+            EffectKind::Phaser => &PHASER,
+            EffectKind::AutoPan => &AUTO_PAN,
+            EffectKind::BitCrusher => &BIT_CRUSHER,
+            EffectKind::Utility => &UTILITY,
+            EffectKind::Limiter => &LIMITER,
         }
+    }
+
+    /// Whether the effect can listen to another track's signal.
+    pub const fn takes_sidechain(self) -> bool {
+        matches!(self, EffectKind::Compressor)
     }
 
     /// Whether the effect keeps sounding after its input falls silent.
     pub const fn has_tail(self) -> bool {
-        matches!(self, EffectKind::Delay | EffectKind::Reverb)
+        matches!(
+            self,
+            EffectKind::Delay | EffectKind::Reverb | EffectKind::Chorus | EffectKind::Phaser
+        )
     }
 }
 
@@ -189,9 +274,17 @@ impl EffectKind {
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Effect {
+    /// Stable identity within its track, so the engine keeps an effect's state
+    /// across a reorder. The app hands out ids; `0` means not assigned yet.
+    #[serde(default)]
+    pub id: u32,
     pub kind: EffectKind,
     pub enabled: bool,
     pub params: [f32; MAX_PARAMS],
+    /// Track whose signal drives this effect's detector instead of its own
+    /// input. Only the compressor listens to it.
+    #[serde(default)]
+    pub sidechain: Option<u8>,
 }
 
 impl Effect {
@@ -202,9 +295,11 @@ impl Effect {
             *slot = spec.default;
         }
         Self {
+            id: 0,
             kind,
             enabled: true,
             params,
+            sidechain: None,
         }
     }
 
@@ -235,9 +330,11 @@ impl EffectChain {
     pub const EMPTY: EffectChain = EffectChain {
         len: 0,
         slots: [Effect {
+            id: 0,
             kind: EffectKind::Eq,
             enabled: false,
             params: [0.0; MAX_PARAMS],
+            sidechain: None,
         }; MAX_EFFECTS],
     };
 

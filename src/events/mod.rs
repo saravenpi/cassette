@@ -3,4 +3,4 @@
 pub mod bus;
 pub mod types;
 
-pub use types::Event;
+pub use types::{BeatRange, Event, NoteEdit};

@@ -18,6 +18,7 @@ Tauri shell; keys and clicks both drive it.
 | Phase 6 | Timeline and the sample path | Done (v0.7.0, 2026-09-26) |
 | Phase 7 | Note data in MIDI blocks | Done (v0.9.0, 2026-10-26) |
 | Phase 8 | Devices, metronome, quantize | Done (v0.14.0, 2026-10-27) |
+| Phase 9 | Editing, arrangement, sound library | In progress (2026-10-27) |
 
 The engine crate builds with no webview and no audio headers, plays the
 polyphonic synth from the keyboard, and starts a sample when the playhead
@@ -590,6 +591,81 @@ Risks: the 60 Hz snapshot now carries notes (512 per block, 64 blocks), so
 Step B measures the serialized size and trims to the selected block if it hurts.
 The piano roll cannot be exercised by an automated test beyond the geometry
 helpers, so it needs a hand pass in the running window.
+
+## Phase 9: Editing, arrangement, sound library (in progress)
+
+### UX review (2026-10-27)
+
+Findings against Ableton Live 12, ordered by cost to the user:
+
+1. The piano roll resizes notes from the right edge only. It holds one
+   selected note at a time, and a click on empty grid adds a note, so no
+   marquee drag can start. It has no arrow-key nudge, no select all, and no
+   copy, cut, paste or duplicate.
+2. The arrangement has no time selection, no clipboard and no "loop the
+   selection". It also cannot add, delete, duplicate or rename tracks: a song
+   is always the four tracks it started with.
+3. Save and Export write to a default path without asking. There is no Save
+   As, no `Ctrl+S`, no unsaved-changes mark and no file type of our own.
+4. The sidebar tab named "VST" lists the built-in voices. No VST is hosted.
+5. Leftovers from v0.14: each effect kind may appear once per track, the
+   instrument has no bypass, and the compressor cannot listen to another track.
+
+Sources: https://www.ableton.com/en/live-manual/12/arrangement-view/ and
+https://www.ableton.com/en/live-manual/12/editing-midi/
+
+### Decisions
+
+- Piano roll, following Live: dragging over empty grid draws a marquee. A
+  click on a note selects it, and Shift+click adds it to the selection or takes
+  it out. Double-click on empty grid adds a note. Draw mode (the `B` key while
+  the roll has focus, or a pencil button) restores click-to-add. Dragging any
+  selected note moves the whole selection. Dragging a left or right edge
+  resizes every selected note from that edge. Arrows nudge by the grid step,
+  Shift+Up and Shift+Down move by an octave, Shift+Left and Shift+Right change
+  length, and `Ctrl+A`, `Esc`, `Delete`, `Ctrl+C`, `Ctrl+X`, `Ctrl+V` and
+  `Ctrl+D` do the usual. Quantize applies to the selection, or to every note
+  when nothing is selected. Batch edits travel as `AddNotes`, `EditNotes`
+  (absolute values, one undo step per drag) and `DeleteNotes`.
+- Arrangement, following Live: a click on empty lane places the marker, and a
+  drag across lanes draws a time selection over a run of tracks. Shift+click
+  extends it. Clicking a block selects that block's span. `Ctrl+X`, `Ctrl+C`,
+  `Ctrl+D` and `Delete` act on the selection. `Ctrl+V` pastes at the marker on
+  the selected track. `Ctrl+L` loops the selection. The same commands are in a
+  context menu on the selection. The engine splits blocks at the range edges,
+  so a range edit is exact and is one undo step.
+- Tracks: Add audio track (`Ctrl+T`), Add MIDI track (`Ctrl+Shift+T`), Delete,
+  Duplicate, and Rename (double-click the name). The limit is 16 tracks.
+- Project files: the extension is `.cassette` (JSON inside), and `.json` still
+  loads. Save asks for a path the first time, and later saves go to that path.
+  Save As (`Ctrl+Shift+S`), Open (`Ctrl+O`) and Save (`Ctrl+S`) are on the
+  keyboard. Export asks where to write the WAV. The transport shows the
+  project name, with a dot when there are unsaved changes.
+- Effects: six new kinds (Chorus, Phaser, Auto Pan, Redux, Utility, Limiter).
+  Up to 8 effects per track, any kind more than once. The control thread builds
+  each new effect's state and hands it to the audio thread over a ring. Removed
+  state comes back over a return ring to be dropped, so the callback never
+  allocates or frees. Each effect carries a stable `id`, so a reorder keeps its
+  tail.
+- Sidechain: the compressor's detector can listen to another track's signal,
+  taken after that track's effects and before its fader. It uses the previous
+  frame's value, so track order does not matter, and a muted kick still pumps
+  the bass.
+- Instruments: the voice gains unison and detune, a sub oscillator, a
+  resonant low-pass with an envelope sweep, a pitch sweep for drums, and
+  two-operator FM. New presets: Supersaw, Sub Bass, Acid, Keys (FM electric
+  piano), Bell, Organ, Strings, Brass, 808, Tom, Clap, Rim. The instrument
+  card gets an activator and Tone dials (cutoff, resonance, detune, sub). The
+  sidebar tab becomes Instruments, with presets grouped by role.
+
+### Work packages (parallel worktrees, disjoint files)
+
+| Step | Owner files | Deliverable |
+|------|-------------|-------------|
+| A engine | `src/core/**`, `src/models/instrument.rs` (presets), `tests/test_rt_no_alloc.rs`, `tests/test_engine.rs` | Effect handoff and return rings keyed by id, the six new effects, sidechain, the voice features and presets, the instrument bypass. Allocation-free under `assert_no_alloc`. |
+| B app | `src/app/**`, `src/models/{effect,track,song,note}.rs` | Range clipboard ops, track add, delete, duplicate and rename, batch note events, quantizing a subset, effect ids and duplicates, sidechain and instrument events, project path, dirty flag and `.cassette`. |
+| C piano roll | `app/src/lib/components/PianoRoll.svelte`, `app/src/lib/pianoRoll.ts`, `app/src/lib/noteSelection.ts` (new), tests | Everything in the piano roll bullet above. |
+| D arrangement | every other file under `app/src/**`, `app/src-tauri/**` | Time selection and its commands, track management, the save, open and export dialogs and `.cassette`, the Instruments tab, the instrument activator and Tone dials, the sidechain picker on the compressor. |
 
 ## Phase 8: Devices, metronome, quantize (done, v0.14.0)
 

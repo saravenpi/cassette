@@ -25,6 +25,26 @@ pub(crate) struct VoiceEdit {
 }
 
 impl App {
+    pub(crate) fn add_track(&mut self, _kind: crate::models::TrackKind) {}
+
+    pub(crate) fn delete_track(&mut self, _track: usize) {}
+
+    pub(crate) fn duplicate_track(&mut self, _track: usize) {}
+
+    pub(crate) fn rename_track(&mut self, _track: usize, _name: &str) {}
+
+    pub(crate) fn set_instrument_enabled(&mut self, _track: usize, _enabled: bool) {}
+
+    pub(crate) fn set_instrument_tone(
+        &mut self,
+        _track: usize,
+        _cutoff: f32,
+        _resonance: f32,
+        _detune: f32,
+        _sub: f32,
+    ) {
+    }
+
     /// Move the track cursor by `delta`, clamped to the song.
     pub(crate) fn move_track(&mut self, delta: i32) {
         let tracks = self.song.tracks.len().max(1) as i32;

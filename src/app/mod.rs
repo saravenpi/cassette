@@ -8,6 +8,7 @@
 //! ([`timeline`]), notes inside MIDI blocks ([`notes`]), track state
 //! ([`tracks`]), audio samples ([`samples`]) and the transport ([`transport`]).
 
+mod clipboard;
 mod effects;
 mod export;
 mod history;
@@ -304,7 +305,47 @@ impl App {
                 track,
                 block,
                 grid_beats,
-            } => self.quantize_block(track, block, grid_beats),
+                notes,
+            } => self.quantize_block(track, block, grid_beats, &notes),
+            Event::AddNotes {
+                track,
+                block,
+                notes,
+            } => self.add_notes(track, block, &notes),
+            Event::EditNotes {
+                track,
+                block,
+                edits,
+            } => self.edit_notes(track, block, &edits),
+            Event::DeleteNotes {
+                track,
+                block,
+                notes,
+            } => self.delete_notes(track, block, &notes),
+            Event::AddTrack { kind } => self.add_track(kind),
+            Event::DeleteTrack { track } => self.delete_track(track),
+            Event::DuplicateTrack { track } => self.duplicate_track(track),
+            Event::RenameTrack { track, name } => self.rename_track(track, &name),
+            Event::CopyRange { range } => self.copy_range(range),
+            Event::CutRange { range } => self.cut_range(range),
+            Event::DeleteRange { range } => self.delete_range(range),
+            Event::PasteRange { track, start_beats } => self.paste_range(track, start_beats),
+            Event::DuplicateRange { range } => self.duplicate_range(range),
+            Event::SetEffectSidechain {
+                track,
+                index,
+                source,
+            } => self.set_effect_sidechain(track, index, source),
+            Event::SetInstrumentEnabled { track, enabled } => {
+                self.set_instrument_enabled(track, enabled)
+            }
+            Event::SetInstrumentTone {
+                track,
+                cutoff,
+                resonance,
+                detune,
+                sub,
+            } => self.set_instrument_tone(track, cutoff, resonance, detune, sub),
             Event::AddEffect { track, kind, index } => self.add_effect(track, kind, index),
             Event::RemoveEffect { track, index } => self.remove_effect(track, index),
             Event::MoveEffect { track, from, to } => self.move_effect(track, from, to),
@@ -382,6 +423,11 @@ impl App {
             .iter()
             .enumerate()
             .map(|(index, track)| TrackView {
+                instrument_enabled: track.instrument.enabled,
+                cutoff: track.instrument.cutoff,
+                resonance: track.instrument.resonance,
+                detune: track.instrument.detune,
+                sub: track.instrument.sub,
                 name: track.name.clone(),
                 kind: track.kind,
                 preset: track
@@ -423,6 +469,8 @@ impl App {
                     .effects
                     .iter()
                     .map(|effect| EffectView {
+                        id: effect.id,
+                        sidechain: effect.sidechain.map(usize::from),
                         kind: effect.kind,
                         name: effect.kind.name().to_string(),
                         enabled: effect.enabled,
@@ -435,6 +483,9 @@ impl App {
         let length_beats = ruler_length(&tracks);
 
         UiState {
+            project_path: None,
+            project_dirty: false,
+            clipboard: None,
             bpm: self.song.bpm(),
             playing: self.engine.is_playing(),
             recording: self.recording,

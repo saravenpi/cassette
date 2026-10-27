@@ -183,7 +183,7 @@ class Session {
 	quantizeSelected(): void {
 		const roll = this.roll;
 		if (roll !== null) {
-			this.dispatch({ quantizeBlock: { track: roll.track, block: roll.block, gridBeats: NOTE_GRID } });
+			this.dispatch({ quantizeBlock: { track: roll.track, block: roll.block, gridBeats: NOTE_GRID, notes: [] } });
 			return;
 		}
 		const cursor = this.snapshot?.cursor;
@@ -193,7 +193,7 @@ class Session {
 			return;
 		}
 		this.dispatch({
-			quantizeBlock: { track: cursor.track, block: cursor.block, gridBeats: gridStep(this.zoom) }
+			quantizeBlock: { track: cursor.track, block: cursor.block, gridBeats: gridStep(this.zoom), notes: [] }
 		});
 	}
 

@@ -95,7 +95,25 @@ impl App {
 
     /// Snap every note start in a MIDI block to the timeline grid of
     /// `grid_beats`, keeping each length where the block has room for it.
-    pub(crate) fn quantize_block(&mut self, track: usize, block: usize, grid_beats: f32) {
+    pub(crate) fn add_notes(&mut self, _track: usize, _block: usize, _notes: &[Note]) {}
+
+    pub(crate) fn edit_notes(
+        &mut self,
+        _track: usize,
+        _block: usize,
+        _edits: &[crate::events::NoteEdit],
+    ) {
+    }
+
+    pub(crate) fn delete_notes(&mut self, _track: usize, _block: usize, _notes: &[usize]) {}
+
+    pub(crate) fn quantize_block(
+        &mut self,
+        track: usize,
+        block: usize,
+        grid_beats: f32,
+        _notes: &[usize],
+    ) {
         if !(grid_beats.is_finite() && grid_beats >= Note::MIN_LENGTH_BEATS) {
             self.status = format!(
                 "quantize needs a grid of at least {}",
@@ -330,6 +348,7 @@ mod tests {
             track,
             block: 0,
             grid_beats,
+            notes: Vec::new(),
         });
     }
 

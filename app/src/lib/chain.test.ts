@@ -15,10 +15,10 @@ declare const test: (name: string, fn: () => void) => void;
 declare const expect: (actual: unknown) => Matchers;
 
 const KINDS: EffectKind[] = ['eq', 'filter', 'saturator', 'compressor', 'delay', 'reverb'];
-const CATALOG: EffectSpecView[] = KINDS.map((kind) => ({ kind, name: kind, params: [] }));
+const CATALOG: EffectSpecView[] = KINDS.map((kind) => ({ kind, name: kind, takesSidechain: false, params: [] }));
 
 function effect(kind: EffectKind): EffectView {
-	return { kind, name: kind, enabled: true, params: [] };
+	return { id: 0, kind, name: kind, enabled: true, params: [], sidechain: null };
 }
 
 const SPANS = [

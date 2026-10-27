@@ -6,7 +6,9 @@
 //! [`TrackEffects::set_tempo`] run in the red zone: they never allocate, lock,
 //! do I/O or panic.
 
-use crate::models::{Effect, EffectChain, EffectKind, MAX_EFFECTS};
+use crate::models::{Effect, EffectChain, EffectKind};
+
+const KINDS: usize = EffectKind::ALL.len();
 
 const SILENCE: f32 = 1e-5;
 const DENORMAL: f32 = 1e-20;
@@ -566,7 +568,7 @@ pub struct TrackEffects {
     frames_per_beat: f32,
     smooth: f32,
     chain: EffectChain,
-    active: [bool; MAX_EFFECTS],
+    active: [bool; KINDS],
     eq: EqThree,
     filter: Filter,
     saturator: Saturator,
@@ -586,7 +588,7 @@ impl TrackEffects {
             frames_per_beat: sample_rate * 60.0 / DEFAULT_BPM,
             smooth: smoothing(SMOOTH_SECONDS, sample_rate),
             chain: EffectChain::EMPTY,
-            active: [false; MAX_EFFECTS],
+            active: [false; KINDS],
             eq: EqThree {
                 bands: [Biquad::IDENTITY; 3],
             },
@@ -618,8 +620,8 @@ impl TrackEffects {
     /// A kind listed twice runs once, at its first position. Allocation-free.
     pub fn set_chain(&mut self, chain: &EffectChain) {
         let mut next = EffectChain::EMPTY;
-        let mut seen = [false; MAX_EFFECTS];
-        let mut now_active = [false; MAX_EFFECTS];
+        let mut seen = [false; KINDS];
+        let mut now_active = [false; KINDS];
         for effect in chain.slots.iter().take(usize::from(chain.len)) {
             let kind = effect.kind as usize;
             if seen.get(kind).copied().unwrap_or(true) {
@@ -681,6 +683,7 @@ impl TrackEffects {
                 EffectKind::Compressor => compressor.process(a, b, k),
                 EffectKind::Delay => delay.process(a, b, k),
                 EffectKind::Reverb => reverb.process(a, b, k),
+                _ => (a, b),
             };
         }
         let level = out.0.abs().max(out.1.abs()).max(l.abs()).max(r.abs());
@@ -709,6 +712,7 @@ impl TrackEffects {
             EffectKind::Compressor => self.compressor.configure(effect, sr),
             EffectKind::Delay => self.delay.configure(effect, self.frames_per_beat),
             EffectKind::Reverb => self.reverb.configure(effect),
+            _ => {}
         }
     }
 
@@ -720,6 +724,7 @@ impl TrackEffects {
             EffectKind::Compressor => self.compressor.reset(),
             EffectKind::Delay => self.delay.reset(),
             EffectKind::Reverb => self.reverb.reset(),
+            _ => {}
         }
     }
 
@@ -941,6 +946,7 @@ mod tests {
             kind,
             enabled: true,
             params: [f32::NAN, f32::INFINITY, -1.0e9, 1.0e9, f32::NEG_INFINITY],
+            ..Effect::new(kind)
         });
         let mut fx = with(&effects);
         for frame in 0..SR as usize {

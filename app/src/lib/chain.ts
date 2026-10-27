@@ -18,9 +18,15 @@ export const EFFECT_BLURBS: Record<EffectKind, string> = {
 	eq: 'Cut or boost the lows, mids and highs.',
 	filter: 'Low-, high- or band-pass with resonance.',
 	saturator: 'Drive into soft clipping for warmth.',
-	compressor: 'Even out the level above a threshold.',
+	compressor: 'Even out the level, or duck under another track with the sidechain.',
+	limiter: 'Catch peaks so the track never clips.',
+	utility: 'Gain, stereo width and pan.',
+	chorus: 'Detuned copies that thicken and widen.',
+	phaser: 'Sweeping notches for a swirling tone.',
+	autoPan: 'Tempo-synced panning or tremolo.',
 	delay: 'Tempo-synced echoes with feedback.',
-	reverb: 'A Freeverb room with size and damping.'
+	reverb: 'A Freeverb room with size and damping.',
+	bitCrusher: 'Lower the bit depth and sample rate for grit.'
 };
 
 /** The most parameters one effect has, so a queue key never collides. */
