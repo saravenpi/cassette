@@ -431,6 +431,7 @@ impl RenderCore {
     /// Set the tempo on the transport and on the synth's tempo-synced effects.
     fn set_tempo(&mut self, bpm: f32) {
         self.transport.set_bpm(bpm);
+        self.synth.set_tempo(self.transport.bpm());
     }
 
     /// Sample rate this core was built for.

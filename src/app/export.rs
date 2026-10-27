@@ -615,6 +615,32 @@ mod tests {
         assert!(loudest(4.0, 5.0) > 0.01, "audible during the note");
     }
 
+    #[test]
+    fn an_added_delay_echoes_in_the_export() {
+        let mut app = headless_app();
+        app.submit(crate::events::Event::CreateBlock {
+            track: 0,
+            start_beats: 0.0,
+            length_beats: 1.0,
+        });
+        add_note(&mut app, 0.0);
+        app.submit(crate::events::Event::AddEffect {
+            track: 0,
+            kind: crate::models::EffectKind::Delay,
+            index: None,
+        });
+        let dir = TempDir::new();
+        app.export_audio(dir.arg("out.wav"));
+        let sample = wav::decode(&dir.file("out.wav"), usize::MAX).expect("decode export");
+        let frames_per_beat = EXPORT_SAMPLE_RATE as f32 * 60.0 / app.song.bpm();
+        let tail = &sample.frames[(2.0 * frames_per_beat) as usize..];
+        let peak = tail.iter().fold(0.0f32, |peak, v| peak.max(v.abs()));
+        assert!(
+            peak > 0.001,
+            "the delay keeps sounding after the note: {peak}"
+        );
+    }
+
     fn audible_span(wav_path: &Path) -> (usize, usize, usize) {
         let sample = wav::decode(wav_path, usize::MAX).expect("decode export");
         let frames = &sample.frames;
