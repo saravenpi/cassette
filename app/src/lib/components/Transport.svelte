@@ -52,13 +52,15 @@
 		<button
 			class="wide"
 			aria-pressed={snapshot?.playing ?? false}
+			disabled={session.exporting}
 			onclick={() => session.dispatch('togglePlay')}
 		>
 			Play
 		</button>
-		<button onclick={() => session.dispatch('stop')}>Stop</button>
+		<button disabled={session.exporting} onclick={() => session.dispatch('stop')}>Stop</button>
 		<button
 			aria-pressed={snapshot?.looping ?? false}
+			disabled={session.exporting}
 			onclick={() => session.dispatch('toggleLoop')}
 		>
 			Loop
@@ -68,6 +70,7 @@
 			aria-label="Record notes"
 			title="Record the notes you play into the selected MIDI track (F9)"
 			aria-pressed={snapshot?.recording ?? false}
+			disabled={session.exporting}
 			onclick={() => session.dispatch('toggleRecord')}
 		>
 			<span class="dot" aria-hidden="true"></span>

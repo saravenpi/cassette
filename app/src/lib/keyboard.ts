@@ -11,6 +11,7 @@ import type { EngineEvent } from './wire';
 interface KeyboardHost {
 	readonly renaming: boolean;
 	readonly octave: number;
+	readonly exporting?: boolean;
 	dispatch(event: EngineEvent): void;
 	sendNow(event: EngineEvent): void;
 	setZoom(direction: number): void;
@@ -75,6 +76,7 @@ export function attachKeyboard(host: KeyboardHost): () => void {
 	}
 
 	function onKeyDown(event: KeyboardEvent): void {
+		if (host.exporting) return;
 		const pitch = host.renaming ? null : noteFor(event, host.octave);
 
 		if (pitch !== null) {

@@ -27,6 +27,11 @@ impl App {
     }
 
     pub(crate) fn export_audio(&mut self, target_path: Option<String>) {
+        self.end_take();
+        self.send(RtCommand::Stop);
+        self.send(RtCommand::Seek {
+            beats: self.marker_beats,
+        });
         let path = target_path
             .map(PathBuf::from)
             .unwrap_or_else(|| default_export_path("export", "wav"));
@@ -399,6 +404,19 @@ mod tests {
         assert_eq!(reports.first().copied(), Some(Some(0.0)));
         assert_eq!(reports.last().copied(), Some(None));
         assert!(app.ui_state().export_progress.is_none());
+    }
+
+    #[test]
+    fn audio_export_stops_playback_before_rendering() {
+        let mut app = headless_app();
+        app.toggle_play();
+        let dir = TempDir::new();
+        app.export_audio(dir.arg("out.wav"));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+        while app.ui_state().playing && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(!app.ui_state().playing);
     }
 
     #[test]

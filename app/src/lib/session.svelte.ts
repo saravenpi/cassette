@@ -139,6 +139,7 @@ class Session {
 
 	/** Apply one intent. */
 	dispatch(event: EngineEvent): void {
+		if (this.exporting && (event === 'togglePlay' || event === 'toggleRecord')) return;
 		void this.send(event);
 	}
 
@@ -538,6 +539,9 @@ class Session {
 			if (path === null) return;
 			this.exporting = true;
 			this.exportProgress = 0;
+			if (this.snapshot?.playing) {
+				await this.send('stop');
+			}
 			const sent = await this.send({ exportAudio: { path } });
 			if (!sent) {
 				this.exporting = false;

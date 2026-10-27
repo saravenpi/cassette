@@ -147,7 +147,7 @@ impl App {
     }
 
     /// Close the take: notes still held are written up to the playhead.
-    fn end_take(&mut self) {
+    pub(crate) fn end_take(&mut self) {
         if !self.recording {
             return;
         }
