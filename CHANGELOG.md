@@ -489,4 +489,4 @@ Loop points, frame-accurate note starts, and a review pass over v0.9.0.
 
 - Undefined font consistency: preloaded font in `app.html`, mapped all weights (`100 900`, `normal`, `bold`) in `@font-face`, and removed font-weight overrides.
 - Top right action button styling: removed duplicate icon artifact and streamlined layout.
-- Favicon pixel-art fidelity: added vector SVG favicon (`favicon.svg`) and high-resolution PNG assets (`favicon.png`, `apple-touch-icon.png`, `icon.png`) with `#88A888` keyboard on `#000000` squircle.
+- Favicon pixel-art fidelity: updated vector SVG favicon (`favicon.svg`) and raster PNG assets (`favicon.png`, `apple-touch-icon.png`, `icon.png`) to render `#88A888` keyboard-music with transparent background.
