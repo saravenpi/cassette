@@ -3,6 +3,7 @@
 @theme {
   --font-mono: "Undefined", monospace;
   --font-sans: "Undefined", monospace;
+  --font-serif: "Undefined", monospace;
   --color-surface: #1F1F1F;
   --color-surface-hover: #262626;
   --color-border: #262626;
@@ -13,7 +14,23 @@
 @font-face {
   font-family: "Undefined";
   src: url("/undefined-medium.otf") format("opentype");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Undefined";
+  src: url("/undefined-medium.otf") format("opentype");
   font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Undefined";
+  src: url("/undefined-medium.otf") format("opentype");
+  font-weight: bold;
   font-style: normal;
   font-display: swap;
 }

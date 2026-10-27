@@ -479,6 +479,13 @@ Loop points, frame-accurate note starts, and a review pass over v0.9.0.
 - High-resolution session screenshots in the repository README and website static assets.
 - Morphing responsive top navigation matching Kono Vitrine with scroll transitions and slide-out mobile drawer.
 
+### Changed
+
+- Desktop application icon: generated assets adhering to Apple HIG safe-area squircle specifications with centered 24x pixel-aligned `pixelarticons:keyboard-music` in `#88A888` on `#000000`.
+- Website logo: updated `logo.svg` to pure `pixelarticons:keyboard-music` vector in `#88A888` without clipping boxes.
+- Borderless navigation styling: removed borders around the top navigation and mobile sidebar drawer.
+
 ### Fixed
 
+- Undefined font consistency: preloaded font in `app.html`, mapped all weights (`100 900`, `normal`, `bold`) in `@font-face`, and removed font-weight overrides.
 - Top right action button styling: removed duplicate icon artifact and streamlined layout.

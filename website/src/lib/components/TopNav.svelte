@@ -24,8 +24,8 @@
 >
   <div
     class="pointer-events-auto transition-all duration-300 ease-out {isScrolled
-      ? 'w-[calc(100%-2rem)] md:w-[calc(100%-4rem)] max-w-6xl mt-2 md:mt-3 px-4 md:px-6 py-3 bg-[#000000] border border-[#262626] shadow-2xl'
-      : 'w-full max-w-full mt-0 px-6 md:px-12 py-4 bg-[#000000] border-b border-[#262626]'}"
+      ? 'w-[calc(100%-2rem)] md:w-[calc(100%-4rem)] max-w-6xl mt-2 md:mt-3 px-4 md:px-6 py-3 bg-[#000000] shadow-2xl'
+      : 'w-full max-w-full mt-0 px-6 md:px-12 py-4 bg-[#000000]'}"
   >
     <div
       class="max-w-6xl mx-auto flex items-center justify-between gap-4 text-[11px] uppercase tracking-widest leading-none"
@@ -102,12 +102,12 @@
   ></button>
 
   <aside
-    class="fixed top-0 right-0 bottom-0 w-72 max-w-[85vw] bg-[#000000] z-50 p-6 flex flex-col justify-between shadow-2xl md:hidden border-l border-[#262626]"
+    class="fixed top-0 right-0 bottom-0 w-72 max-w-[85vw] bg-[#000000] z-50 p-6 flex flex-col justify-between shadow-2xl md:hidden"
     aria-label="Mobile navigation"
     transition:fly={{ x: 288, duration: 300, easing: cubicOut, opacity: 1 }}
   >
     <div class="space-y-8">
-      <div class="flex items-center justify-between pb-4 border-b border-[#262626]">
+      <div class="flex items-center justify-between pb-4">
         <div class="flex items-center gap-2">
           <img src="/logo.svg" alt="CASSETTE" class="h-5 w-5" />
           <span class="text-xs uppercase tracking-widest text-[#FFFFFF]">CASSETTE</span>
@@ -168,7 +168,7 @@
       </div>
     </div>
 
-    <div class="pt-6 border-t border-[#262626]">
+    <div class="pt-6">
       <a
         href="https://github.com/saravenpi/cassette"
         target="_blank"

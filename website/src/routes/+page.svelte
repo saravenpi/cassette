@@ -163,7 +163,7 @@
         <div class="bg-[#1F1F1F] border border-[#262626] p-5 sm:p-6 space-y-4 hover:border-[#88A888]/50 transition-colors">
           <div class="flex items-start justify-between gap-4">
             <div class="space-y-1">
-              <h3 class="text-sm font-medium tracking-wide text-[#FFFFFF]">{feature.title}</h3>
+              <h3 class="text-sm tracking-wide text-[#FFFFFF]">{feature.title}</h3>
               <div class="text-xs text-[#88A888] tracking-wide">{feature.summary}</div>
             </div>
             <Icon icon={feature.icon} class="w-5 h-5 text-[#88A888] shrink-0" />
