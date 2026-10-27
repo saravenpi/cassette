@@ -238,7 +238,7 @@
             icon="pixelarticons:download"
             class="w-5 h-5 shrink-0 translate-y-[1px]"
           />
-          <span class="leading-none">&gt; Go to downloads</span>
+          <span class="leading-none">Go to downloads</span>
         </a>
       </div>
     </div>
