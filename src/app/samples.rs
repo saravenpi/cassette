@@ -143,6 +143,29 @@ impl App {
         }
         Some(loaded.slot)
     }
+
+    pub(crate) fn garbage_collect_samples(&mut self) {
+        let referenced: std::collections::HashSet<&str> = self
+            .song
+            .tracks
+            .iter()
+            .flat_map(|t| t.blocks.iter().map(|b| b.source.as_str()))
+            .filter(|s| !s.is_empty())
+            .collect();
+        let to_remove: Vec<(String, u8)> = self
+            .samples
+            .iter()
+            .filter(|(path, _)| !referenced.contains(path.as_str()))
+            .map(|(path, &slot)| (path.clone(), slot))
+            .collect();
+        for (path, slot) in to_remove {
+            self.samples.remove(&path);
+            self.loaded_samples.remove(&slot);
+            if let Some(producer) = self.producer.as_mut() {
+                let _ = producer.push(SampleMsg::Free { slot });
+            }
+        }
+    }
 }
 
 struct Loaded {

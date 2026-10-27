@@ -303,7 +303,7 @@ impl App {
 
     /// Give one track's notes a fresh revision, after anything that may have
     /// changed them or the blocks that hold them.
-    fn touch_notes(&mut self, track: usize) {
+    pub(crate) fn touch_notes(&mut self, track: usize) {
         if let Some(revision) = self.note_revisions.get_mut(track) {
             self.note_revision += 1;
             *revision = self.note_revision;
@@ -331,7 +331,7 @@ impl App {
     }
 
     /// Seconds one beat lasts at the song's tempo.
-    fn seconds_per_beat(&self) -> f32 {
+    pub(crate) fn seconds_per_beat(&self) -> f32 {
         60.0 / self.song.bpm().max(1.0)
     }
 
