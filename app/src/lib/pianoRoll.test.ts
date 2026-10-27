@@ -4,6 +4,8 @@ import {
 	MIN_NOTE_BEATS,
 	PITCH_MAX,
 	PREVIEW_MIN_ROWS,
+	ROLL_ZOOM_MAX,
+	ROLL_ZOOM_MIN,
 	ROW_PX,
 	VELOCITY_MAX,
 	VELOCITY_MIN,
@@ -19,6 +21,8 @@ import {
 	noteName,
 	pitchToY,
 	previewRange,
+	rollZoomBy,
+	rollZoomByWheel,
 	snapToGrid,
 	velocityOpacity,
 	velocityStep,
@@ -26,14 +30,13 @@ import {
 } from './pianoRoll';
 import type { BlockView, NoteView } from './wire';
 
-// bun test injects these as globals; @types/bun is not a dependency, so svelte-check
-// needs the shapes declared here to see them.
 interface Matchers {
 	toBe(expected: unknown): void;
 	toEqual(expected: unknown): void;
 	toBeNull(): void;
 	toBeCloseTo(expected: number, digits?: number): void;
 	toBeLessThan(expected: number): void;
+	toBeGreaterThan(expected: number): void;
 	not: Matchers;
 }
 
@@ -110,23 +113,37 @@ describe('hitNote', () => {
 	const zoom = 64;
 
 	test('finds the note under a point, preferring the one drawn last', () => {
-		expect(hitNote(notes, 10, pitchToY(60) + 2, zoom)).toEqual({ note: 0, edge: false });
-		expect(hitNote(notes, 40, pitchToY(60) + 2, zoom)).toEqual({ note: 1, edge: false });
+		expect(hitNote(notes, 10, pitchToY(60) + 2, zoom)).toEqual({ note: 0, edge: null });
+		expect(hitNote(notes, 40, pitchToY(60) + 2, zoom)).toEqual({ note: 1, edge: null });
 	});
 
-	test('reports the right edge as the resize handle', () => {
+	test('reports start and end edges on standard notes', () => {
+		const left = 0.5 * zoom;
 		const right = 1.5 * zoom;
-		expect(hitNote(notes, right - 1, pitchToY(60) + 2, zoom)).toEqual({ note: 1, edge: true });
+		expect(hitNote(notes, left + 1, pitchToY(60) + 2, zoom)).toEqual({
+			note: 1,
+			edge: 'start'
+		});
+		expect(hitNote(notes, right - 1, pitchToY(60) + 2, zoom)).toEqual({
+			note: 1,
+			edge: 'end'
+		});
 		expect(hitNote(notes, right - HANDLE_PX - 1, pitchToY(60) + 2, zoom)).toEqual({
 			note: 1,
-			edge: false
+			edge: null
 		});
 	});
 
-	test('keeps the left half of a narrow note for moving', () => {
+	test('splits a narrow note between start and end handles without overlap', () => {
 		const left = 2 * zoom;
-		expect(hitNote(notes, left + 1, pitchToY(62) + 2, zoom)).toEqual({ note: 2, edge: false });
-		expect(hitNote(notes, left + 7, pitchToY(62) + 2, zoom)).toEqual({ note: 2, edge: true });
+		expect(hitNote(notes, left + 1, pitchToY(62) + 2, zoom)).toEqual({
+			note: 2,
+			edge: 'start'
+		});
+		expect(hitNote(notes, left + 7, pitchToY(62) + 2, zoom)).toEqual({
+			note: 2,
+			edge: 'end'
+		});
 	});
 
 	test('misses on another row, past the end, and outside the grid', () => {
@@ -226,5 +243,24 @@ describe('locateBlock', () => {
 	test('returns null once the block is gone or no longer MIDI', () => {
 		expect(locateBlock([block('a', 0)], 1, 'b', 4)).toBeNull();
 		expect(locateBlock([block('a', 0), block('b', 4, 'audio')], 1, 'b', 4)).toBeNull();
+	});
+});
+
+describe('piano roll zoom', () => {
+	test('steps up on positive direction and down on negative', () => {
+		expect(rollZoomBy(64, 1)).toBe(80);
+		expect(rollZoomBy(80, -1)).toBe(64);
+	});
+
+	test('clamps at minimum and maximum zoom bounds', () => {
+		expect(rollZoomBy(ROLL_ZOOM_MAX, 1)).toBe(ROLL_ZOOM_MAX);
+		expect(rollZoomBy(ROLL_ZOOM_MIN, -1)).toBe(ROLL_ZOOM_MIN);
+	});
+
+	test('zooms exponentially by wheel delta', () => {
+		expect(rollZoomByWheel(64, -100)).toBeGreaterThan(64);
+		expect(rollZoomByWheel(64, 100)).toBeLessThan(64);
+		expect(rollZoomByWheel(ROLL_ZOOM_MAX, -100)).toBe(ROLL_ZOOM_MAX);
+		expect(rollZoomByWheel(ROLL_ZOOM_MIN, 100)).toBe(ROLL_ZOOM_MIN);
 	});
 });

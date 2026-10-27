@@ -20,6 +20,11 @@ export const KEYS_WIDTH = 56;
 
 /** Pixels per beat the roll opens at. */
 export const ROLL_ZOOM_DEFAULT = 64;
+/** Deepest and widest zoom scales the piano roll allows. */
+export const ROLL_ZOOM_MIN = 16;
+export const ROLL_ZOOM_MAX = 2048;
+export const ROLL_ZOOM_STEP = 1.25;
+export const ROLL_WHEEL_ZOOM_RATE = 0.0022;
 
 /** Beats a note snaps to, unless Alt is held: one sixteenth note. */
 export const NOTE_GRID = 0.25;
@@ -41,6 +46,21 @@ const NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 
 function clamp(value: number, low: number, high: number): number {
 	return Math.min(high, Math.max(low, value));
+}
+
+/** Keep a scale inside the piano roll zoom bounds. */
+export function rollClampZoom(pxPerBeat: number): number {
+	return clamp(pxPerBeat, ROLL_ZOOM_MIN, ROLL_ZOOM_MAX);
+}
+
+/** The next piano roll scale one zoom press away, clamped. */
+export function rollZoomBy(pxPerBeat: number, direction: number): number {
+	return rollClampZoom(direction > 0 ? pxPerBeat * ROLL_ZOOM_STEP : pxPerBeat / ROLL_ZOOM_STEP);
+}
+
+/** The piano roll scale after a wheel movement of deltaY pixels, clamped. */
+export function rollZoomByWheel(pxPerBeat: number, deltaY: number): number {
+	return rollClampZoom(pxPerBeat * Math.exp(-deltaY * ROLL_WHEEL_ZOOM_RATE));
 }
 
 /** A pitch held inside the MIDI range and rounded to a whole semitone. */
@@ -79,15 +99,20 @@ export function noteName(pitch: number): string {
 	return `${NAMES[semitone]}${Math.floor(pitch / 12) - 1}`;
 }
 
-/** Which note sits under a point, and whether the point is on its resize handle. */
+/** Which edge of a note is under a point, or null for its body. */
+export type NoteEdge = 'start' | 'end' | null;
+
+/** Which note sits under a point, and whether the point is on an edge handle. */
 export interface NoteHit {
 	note: number;
-	edge: boolean;
+	edge: NoteEdge;
 }
 
 /**
  * The note under a point of the grid, searching from the last note drawn so the
- * one on top wins. A note narrower than two handles keeps its left half for moving.
+ * one on top wins. The start handle drags to resize from the left, the end handle
+ * from the right, and the body in between moves. Handles shrink to half the width
+ * on narrow notes so they never overlap.
  */
 export function hitNote(
 	notes: readonly NoteView[],
@@ -104,8 +129,15 @@ export function hitNote(
 		const left = beatsToPx(note.startBeats, pxPerBeat);
 		const right = left + beatsToPx(note.lengthBeats, pxPerBeat);
 		if (x < left || x > right) continue;
-		const handle = Math.min(HANDLE_PX, (right - left) / 2);
-		return { note: index, edge: x >= right - handle };
+		const width = right - left;
+		const handle = Math.min(HANDLE_PX, width / 2);
+		let edge: NoteEdge = null;
+		if (x - left < handle) {
+			edge = 'start';
+		} else if (right - x <= handle) {
+			edge = 'end';
+		}
+		return { note: index, edge };
 	}
 	return null;
 }
