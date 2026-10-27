@@ -1882,7 +1882,7 @@ mod tests {
         let mut core = RenderCore::new(&song, DEFAULT_SAMPLE_RATE);
         core.set_notes(
             0,
-            &[MirroredNote {
+            [MirroredNote {
                 start_beats: 0.0,
                 end_beats: 4.0,
                 pitch: 60,
@@ -1892,7 +1892,7 @@ mod tests {
         core.apply(RtCommand::Play);
         render(&mut core, 256);
         assert!(core.synth.active_voices() > 0);
-        core.set_notes(0, &[]);
+        core.set_notes(0, []);
         render(&mut core, 44100);
         assert_eq!(core.synth.active_voices(), 0);
     }

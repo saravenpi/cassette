@@ -223,6 +223,7 @@
 		cursor: grab;
 		user-select: none;
 		z-index: 1;
+		isolation: isolate;
 	}
 
 	.block.selected {

@@ -50,6 +50,7 @@ run = "bun install --frozen-lockfile"
 description = "Open the desktop app with a hot-reloading frontend"
 depends = ["install"]
 dir = "app"
+env = { WEBKIT_DISABLE_DMABUF_RENDERER = "1" }
 run = "bun run tauri dev"
 
 [tasks.build]

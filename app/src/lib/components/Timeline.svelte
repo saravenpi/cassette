@@ -418,7 +418,7 @@
 			{#if session.hover !== null}
 				<div
 					class="hover-line"
-					style="left: {beatsToPx(session.hover.beats, session.zoom)}px; top: {RULER_HEIGHT}px; height: calc(100% - {RULER_HEIGHT}px)"
+					style="transform: translate3d({beatsToPx(session.hover.beats, session.zoom)}px, 0, 0); top: {RULER_HEIGHT}px; height: calc(100% - {RULER_HEIGHT}px)"
 				></div>
 			{/if}
 		</div>
@@ -490,10 +490,12 @@
 
 	.hover-line {
 		position: absolute;
+		left: 0;
 		width: 0;
 		border-left: 1px dashed var(--text-subtle);
 		pointer-events: none;
 		z-index: 2;
+		will-change: transform;
 	}
 
 	.zoom-row {

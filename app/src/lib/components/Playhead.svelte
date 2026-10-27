@@ -18,17 +18,19 @@
 	const left = $derived(offset + beatsToPx(beats, pxPerBeat));
 </script>
 
-<div class="playhead" style="left: {left}px; top: {top}px; height: calc(100% - {top}px)">
+<div class="playhead" style="transform: translate3d({left}px, 0, 0); top: {top}px; height: calc(100% - {top}px)">
 	<span class="head"></span>
 </div>
 
 <style>
 	.playhead {
 		position: absolute;
+		left: 0;
 		width: 1px;
 		background: var(--olive);
 		pointer-events: none;
 		z-index: 2;
+		will-change: transform;
 	}
 
 	.head {

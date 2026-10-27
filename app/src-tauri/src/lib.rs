@@ -334,6 +334,11 @@ fn engine_thread(commands: Receiver<Event>, snapshot: Snapshot) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "linux")]
+    unsafe {
+        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    }
+
     let snapshot: Snapshot = Arc::new(Mutex::new(None));
     let (commands, receiver) = unbounded::<Event>();
     let published = snapshot.clone();
