@@ -7,31 +7,95 @@
 use super::App;
 use crate::models::{Effect, EffectChain, EffectKind, MAX_EFFECTS};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TrackShift {
+    Inserted(usize),
+    Deleted(usize),
+}
+
 impl App {
     pub(crate) fn set_effect_sidechain(
         &mut self,
-        _track: usize,
-        _index: usize,
-        _source: Option<usize>,
+        track: usize,
+        index: usize,
+        source: Option<usize>,
     ) {
+        let found = self
+            .song
+            .tracks
+            .get(track)
+            .is_some_and(|lane| index < lane.effects.len());
+        if !found {
+            self.status = "no effect there".into();
+            return;
+        }
+        let effect_kind = self.song.tracks[track].effects[index].kind;
+        if !effect_kind.takes_sidechain() {
+            self.status = format!("{} does not take a sidechain", effect_kind.name());
+            return;
+        }
+        match source {
+            Some(source_track) => {
+                if source_track == track {
+                    self.status = "an effect cannot listen to its own track".into();
+                    return;
+                }
+                if source_track >= self.song.tracks.len() {
+                    self.status = "no track there to listen to".into();
+                    return;
+                }
+                self.song.tracks[track].effects[index].sidechain = Some(source_track as u8);
+                let source_name = self.song.tracks[source_track].name.clone();
+                self.push_effects(track);
+                self.status = format!("{} listens to {}", effect_kind.name(), source_name);
+            }
+            None => {
+                self.song.tracks[track].effects[index].sidechain = None;
+                self.push_effects(track);
+                self.status = format!("{} listens to its own input", effect_kind.name());
+            }
+        }
+    }
+
+    pub(crate) fn remap_sidechains(&mut self, shift: TrackShift) {
+        for track in &mut self.song.tracks {
+            for effect in &mut track.effects {
+                if let Some(source) = effect.sidechain {
+                    let s = source as usize;
+                    match shift {
+                        TrackShift::Deleted(deleted) => {
+                            if s == deleted {
+                                effect.sidechain = None;
+                            } else if s > deleted {
+                                effect.sidechain = Some((s - 1) as u8);
+                            }
+                        }
+                        TrackShift::Inserted(inserted) => {
+                            if s >= inserted {
+                                effect.sidechain = Some((s + 1) as u8);
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Insert a fresh effect at `index`, clamped to the chain, or at the end.
     pub(crate) fn add_effect(&mut self, track: usize, kind: EffectKind, index: Option<usize>) {
-        let Some(lane) = self.song.tracks.get_mut(track) else {
+        let Some(lane_len) = self.song.tracks.get(track).map(|lane| lane.effects.len()) else {
             self.status = "no track there to add an effect to".into();
             return;
         };
-        if lane.effects.len() >= MAX_EFFECTS {
+        if lane_len >= MAX_EFFECTS {
             self.status = format!("track {} already holds {MAX_EFFECTS} effects", track + 1);
             return;
         }
-        if lane.effects.iter().any(|effect| effect.kind == kind) {
-            self.status = format!("{} is already on this track", kind.name());
-            return;
-        }
-        let at = index.map_or(lane.effects.len(), |index| index.min(lane.effects.len()));
-        lane.effects.insert(at, Effect::new(kind));
+        let id = self.song.next_effect_id();
+        let mut effect = Effect::new(kind);
+        effect.id = id;
+        let at = index.map_or(lane_len, |index| index.min(lane_len));
+        self.song.tracks[track].effects.insert(at, effect);
         self.select_track(track);
         self.push_effects(track);
         self.status = format!("{} added to track {}", kind.name(), track + 1);
@@ -125,9 +189,10 @@ impl App {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::app::App;
     use crate::events::Event;
-    use crate::models::{EffectKind, MAX_EFFECTS};
+    use crate::models::{Effect, EffectKind, MAX_EFFECTS};
 
     fn headless_app() -> App {
         App::new_silent().expect("silent app should build")
@@ -171,18 +236,22 @@ mod tests {
     }
 
     #[test]
-    fn adding_refuses_a_duplicate_a_full_chain_and_a_missing_track() {
+    fn adding_allows_duplicates_and_refuses_full_chain_and_missing_track() {
         let mut app = headless_app();
         add(&mut app, EffectKind::Reverb, None);
         add(&mut app, EffectKind::Reverb, None);
-        assert_eq!(kinds(&app), vec![EffectKind::Reverb]);
-        assert_eq!(app.status, "Reverb is already on this track");
+        assert_eq!(kinds(&app), vec![EffectKind::Reverb, EffectKind::Reverb]);
+        assert_ne!(
+            app.song.tracks[1].effects[0].id,
+            app.song.tracks[1].effects[1].id
+        );
+        assert_ne!(app.song.tracks[1].effects[0].id, 0);
 
-        for kind in EffectKind::ALL {
-            add(&mut app, kind, None);
+        for _ in 0..MAX_EFFECTS - 2 {
+            add(&mut app, EffectKind::Eq, None);
         }
         assert_eq!(kinds(&app).len(), MAX_EFFECTS);
-        add(&mut app, EffectKind::Eq, None);
+        add(&mut app, EffectKind::Delay, None);
         assert!(app.status.contains("already holds"), "{}", app.status);
 
         app.submit(Event::AddEffect {
@@ -191,6 +260,89 @@ mod tests {
             index: None,
         });
         assert!(app.status.contains("no track"), "{}", app.status);
+    }
+
+    #[test]
+    fn sidechain_can_be_set_cleared_and_refuses_invalid_sources() {
+        let mut app = headless_app();
+        app.song.tracks[0].name = "Kick".into();
+        add(&mut app, EffectKind::Compressor, None);
+
+        app.submit(Event::SetEffectSidechain {
+            track: 1,
+            index: 0,
+            source: Some(0),
+        });
+        assert_eq!(app.song.tracks[1].effects[0].sidechain, Some(0));
+        assert_eq!(app.status, "Compressor listens to Kick");
+
+        app.submit(Event::SetEffectSidechain {
+            track: 1,
+            index: 0,
+            source: None,
+        });
+        assert_eq!(app.song.tracks[1].effects[0].sidechain, None);
+        assert_eq!(app.status, "Compressor listens to its own input");
+
+        app.submit(Event::SetEffectSidechain {
+            track: 1,
+            index: 0,
+            source: Some(1),
+        });
+        assert_eq!(app.song.tracks[1].effects[0].sidechain, None);
+        assert_eq!(app.status, "an effect cannot listen to its own track");
+
+        app.submit(Event::SetEffectSidechain {
+            track: 1,
+            index: 0,
+            source: Some(99),
+        });
+        assert_eq!(app.song.tracks[1].effects[0].sidechain, None);
+        assert_eq!(app.status, "no track there to listen to");
+
+        add(&mut app, EffectKind::Reverb, None);
+        app.submit(Event::SetEffectSidechain {
+            track: 1,
+            index: 1,
+            source: Some(0),
+        });
+        assert_eq!(app.song.tracks[1].effects[1].sidechain, None);
+        assert_eq!(app.status, "Reverb does not take a sidechain");
+    }
+
+    #[test]
+    fn sidechain_remap_shifts_and_clears() {
+        let mut app = headless_app();
+        add(&mut app, EffectKind::Compressor, None);
+        app.song.tracks[1].effects[0].sidechain = Some(3);
+
+        app.remap_sidechains(TrackShift::Inserted(2));
+        assert_eq!(app.song.tracks[1].effects[0].sidechain, Some(4));
+
+        app.remap_sidechains(TrackShift::Deleted(4));
+        assert_eq!(app.song.tracks[1].effects[0].sidechain, None);
+
+        app.song.tracks[1].effects[0].sidechain = Some(3);
+        app.remap_sidechains(TrackShift::Deleted(1));
+        assert_eq!(app.song.tracks[1].effects[0].sidechain, Some(2));
+    }
+
+    #[test]
+    fn sanitize_assigns_unique_nonzero_effect_ids() {
+        let mut app = headless_app();
+        let mut e1 = Effect::new(EffectKind::Reverb);
+        let mut e2 = Effect::new(EffectKind::Delay);
+        e1.id = 0;
+        e2.id = 0;
+        app.song.tracks[0].effects = vec![e1, e2];
+        let problems = app.song.sanitize().expect("song should sanitize");
+        assert!(problems.iter().any(|p| p.contains("unique effect ids")));
+        assert_ne!(app.song.tracks[0].effects[0].id, 0);
+        assert_ne!(app.song.tracks[0].effects[1].id, 0);
+        assert_ne!(
+            app.song.tracks[0].effects[0].id,
+            app.song.tracks[0].effects[1].id
+        );
     }
 
     #[test]
