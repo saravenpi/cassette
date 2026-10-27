@@ -1337,4 +1337,109 @@ mod tests {
             .fold(0.0, f32::max);
         assert!(tail > 1e-4, "the tail built up while muted: {tail}");
     }
+
+    #[test]
+    fn sidechain_compressor_ducks_to_another_track() {
+        let mut e = engine();
+        e.set_track_count(2);
+        e.configure_track(0, Instrument::preset("Lead"), 1.0, 0.0, false, false);
+        e.configure_track(1, Instrument::preset("Lead"), 1.0, 0.0, false, false);
+
+        let mut comp = Effect::new(EffectKind::Compressor);
+        comp.params = [-20.0, 10.0, 0.1, 50.0, 0.0];
+        comp.sidechain = Some(0);
+        e.set_effects(1, &chain(&[comp]));
+
+        e.note_on(1, 60, 100, HELD);
+        let mut peaks = [0.0; MAX_TRACKS];
+        for _ in 0..5_000 {
+            e.process_frame(&mut peaks);
+        }
+        let mut uncompressed_level = 0.0f32;
+        for _ in 0..1_000 {
+            let (_, r) = e.process_frame(&mut peaks);
+            uncompressed_level = uncompressed_level.max(r.abs());
+        }
+        assert!(uncompressed_level > 0.05);
+
+        e.note_on(0, 36, 127, 200);
+        let mut ducked_level = 1.0f32;
+        for _ in 0..200 {
+            let (_, r) = e.process_frame(&mut peaks);
+            ducked_level = ducked_level.min(r.abs());
+        }
+        assert!(ducked_level < uncompressed_level * 0.5);
+
+        for _ in 0..10_000 {
+            e.process_frame(&mut peaks);
+        }
+        let mut recovered_level = 0.0f32;
+        for _ in 0..500 {
+            let (_, r) = e.process_frame(&mut peaks);
+            recovered_level = recovered_level.max(r.abs());
+        }
+        assert!(recovered_level > uncompressed_level * 0.85);
+    }
+
+    #[test]
+    fn muted_source_track_still_drives_sidechain_ducking() {
+        let mut e = engine();
+        e.set_track_count(2);
+        e.configure_track(0, Instrument::preset("Lead"), 1.0, 0.0, true, false);
+        e.configure_track(1, Instrument::preset("Lead"), 1.0, 0.0, false, false);
+
+        let mut comp = Effect::new(EffectKind::Compressor);
+        comp.params = [-20.0, 10.0, 0.1, 50.0, 0.0];
+        comp.sidechain = Some(0);
+        e.set_effects(1, &chain(&[comp]));
+
+        e.note_on(1, 60, 100, HELD);
+        let mut peaks = [0.0; MAX_TRACKS];
+        for _ in 0..5_000 {
+            e.process_frame(&mut peaks);
+        }
+        let mut normal_level = 0.0f32;
+        for _ in 0..1_000 {
+            let (l, _) = e.process_frame(&mut peaks);
+            normal_level = normal_level.max(l.abs());
+        }
+
+        e.note_on(0, 36, 127, 200);
+        let mut ducked_level = 1.0f32;
+        for _ in 0..200 {
+            let (l, _) = e.process_frame(&mut peaks);
+            ducked_level = ducked_level.min(l.abs());
+        }
+        assert!(ducked_level < normal_level * 0.5);
+    }
+
+    #[test]
+    fn sidechain_out_of_range_or_own_track_falls_back_to_self_detection() {
+        let mut e = engine();
+        e.set_track_count(2);
+        e.configure_track(0, Instrument::preset("Lead"), 1.0, 0.0, false, false);
+
+        let mut comp_own = Effect::new(EffectKind::Compressor);
+        comp_own.params = [-20.0, 10.0, 0.1, 50.0, 0.0];
+        comp_own.sidechain = Some(0);
+        e.set_effects(0, &chain(&[comp_own]));
+
+        e.note_on(0, 60, 100, HELD);
+        let mut peaks = [0.0; MAX_TRACKS];
+        let mut self_detected = 0.0f32;
+        for _ in 0..1_000 {
+            let (l, _) = e.process_frame(&mut peaks);
+            self_detected = self_detected.max(l.abs());
+        }
+        assert!(self_detected > 0.0 && self_detected < 0.5);
+
+        let mut comp_oor = Effect::new(EffectKind::Compressor);
+        comp_oor.params = [-20.0, 10.0, 0.1, 50.0, 0.0];
+        comp_oor.sidechain = Some(99);
+        e.set_effects(0, &chain(&[comp_oor]));
+        for _ in 0..1_000 {
+            let (l, _) = e.process_frame(&mut peaks);
+            assert!(l.is_finite());
+        }
+    }
 }
