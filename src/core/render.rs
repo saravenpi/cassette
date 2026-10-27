@@ -5,6 +5,7 @@
 //! a fixed array filled by copying from a slice the control thread sends; the
 //! render path never allocates or frees it. The note mirror works the same way.
 
+use crate::core::effects::{EffectHandoff, EffectInstance};
 use crate::core::sample::{NO_SLOT, SampleMsg};
 use crate::core::synth::{SampleCue, SynthEngine};
 use crate::core::{MAX_BLOCKS, MAX_NOTES, MAX_TRACKS};
@@ -632,6 +633,25 @@ impl RenderCore {
         self.synth.push_sample(message);
     }
 
+    /// Hand the render core the control thread's ends of the effect rings.
+    pub fn set_effect_rings(
+        &mut self,
+        consumer: rtrb::Consumer<EffectHandoff>,
+        return_producer: rtrb::Producer<Box<EffectInstance>>,
+    ) {
+        self.synth.set_effect_rings(consumer, return_producer);
+    }
+
+    /// Apply everything waiting on the effect handoff ring to the incoming slots.
+    pub fn drain_effects(&mut self) {
+        self.synth.drain_effects();
+    }
+
+    /// Push an effect instance directly into a track's incoming slots (for tests).
+    pub fn push_effect_handoff(&mut self, track: u8, id: u32, instance: Box<EffectInstance>) {
+        self.synth.push_handoff(track, id, instance);
+    }
+
     /// Render interleaved stereo `out`. Returns the per-track peaks observed.
     ///
     /// The buffer is rendered in stretches cut at every loop end, block edge,
@@ -697,7 +717,7 @@ impl RenderCore {
         if let Some(end) = self.loop_end_frames() {
             if self.transport.position_frames() >= end {
                 self.transport.seek_beats(self.loop_span().0);
-                self.synth.all_notes_off();
+                self.synth.release_timeline_notes();
             }
             span = span.min(end.saturating_sub(self.transport.position_frames()).max(1) as usize);
         }
@@ -1491,6 +1511,37 @@ mod tests {
         assert_eq!(core.position_frames(), loop_frames as u64 - 100);
         render(&mut core, 300);
         assert_eq!(core.position_frames(), 200, "wrapped exactly at the end");
+    }
+
+    #[test]
+    fn loop_wrap_preserves_held_live_notes_and_cuts_sequenced_notes() {
+        let song = Song::new();
+        let mut core = RenderCore::new(&song, DEFAULT_SAMPLE_RATE);
+        core.apply(RtCommand::SetLoopRegion {
+            start_beats: 0.0,
+            end_beats: 2.0,
+        });
+        core.apply(RtCommand::SetLooping { looping: true });
+        core.apply(RtCommand::Play);
+        core.apply(RtCommand::NoteOn {
+            track: 0,
+            pitch: 60,
+            velocity: 100,
+        });
+        core.apply(RtCommand::SetNotes {
+            track: 0,
+            notes: Arc::from(vec![MirroredNote {
+                start_beats: 0.0,
+                end_beats: 1.9,
+                pitch: 72,
+                velocity: 100,
+            }]),
+        });
+        let frames_per_beat = (DEFAULT_SAMPLE_RATE as f64 * 60.0 / 120.0).round() as usize;
+        let loop_frames = frames_per_beat * 2;
+        render(&mut core, loop_frames + 256);
+        assert!(core.position_frames() < loop_frames as u64);
+        assert!(loud(&render(&mut core, 256)));
     }
 
     #[test]

@@ -4,9 +4,9 @@
 //! mutates existing memory. Envelope increments are derived from the
 //! [`Instrument`] and the sample rate whenever an instrument changes.
 
-use rtrb::Consumer;
+use rtrb::{Consumer, Producer};
 
-use crate::core::effects::TrackEffects;
+use crate::core::effects::{EffectHandoff, EffectInstance, TrackEffects};
 use crate::core::sample::{MAX_SAMPLE_SLOTS, NO_SLOT, SampleMsg, SamplePool};
 use crate::core::{MAX_TRACKS, MAX_VOICES};
 use crate::models::{EffectChain, Instrument, Waveform};
@@ -340,6 +340,10 @@ pub struct SynthEngine {
     pool: SamplePool,
     sample_consumer: Option<Consumer<SampleMsg>>,
     sample_ratios: [f32; MAX_SAMPLE_SLOTS],
+    effect_consumer: Option<Consumer<EffectHandoff>>,
+    return_producer: Option<Producer<Box<EffectInstance>>>,
+    last_frame_outputs: [(f32, f32); MAX_TRACKS],
+    current_frame_outputs: [(f32, f32); MAX_TRACKS],
 }
 
 impl SynthEngine {
@@ -358,6 +362,10 @@ impl SynthEngine {
             pool: SamplePool::new(),
             sample_consumer: None,
             sample_ratios: [1.0; MAX_SAMPLE_SLOTS],
+            effect_consumer: None,
+            return_producer: None,
+            last_frame_outputs: [(0.0, 0.0); MAX_TRACKS],
+            current_frame_outputs: [(0.0, 0.0); MAX_TRACKS],
         }
     }
 
@@ -377,7 +385,9 @@ impl SynthEngine {
         for track in &mut self.tracks[count..self.track_count.max(count)] {
             track.voices = [Voice::IDLE; MAX_VOICES];
             track.sample = SamplePlayer::IDLE;
-            track.effects.set_chain(&EffectChain::EMPTY);
+            track
+                .effects
+                .set_chain_with_return(&EffectChain::EMPTY, self.return_producer.as_mut());
         }
         self.track_count = count;
         self.recompute_active_voices();
@@ -583,7 +593,51 @@ impl SynthEngine {
     /// Replace one track's insert chain. Allocation-free.
     pub fn set_effects(&mut self, track: usize, chain: &EffectChain) {
         if let Some(t) = self.tracks.get_mut(track) {
-            t.effects.set_chain(chain);
+            t.effects
+                .set_chain_with_return(chain, self.return_producer.as_mut());
+        }
+    }
+
+    /// Hand the engine the control thread's ends of the effect rings.
+    pub fn set_effect_rings(
+        &mut self,
+        consumer: Consumer<EffectHandoff>,
+        return_producer: Producer<Box<EffectInstance>>,
+    ) {
+        self.effect_consumer = Some(consumer);
+        self.return_producer = Some(return_producer);
+    }
+
+    /// Drain incoming effect instances into the tracks' incoming slots.
+    pub fn drain_effects(&mut self) {
+        if let Some(ref mut consumer) = self.effect_consumer {
+            while let Ok(handoff) = consumer.pop() {
+                let track = handoff.track as usize;
+                if track < MAX_TRACKS {
+                    self.tracks[track]
+                        .effects
+                        .receive_handoff(handoff, self.return_producer.as_mut());
+                } else if let Some(ref mut prod) = self.return_producer
+                    && let Err(rtrb::PushError::Full(inst)) = prod.push(handoff.instance)
+                {
+                    std::mem::forget(inst);
+                }
+            }
+        }
+    }
+
+    /// Push an effect instance directly into a track's incoming slots (for tests).
+    pub fn push_handoff(&mut self, track: u8, id: u32, instance: Box<EffectInstance>) {
+        let t = track as usize;
+        if t < MAX_TRACKS {
+            self.tracks[t].effects.receive_handoff(
+                EffectHandoff {
+                    track,
+                    id,
+                    instance,
+                },
+                self.return_producer.as_mut(),
+            );
         }
     }
 
@@ -660,6 +714,19 @@ impl SynthEngine {
         for track in &mut self.tracks[..self.track_count] {
             for voice in &mut track.voices {
                 if !voice.is_idle() {
+                    voice.gate_left = 0;
+                }
+            }
+        }
+        self.release_all_samples();
+        self.recompute_active_voices();
+    }
+
+    /// Release only timeline-sequenced notes on loop wrap, preserving live held notes.
+    pub fn release_timeline_notes(&mut self) {
+        for track in &mut self.tracks[..self.track_count] {
+            for voice in &mut track.voices {
+                if !voice.is_idle() && voice.gate_left != HELD {
                     voice.gate_left = 0;
                 }
             }
@@ -759,7 +826,14 @@ impl SynthEngine {
                 }
             }
 
-            let (l, r) = track.effects.process(mono, mono);
+            let (l, r) = track.effects.process_with_sidechain(
+                mono,
+                mono,
+                &self.last_frame_outputs,
+                ti,
+                *track_count,
+            );
+            self.current_frame_outputs[ti] = (l, r);
             let magnitude = l.abs().max(r.abs());
             if magnitude > peaks[ti] {
                 peaks[ti] = magnitude;
@@ -773,6 +847,9 @@ impl SynthEngine {
                 sum_r += r * gain * (0.5 * (1.0 + pan));
             }
         }
+
+        self.last_frame_outputs = self.current_frame_outputs;
+        self.current_frame_outputs = [(0.0, 0.0); MAX_TRACKS];
 
         *active_voices = active_voices.saturating_sub(finished);
         let master = *master;

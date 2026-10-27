@@ -213,20 +213,52 @@ mod red_zone {
         assert!(core.position_frames() > 0, "the loop did run");
     }
 
-    /// A chain with one of every kind, all switched on.
-    fn every_effect() -> EffectChain {
-        EffectChain::from_effects(&EffectKind::ALL.map(Effect::new))
+    /// Eight effects including duplicates and a sidechain.
+    fn eight_effects() -> EffectChain {
+        let mut effects = [
+            Effect::new(EffectKind::Delay),
+            Effect::new(EffectKind::Delay),
+            Effect::new(EffectKind::Filter),
+            Effect::new(EffectKind::Filter),
+            Effect::new(EffectKind::Reverb),
+            Effect::new(EffectKind::Eq),
+            Effect::new(EffectKind::Saturator),
+            Effect::new(EffectKind::Compressor),
+        ];
+        for (i, effect) in effects.iter_mut().enumerate() {
+            effect.id = (i + 1) as u32;
+        }
+        effects[7].sidechain = Some(1);
+        EffectChain::from_effects(&effects)
     }
 
     #[test]
     fn every_effect_on_a_track_allocates_nothing() {
         let song = Song::new();
         let mut core = RenderCore::new(&song, DEFAULT_SAMPLE_RATE);
+        let (mut handoff_prod, handoff_cons) =
+            rtrb::RingBuffer::<cassette::core::effects::EffectHandoff>::new(256);
+        let (return_prod, mut _return_cons) =
+            rtrb::RingBuffer::<Box<cassette::core::effects::EffectInstance>>::new(256);
+        core.set_effect_rings(handoff_cons, return_prod);
         core.apply(RtCommand::SetBlocks {
             track: 0,
             blocks: lane(),
         });
-        let chain = every_effect();
+        let chain = eight_effects();
+        for effect in chain.effects() {
+            let instance = Box::new(cassette::core::effects::EffectInstance::new(
+                effect.kind,
+                DEFAULT_SAMPLE_RATE as f32,
+            ));
+            handoff_prod
+                .push(cassette::core::effects::EffectHandoff {
+                    track: 0,
+                    id: effect.id,
+                    instance,
+                })
+                .expect("handoff push");
+        }
         let mut moved = chain;
         moved.slots.reverse();
         moved.slots[0].params[1] = 0.9;
@@ -236,6 +268,7 @@ mod red_zone {
         let mut loudest = 0.0f32;
 
         assert_no_alloc::assert_no_alloc(|| {
+            core.drain_effects();
             core.apply(RtCommand::SetEffects { track: 0, chain });
             core.apply(RtCommand::Play);
             core.apply(RtCommand::NoteOn {

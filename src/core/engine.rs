@@ -15,10 +15,11 @@ use rtrb::{Consumer, Producer, RingBuffer};
 use crate::core::audio::{
     AudioBackend, BackendPreference, NullBackend, RenderFn, SharedState, select_backend,
 };
+use crate::core::effects::{EFFECT_RING_CAPACITY, EffectHandoff, EffectInstance};
 use crate::core::render::{MirroredBlock, MirroredNote, RenderCore, RtCommand};
 use crate::core::sample::{NO_SLOT, SAMPLE_RING_CAPACITY, SampleMsg};
 use crate::core::synth::sample_gain;
-use crate::core::{DEFAULT_SAMPLE_RATE, RT_COMMAND_CAPACITY};
+use crate::core::{DEFAULT_SAMPLE_RATE, MAX_TRACKS, RT_COMMAND_CAPACITY};
 use crate::models::{EffectChain, Song};
 
 /// Everything the audio thread owns: the render core, the command consumer and
@@ -37,6 +38,7 @@ impl AudioThread {
     /// audible in this callback and a block can trigger it in the same one.
     fn process(&mut self, out: &mut [f32]) {
         self.core.drain_samples();
+        self.core.drain_effects();
         while let Ok(command) = self.consumer.pop() {
             self.core.apply(command);
         }
@@ -51,6 +53,12 @@ impl AudioThread {
     }
 }
 
+struct EffectControl {
+    producer: Producer<EffectHandoff>,
+    return_consumer: Consumer<Box<EffectInstance>>,
+    last_chains: [EffectChain; MAX_TRACKS],
+}
+
 /// Handle to the running audio thread.
 pub struct AudioEngine {
     backend: Box<dyn AudioBackend>,
@@ -58,6 +66,7 @@ pub struct AudioEngine {
     retired: Mutex<Vec<Arc<[MirroredBlock]>>>,
     retired_notes: Mutex<Vec<Arc<[MirroredNote]>>>,
     sample_producer: Option<Producer<SampleMsg>>,
+    effects: Mutex<EffectControl>,
     shared: Arc<SharedState>,
     sample_rate: u32,
     backend_name: &'static str,
@@ -103,9 +112,14 @@ impl AudioEngine {
         let shared = Arc::new(SharedState::new(sample_rate));
         let (producer, consumer) = RingBuffer::<RtCommand>::new(RT_COMMAND_CAPACITY);
         let (sample_producer, sample_consumer) = RingBuffer::<SampleMsg>::new(SAMPLE_RING_CAPACITY);
+        let (effect_producer, effect_consumer) =
+            RingBuffer::<EffectHandoff>::new(EFFECT_RING_CAPACITY);
+        let (return_producer, return_consumer) =
+            RingBuffer::<Box<EffectInstance>>::new(EFFECT_RING_CAPACITY);
 
         let mut core = RenderCore::new(song, sample_rate);
         core.set_sample_ring(sample_consumer);
+        core.set_effect_rings(effect_consumer, return_producer);
         let mut thread = AudioThread {
             core,
             consumer,
@@ -113,6 +127,17 @@ impl AudioEngine {
         };
         let render: RenderFn = Box::new(move |out: &mut [f32]| thread.process(out));
         backend.start(render)?;
+
+        let mut last_chains = [EffectChain::EMPTY; MAX_TRACKS];
+        for (i, track) in song.tracks.iter().take(MAX_TRACKS).enumerate() {
+            let mut chain = EffectChain::from_effects(&track.effects);
+            for (idx, slot) in chain.slots[..chain.len as usize].iter_mut().enumerate() {
+                if slot.id == 0 {
+                    slot.id = (idx as u32 + 1) | 0x8000_0000;
+                }
+            }
+            last_chains[i] = chain;
+        }
 
         Ok(Self {
             backend_name: backend.name(),
@@ -122,6 +147,11 @@ impl AudioEngine {
             retired: Mutex::new(Vec::new()),
             retired_notes: Mutex::new(Vec::new()),
             sample_producer: Some(sample_producer),
+            effects: Mutex::new(EffectControl {
+                producer: effect_producer,
+                return_consumer,
+                last_chains,
+            }),
             shared,
             sample_rate,
             note,
@@ -157,18 +187,82 @@ impl AudioEngine {
     /// (the caller should then [`AudioEngine::resync`]).
     /// Replace one track's insert chain. The control side owns building each
     /// effect's state, so a new effect costs the audio thread no allocation.
-    pub fn set_effects(&mut self, track: usize, chain: &EffectChain) -> bool {
-        self.send(RtCommand::SetEffects {
+    pub fn set_effects(&self, track: usize, chain: &EffectChain) -> bool {
+        if track >= MAX_TRACKS {
+            return false;
+        }
+        self.collect_garbage();
+        let mut effects = match self.effects.lock() {
+            Ok(guard) => guard,
+            Err(_) => return false,
+        };
+
+        let mut assigned_chain = *chain;
+        for (i, effect) in assigned_chain.slots[..assigned_chain.len as usize]
+            .iter_mut()
+            .enumerate()
+        {
+            if effect.id == 0 {
+                effect.id = (i as u32 + 1) | 0x8000_0000;
+            }
+        }
+
+        let old_chain = effects.last_chains[track];
+        for effect in assigned_chain.effects() {
+            let exists = old_chain
+                .effects()
+                .iter()
+                .any(|old| old.id == effect.id && old.kind == effect.kind);
+            if !exists {
+                let mut inst = Box::new(EffectInstance::new(effect.kind, self.sample_rate as f32));
+                inst.configure(
+                    effect,
+                    self.sample_rate as f32,
+                    self.sample_rate as f32 * 60.0 / 120.0,
+                );
+                let handoff = EffectHandoff {
+                    track: track as u8,
+                    id: effect.id,
+                    instance: inst,
+                };
+                if effects.producer.push(handoff).is_err() {
+                    return false;
+                }
+            }
+        }
+
+        if !self.send_internal(RtCommand::SetEffects {
             track: track as u8,
-            chain: *chain,
-        })
+            chain: assigned_chain,
+        }) {
+            return false;
+        }
+
+        effects.last_chains[track] = assigned_chain;
+        drop(effects);
+        self.collect_garbage();
+        true
     }
 
-    pub fn send(&self, command: RtCommand) -> bool {
+    /// Free any effect instances returned by the audio thread.
+    pub fn collect_garbage(&self) {
+        if let Ok(mut effects) = self.effects.lock() {
+            while let Ok(instance) = effects.return_consumer.pop() {
+                drop(instance);
+            }
+        }
+    }
+
+    fn send_internal(&self, command: RtCommand) -> bool {
         match self.producer.lock() {
             Ok(mut producer) => producer.push(command).is_ok(),
             Err(_) => false,
         }
+    }
+
+    pub fn send(&self, command: RtCommand) -> bool {
+        self.collect_garbage();
+        self.send_internal(command)
     }
 
     /// Take the sample ring's producer, once.
@@ -246,10 +340,7 @@ impl AudioEngine {
                 muted: track.muted,
                 solo: track.solo,
             });
-            ok &= self.send(RtCommand::SetEffects {
-                track: track_id,
-                chain: EffectChain::from_effects(&track.effects),
-            });
+            ok &= self.set_effects(track_index, &EffectChain::from_effects(&track.effects));
             let blocks: Vec<MirroredBlock> = track
                 .blocks
                 .iter()
@@ -286,7 +377,7 @@ impl AudioEngine {
 impl Drop for AudioEngine {
     fn drop(&mut self) {
         self.backend.stop();
-        // Dropping the producer disconnects the consumer, ending the audio loop.
+        self.collect_garbage();
     }
 }
 

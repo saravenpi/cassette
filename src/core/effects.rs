@@ -6,9 +6,9 @@
 //! [`TrackEffects::set_tempo`] run in the red zone: they never allocate, lock,
 //! do I/O or panic.
 
-use crate::models::{Effect, EffectChain, EffectKind};
-
-const KINDS: usize = EffectKind::ALL.len();
+use crate::core::MAX_TRACKS;
+use crate::models::{Effect, EffectChain, EffectKind, MAX_EFFECTS};
+use rtrb::Producer;
 
 const SILENCE: f32 = 1e-5;
 const DENORMAL: f32 = 1e-20;
@@ -200,7 +200,8 @@ impl Biquad {
 
 /// EQ Three: a low shelf, a mid peak and a high shelf.
 #[derive(Clone, Copy, Debug)]
-struct EqThree {
+/// An EQ with low shelf, peak mid and high shelf bands.
+pub struct EqThree {
     bands: [Biquad; 3],
 }
 
@@ -234,7 +235,8 @@ impl EqThree {
 
 /// Filter: a resonant low-, high- or band-pass biquad.
 #[derive(Clone, Copy, Debug)]
-struct Filter {
+/// A multi-mode biquad filter.
+pub struct Filter {
     biquad: Biquad,
 }
 
@@ -260,7 +262,8 @@ impl Filter {
 
 /// Saturator: pre-gain into a tanh soft clip, then output gain and dry/wet.
 #[derive(Clone, Copy, Debug)]
-struct Saturator {
+/// A soft-clipping saturation stage.
+pub struct Saturator {
     drive: Smoothed,
     output: Smoothed,
     mix: Smoothed,
@@ -290,7 +293,8 @@ impl Saturator {
 
 /// Compressor: a feed-forward peak detector linked across both channels.
 #[derive(Clone, Copy, Debug)]
-struct Compressor {
+/// A downward compressor with sidechain support.
+pub struct Compressor {
     threshold: f32,
     slope: f32,
     attack: f32,
@@ -313,8 +317,9 @@ impl Compressor {
         self.envelope = 0.0;
     }
 
-    fn process(&mut self, l: f32, r: f32, k: f32) -> (f32, f32) {
-        let level = l.abs().max(r.abs());
+    fn process(&mut self, l: f32, r: f32, k: f32, sidechain_key: Option<(f32, f32)>) -> (f32, f32) {
+        let (key_l, key_r) = sidechain_key.unwrap_or((l, r));
+        let level = key_l.abs().max(key_r.abs());
         let coefficient = if level > self.envelope {
             self.attack
         } else {
@@ -341,7 +346,7 @@ fn read_behind(buffer: &[f32], write: usize, delay: f32) -> f32 {
 }
 
 /// Delay: a tempo-synced ping-pong echo with a gliding time.
-struct Delay {
+pub struct Delay {
     left: Box<[f32]>,
     right: Box<[f32]>,
     write: usize,
@@ -515,12 +520,14 @@ impl FreeverbChannel {
 /// Reverb: Freeverb with a stereo spread of 23 samples at 44.1 kHz.
 ///
 /// Reference: https://ccrma.stanford.edu/~jos/pasp/Freeverb.html
-struct Reverb {
+/// Freeverb-style stereo reverberator.
+pub struct Reverb {
     left: FreeverbChannel,
     right: FreeverbChannel,
     feedback: f32,
     damp: f32,
     mix: Smoothed,
+    sample_rate: f32,
 }
 
 impl Reverb {
@@ -531,7 +538,12 @@ impl Reverb {
             feedback: OFFSET_ROOM,
             damp: 0.0,
             mix: Smoothed::at(0.0),
+            sample_rate,
         }
+    }
+
+    fn longest_frames(&self) -> f32 {
+        self.sample_rate * 2.0
     }
 
     fn configure(&mut self, effect: &Effect) {
@@ -556,93 +568,377 @@ impl Reverb {
     }
 }
 
-/// One track's insert chain: a preallocated instance of every effect kind and
-/// the order the current chain runs them in.
-///
-/// Built once per track off the audio thread, since the delay and reverb
-/// buffers are allocated here. A kind that becomes active, by joining the chain
-/// or by being switched on, starts from cleared state, so a stale tail never
-/// comes back.
-pub struct TrackEffects {
-    sample_rate: f32,
-    frames_per_beat: f32,
-    smooth: f32,
-    chain: EffectChain,
-    active: [bool; KINDS],
-    eq: EqThree,
-    filter: Filter,
-    saturator: Saturator,
-    compressor: Compressor,
-    delay: Delay,
-    reverb: Reverb,
-    quiet: u32,
-    hold: u32,
+/// Chorus placeholder.
+pub struct Chorus;
+impl Chorus {
+    fn new(_sample_rate: f32) -> Self {
+        Self
+    }
+    fn configure(&mut self, _effect: &Effect, _sample_rate: f32) {}
+    fn reset(&mut self) {}
+    fn process(&mut self, l: f32, r: f32, _k: f32) -> (f32, f32) {
+        (l, r)
+    }
+    fn longest_frames(&self) -> f32 {
+        0.0
+    }
 }
 
-impl TrackEffects {
-    /// Allocate every effect for `sample_rate`, with an empty chain at 120 BPM.
-    pub fn new(sample_rate: f32) -> Self {
-        let sample_rate = sample_rate.max(1.0);
-        Self {
-            sample_rate,
-            frames_per_beat: sample_rate * 60.0 / DEFAULT_BPM,
-            smooth: smoothing(SMOOTH_SECONDS, sample_rate),
-            chain: EffectChain::EMPTY,
-            active: [false; KINDS],
-            eq: EqThree {
+/// Phaser placeholder.
+pub struct Phaser;
+impl Phaser {
+    fn new(_sample_rate: f32) -> Self {
+        Self
+    }
+    fn configure(&mut self, _effect: &Effect, _sample_rate: f32) {}
+    fn reset(&mut self) {}
+    fn process(&mut self, l: f32, r: f32, _k: f32) -> (f32, f32) {
+        (l, r)
+    }
+    fn longest_frames(&self) -> f32 {
+        0.0
+    }
+}
+
+/// AutoPan placeholder.
+pub struct AutoPan;
+impl AutoPan {
+    fn new(_sample_rate: f32) -> Self {
+        Self
+    }
+    fn configure(&mut self, _effect: &Effect, _frames_per_beat: f32) {}
+    fn reset(&mut self) {}
+    fn process(&mut self, l: f32, r: f32, _k: f32) -> (f32, f32) {
+        (l, r)
+    }
+}
+
+/// BitCrusher placeholder.
+pub struct BitCrusher;
+impl BitCrusher {
+    fn new() -> Self {
+        Self
+    }
+    fn configure(&mut self, _effect: &Effect) {}
+    fn reset(&mut self) {}
+    fn process(&mut self, l: f32, r: f32, _k: f32) -> (f32, f32) {
+        (l, r)
+    }
+}
+
+/// Utility placeholder.
+pub struct Utility;
+impl Utility {
+    fn new() -> Self {
+        Self
+    }
+    fn configure(&mut self, _effect: &Effect) {}
+    fn reset(&mut self) {}
+    fn process(&mut self, l: f32, r: f32, _k: f32) -> (f32, f32) {
+        (l, r)
+    }
+}
+
+/// Limiter placeholder.
+pub struct Limiter;
+impl Limiter {
+    fn new(_sample_rate: f32) -> Self {
+        Self
+    }
+    fn configure(&mut self, _effect: &Effect, _sample_rate: f32) {}
+    fn reset(&mut self) {}
+    fn process(&mut self, l: f32, r: f32, _k: f32) -> (f32, f32) {
+        (l, r)
+    }
+}
+
+/// An allocated instance of one insert effect.
+#[allow(clippy::large_enum_variant)]
+pub enum EffectInstance {
+    Eq(EqThree),
+    Filter(Filter),
+    Saturator(Saturator),
+    Compressor(Compressor),
+    Delay(Delay),
+    Reverb(Reverb),
+    Chorus(Chorus),
+    Phaser(Phaser),
+    AutoPan(AutoPan),
+    BitCrusher(BitCrusher),
+    Utility(Utility),
+    Limiter(Limiter),
+}
+
+impl EffectInstance {
+    /// Allocate an effect instance for `kind` at `sample_rate`.
+    pub fn new(kind: EffectKind, sample_rate: f32) -> Self {
+        match kind {
+            EffectKind::Eq => Self::Eq(EqThree {
                 bands: [Biquad::IDENTITY; 3],
-            },
-            filter: Filter {
+            }),
+            EffectKind::Filter => Self::Filter(Filter {
                 biquad: Biquad::IDENTITY,
-            },
-            saturator: Saturator {
+            }),
+            EffectKind::Saturator => Self::Saturator(Saturator {
                 drive: Smoothed::at(1.0),
                 output: Smoothed::at(1.0),
                 mix: Smoothed::at(0.0),
-            },
-            compressor: Compressor {
+            }),
+            EffectKind::Compressor => Self::Compressor(Compressor {
                 threshold: 0.0,
                 slope: 0.0,
                 attack: 0.0,
                 release: 0.0,
                 makeup: Smoothed::at(0.0),
                 envelope: 0.0,
-            },
-            delay: Delay::new(sample_rate),
-            reverb: Reverb::new(sample_rate),
+            }),
+            EffectKind::Delay => Self::Delay(Delay::new(sample_rate)),
+            EffectKind::Reverb => Self::Reverb(Reverb::new(sample_rate)),
+            EffectKind::Chorus => Self::Chorus(Chorus::new(sample_rate)),
+            EffectKind::Phaser => Self::Phaser(Phaser::new(sample_rate)),
+            EffectKind::AutoPan => Self::AutoPan(AutoPan::new(sample_rate)),
+            EffectKind::BitCrusher => Self::BitCrusher(BitCrusher::new()),
+            EffectKind::Utility => Self::Utility(Utility::new()),
+            EffectKind::Limiter => Self::Limiter(Limiter::new(sample_rate)),
+        }
+    }
+
+    /// The kind of effect this instance represents.
+    pub fn kind(&self) -> EffectKind {
+        match self {
+            Self::Eq(_) => EffectKind::Eq,
+            Self::Filter(_) => EffectKind::Filter,
+            Self::Saturator(_) => EffectKind::Saturator,
+            Self::Compressor(_) => EffectKind::Compressor,
+            Self::Delay(_) => EffectKind::Delay,
+            Self::Reverb(_) => EffectKind::Reverb,
+            Self::Chorus(_) => EffectKind::Chorus,
+            Self::Phaser(_) => EffectKind::Phaser,
+            Self::AutoPan(_) => EffectKind::AutoPan,
+            Self::BitCrusher(_) => EffectKind::BitCrusher,
+            Self::Utility(_) => EffectKind::Utility,
+            Self::Limiter(_) => EffectKind::Limiter,
+        }
+    }
+
+    /// Configure parameters from `effect`.
+    pub fn configure(&mut self, effect: &Effect, sample_rate: f32, frames_per_beat: f32) {
+        match self {
+            Self::Eq(e) => e.configure(effect, sample_rate),
+            Self::Filter(f) => f.configure(effect, sample_rate),
+            Self::Saturator(s) => s.configure(effect),
+            Self::Compressor(c) => c.configure(effect, sample_rate),
+            Self::Delay(d) => d.configure(effect, frames_per_beat),
+            Self::Reverb(r) => r.configure(effect),
+            Self::Chorus(ch) => ch.configure(effect, sample_rate),
+            Self::Phaser(p) => p.configure(effect, sample_rate),
+            Self::AutoPan(ap) => ap.configure(effect, frames_per_beat),
+            Self::BitCrusher(bc) => bc.configure(effect),
+            Self::Utility(u) => u.configure(effect),
+            Self::Limiter(lim) => lim.configure(effect, sample_rate),
+        }
+    }
+
+    /// Reset internal filter state.
+    pub fn reset(&mut self) {
+        match self {
+            Self::Eq(e) => e.reset(),
+            Self::Filter(f) => f.reset(),
+            Self::Saturator(s) => s.reset(),
+            Self::Compressor(c) => c.reset(),
+            Self::Delay(d) => d.reset(),
+            Self::Reverb(r) => r.reset(),
+            Self::Chorus(ch) => ch.reset(),
+            Self::Phaser(p) => p.reset(),
+            Self::AutoPan(ap) => ap.reset(),
+            Self::BitCrusher(bc) => bc.reset(),
+            Self::Utility(u) => u.reset(),
+            Self::Limiter(lim) => lim.reset(),
+        }
+    }
+
+    /// Process one stereo sample.
+    pub fn process(
+        &mut self,
+        l: f32,
+        r: f32,
+        k: f32,
+        sidechain_key: Option<(f32, f32)>,
+    ) -> (f32, f32) {
+        match self {
+            Self::Eq(e) => e.process(l, r, k),
+            Self::Filter(f) => f.process(l, r, k),
+            Self::Saturator(s) => s.process(l, r, k),
+            Self::Compressor(c) => c.process(l, r, k, sidechain_key),
+            Self::Delay(d) => d.process(l, r, k),
+            Self::Reverb(r_fx) => r_fx.process(l, r, k),
+            Self::Chorus(ch) => ch.process(l, r, k),
+            Self::Phaser(p) => p.process(l, r, k),
+            Self::AutoPan(ap) => ap.process(l, r, k),
+            Self::BitCrusher(bc) => bc.process(l, r, k),
+            Self::Utility(u) => u.process(l, r, k),
+            Self::Limiter(lim) => lim.process(l, r, k),
+        }
+    }
+
+    /// Longest echo duration in frames for ringing check.
+    pub fn longest_frames(&self) -> f32 {
+        match self {
+            Self::Delay(d) => d.longest_frames(),
+            Self::Reverb(r) => r.longest_frames(),
+            Self::Chorus(ch) => ch.longest_frames(),
+            Self::Phaser(p) => p.longest_frames(),
+            _ => 0.0,
+        }
+    }
+
+    /// Whether this effect can have a tail.
+    pub fn has_tail(&self) -> bool {
+        self.kind().has_tail()
+    }
+}
+
+/// A new effect instance handed to the audio thread.
+pub struct EffectHandoff {
+    pub track: u8,
+    pub id: u32,
+    pub instance: Box<EffectInstance>,
+}
+
+/// Capacity of the effect handoff and return ring buffers.
+pub const EFFECT_RING_CAPACITY: usize = 256;
+
+/// One populated slot in a track's insert chain.
+pub struct EffectSlot {
+    pub id: u32,
+    pub effect: Effect,
+    pub instance: Box<EffectInstance>,
+}
+
+/// One track's insert chain: up to [`MAX_EFFECTS`] running instances.
+pub struct TrackEffects {
+    sample_rate: f32,
+    frames_per_beat: f32,
+    smooth: f32,
+    slots: [Option<EffectSlot>; MAX_EFFECTS],
+    len: usize,
+    incoming: [Option<EffectHandoff>; MAX_EFFECTS],
+    quiet: u32,
+    hold: u32,
+}
+
+impl TrackEffects {
+    /// Construct empty track effects for `sample_rate`.
+    pub fn new(sample_rate: f32) -> Self {
+        let sample_rate = sample_rate.max(1.0);
+        Self {
+            sample_rate,
+            frames_per_beat: sample_rate * 60.0 / DEFAULT_BPM,
+            smooth: smoothing(SMOOTH_SECONDS, sample_rate),
+            slots: std::array::from_fn(|_| None),
+            len: 0,
+            incoming: std::array::from_fn(|_| None),
             quiet: 0,
             hold: 0,
         }
     }
 
-    /// Replace the chain and recompute every coefficient it needs.
-    ///
-    /// A kind listed twice runs once, at its first position. Allocation-free.
+    /// Receive an allocated effect from the control thread into incoming staging.
+    pub fn receive_handoff(
+        &mut self,
+        handoff: EffectHandoff,
+        return_producer: Option<&mut Producer<Box<EffectInstance>>>,
+    ) {
+        for slot in &mut self.incoming {
+            if slot.is_none() {
+                *slot = Some(handoff);
+                return;
+            }
+        }
+        if let Some(prod) = return_producer
+            && let Err(rtrb::PushError::Full(inst)) = prod.push(handoff.instance)
+        {
+            std::mem::forget(inst);
+        }
+    }
+
+    /// Replace the chain with a new description.
     pub fn set_chain(&mut self, chain: &EffectChain) {
-        let mut next = EffectChain::EMPTY;
-        let mut seen = [false; KINDS];
-        let mut now_active = [false; KINDS];
-        for effect in chain.slots.iter().take(usize::from(chain.len)) {
-            let kind = effect.kind as usize;
-            if seen.get(kind).copied().unwrap_or(true) {
-                continue;
+        self.set_chain_with_return(chain, None);
+    }
+
+    /// Replace the chain with a new description, pairing existing or incoming
+    /// instances by id and returning removed instances to the return ring.
+    pub fn set_chain_with_return(
+        &mut self,
+        chain: &EffectChain,
+        mut return_producer: Option<&mut Producer<Box<EffectInstance>>>,
+    ) {
+        let count = (chain.len as usize).min(MAX_EFFECTS);
+        let mut new_slots: [Option<EffectSlot>; MAX_EFFECTS] = std::array::from_fn(|_| None);
+
+        for (i, effect) in chain.slots[..count].iter().enumerate() {
+            let mut is_new = false;
+            let mut found: Option<Box<EffectInstance>> = None;
+            for old_slot in self.slots.iter_mut() {
+                if let Some(slot) = old_slot
+                    && slot.id == effect.id
+                    && slot.instance.kind() == effect.kind
+                {
+                    found = Some(old_slot.take().unwrap().instance);
+                    break;
+                }
             }
-            if let Some(slot) = next.slots.get_mut(usize::from(next.len)) {
-                *slot = *effect;
-                next.len += 1;
+            if found.is_none() {
+                for inc in self.incoming.iter_mut() {
+                    if let Some(h) = inc
+                        && h.id == effect.id
+                        && h.instance.kind() == effect.kind
+                    {
+                        found = Some(inc.take().unwrap().instance);
+                        is_new = true;
+                        break;
+                    }
+                }
             }
-            seen[kind] = true;
-            now_active[kind] = effect.enabled;
-            self.configure(effect);
+            if found.is_none() && return_producer.is_none() {
+                let mut inst = Box::new(EffectInstance::new(effect.kind, self.sample_rate));
+                inst.configure(effect, self.sample_rate, self.frames_per_beat);
+                is_new = true;
+                found = Some(inst);
+            }
+            if let Some(mut inst) = found {
+                inst.configure(effect, self.sample_rate, self.frames_per_beat);
+                if is_new {
+                    inst.reset();
+                }
+                new_slots[i] = Some(EffectSlot {
+                    id: effect.id,
+                    effect: *effect,
+                    instance: inst,
+                });
+            }
         }
-        for kind in EffectKind::ALL {
-            let index = kind as usize;
-            if now_active[index] && !self.active[index] {
-                self.reset(kind);
+
+        for old_slot in self.slots.iter_mut() {
+            if let Some(slot) = old_slot.take()
+                && let Some(ref mut prod) = return_producer
+                && let Err(rtrb::PushError::Full(inst)) = prod.push(slot.instance)
+            {
+                std::mem::forget(inst);
             }
         }
-        self.chain = next;
-        self.active = now_active;
+        for inc in self.incoming.iter_mut() {
+            if let Some(h) = inc.take()
+                && let Some(ref mut prod) = return_producer
+                && let Err(rtrb::PushError::Full(inst)) = prod.push(h.instance)
+            {
+                std::mem::forget(inst);
+            }
+        }
+
+        self.slots = new_slots;
+        self.len = count;
         self.update_hold();
     }
 
@@ -652,39 +948,47 @@ impl TrackEffects {
             return;
         }
         self.frames_per_beat = self.sample_rate * 60.0 / bpm;
-        self.delay.retime(self.frames_per_beat);
+        for slot in self.slots[..self.len].iter_mut().flatten() {
+            slot.instance
+                .configure(&slot.effect, self.sample_rate, self.frames_per_beat);
+        }
         self.update_hold();
     }
 
     /// Run one stereo frame through the enabled effects, in chain order.
     pub fn process(&mut self, l: f32, r: f32) -> (f32, f32) {
-        let TrackEffects {
-            chain,
-            smooth,
-            eq,
-            filter,
-            saturator,
-            compressor,
-            delay,
-            reverb,
-            ..
-        } = self;
-        let k = *smooth;
+        self.process_with_sidechain(l, r, &[(0.0, 0.0); MAX_TRACKS], 0, 1)
+    }
+
+    /// Run one stereo frame through the enabled effects, resolving sidechains
+    /// against [`last_frame_outputs`].
+    pub fn process_with_sidechain(
+        &mut self,
+        l: f32,
+        r: f32,
+        last_frame_outputs: &[(f32, f32); MAX_TRACKS],
+        own_track: usize,
+        track_count: usize,
+    ) -> (f32, f32) {
+        let k = self.smooth;
         let mut out = (l, r);
-        for effect in chain.slots.iter().take(usize::from(chain.len)) {
-            if !effect.enabled {
+        for slot in self.slots[..self.len].iter_mut().flatten() {
+            if !slot.effect.enabled {
                 continue;
             }
-            let (a, b) = out;
-            out = match effect.kind {
-                EffectKind::Eq => eq.process(a, b, k),
-                EffectKind::Filter => filter.process(a, b, k),
-                EffectKind::Saturator => saturator.process(a, b, k),
-                EffectKind::Compressor => compressor.process(a, b, k),
-                EffectKind::Delay => delay.process(a, b, k),
-                EffectKind::Reverb => reverb.process(a, b, k),
-                _ => (a, b),
+            let key = if slot.effect.kind.takes_sidechain() {
+                slot.effect.sidechain.and_then(|src| {
+                    let s = src as usize;
+                    if s != own_track && s < track_count {
+                        Some(last_frame_outputs[s])
+                    } else {
+                        None
+                    }
+                })
+            } else {
+                None
             };
+            out = slot.instance.process(out.0, out.1, k, key);
         }
         let level = out.0.abs().max(out.1.abs()).max(l.abs()).max(r.abs());
         self.quiet = if level > SILENCE {
@@ -696,48 +1000,21 @@ impl TrackEffects {
     }
 
     /// Whether a delay or reverb tail may still be audible.
-    ///
-    /// Turns false once the track's input and output have stayed below about
-    /// -100 dBFS for longer than the longest echo, plus a tenth of a second.
     pub fn is_ringing(&self) -> bool {
         self.quiet < self.hold
     }
 
-    fn configure(&mut self, effect: &Effect) {
-        let sr = self.sample_rate;
-        match effect.kind {
-            EffectKind::Eq => self.eq.configure(effect, sr),
-            EffectKind::Filter => self.filter.configure(effect, sr),
-            EffectKind::Saturator => self.saturator.configure(effect),
-            EffectKind::Compressor => self.compressor.configure(effect, sr),
-            EffectKind::Delay => self.delay.configure(effect, self.frames_per_beat),
-            EffectKind::Reverb => self.reverb.configure(effect),
-            _ => {}
-        }
-    }
-
-    fn reset(&mut self, kind: EffectKind) {
-        match kind {
-            EffectKind::Eq => self.eq.reset(),
-            EffectKind::Filter => self.filter.reset(),
-            EffectKind::Saturator => self.saturator.reset(),
-            EffectKind::Compressor => self.compressor.reset(),
-            EffectKind::Delay => self.delay.reset(),
-            EffectKind::Reverb => self.reverb.reset(),
-            _ => {}
-        }
-    }
-
     fn update_hold(&mut self) {
-        let delay = self.active[EffectKind::Delay as usize];
-        let reverb = self.active[EffectKind::Reverb as usize];
-        let echo = if delay {
-            self.delay.longest_frames()
-        } else {
-            0.0
-        };
-        self.hold = if delay || reverb {
-            (self.sample_rate * TAIL_HOLD_SECONDS + echo) as u32
+        let mut max_echo = 0.0f32;
+        let mut any_tail = false;
+        for slot in self.slots[..self.len].iter().flatten() {
+            if slot.effect.enabled && slot.instance.has_tail() {
+                any_tail = true;
+                max_echo = max_echo.max(slot.instance.longest_frames());
+            }
+        }
+        self.hold = if any_tail {
+            (self.sample_rate * TAIL_HOLD_SECONDS + max_echo) as u32
         } else {
             0
         };
@@ -954,5 +1231,70 @@ mod tests {
             let (l, r) = fx.process(x, x);
             assert!(l.is_finite() && r.is_finite());
         }
+    }
+
+    #[test]
+    fn two_delays_on_one_track_both_run() {
+        let mut d1 = effect(EffectKind::Delay, &[0.25, 0.0, 1.0]);
+        d1.id = 1;
+        let mut d2 = effect(EffectKind::Delay, &[0.50, 0.0, 1.0]);
+        d2.id = 2;
+        let mut fx = with(&[d1, d2]);
+        let mut echoes = Vec::new();
+        for frame in 0..SR as usize {
+            let x = if frame == 0 { 1.0 } else { 0.0 };
+            let (l, _) = fx.process(x, x);
+            if l.abs() > 0.05 {
+                echoes.push(frame);
+            }
+        }
+        assert!(echoes.len() >= 2);
+    }
+
+    #[test]
+    fn a_reorder_keeps_a_reverb_tail() {
+        let mut rev = Effect::new(EffectKind::Reverb);
+        rev.id = 1;
+        rev.params[0] = 0.9;
+        rev.params[2] = 1.0;
+        let mut sat = Effect::new(EffectKind::Saturator);
+        sat.id = 2;
+        let mut fx = with(&[rev, sat]);
+        for frame in 0..1_000 {
+            let x = if frame == 0 { 1.0 } else { 0.0 };
+            fx.process(x, x);
+        }
+        assert!(fx.is_ringing());
+        fx.set_chain(&EffectChain::from_effects(&[sat, rev]));
+        assert!(fx.is_ringing());
+        let mut tail = 0.0f32;
+        for _ in 0..2_000 {
+            let (l, r) = fx.process(0.0, 0.0);
+            tail = tail.max(l.abs().max(r.abs()));
+        }
+        assert!(tail > 1e-4);
+    }
+
+    #[test]
+    fn removal_returns_the_box_to_the_control_side() {
+        let mut fx = TrackEffects::new(SR);
+        let (mut return_prod, mut return_cons) = rtrb::RingBuffer::<Box<EffectInstance>>::new(16);
+        let mut del = Effect::new(EffectKind::Delay);
+        del.id = 10;
+        let inst = Box::new(EffectInstance::new(EffectKind::Delay, SR));
+        fx.receive_handoff(
+            EffectHandoff {
+                track: 0,
+                id: 10,
+                instance: inst,
+            },
+            Some(&mut return_prod),
+        );
+        fx.set_chain_with_return(&EffectChain::from_effects(&[del]), Some(&mut return_prod));
+        assert_eq!(return_cons.slots(), 0);
+        fx.set_chain_with_return(&EffectChain::EMPTY, Some(&mut return_prod));
+        assert_eq!(return_cons.slots(), 1);
+        let returned = return_cons.pop().expect("returned instance");
+        assert_eq!(returned.kind(), EffectKind::Delay);
     }
 }
