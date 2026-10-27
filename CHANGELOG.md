@@ -431,3 +431,10 @@ Loop points, frame-accurate note starts, and a review pass over v0.9.0.
 
 - Audio export progress reset: export button and progress indicator now properly reset to idle once rendering completes instead of staying stuck at 100%.
 - Track level metering post-fader: channel volume meters now scale with the track volume fader instead of ignoring it and displaying pre-fader insert chain peaks.
+
+## [0.15.3] - 2026-10-27
+
+### Fixed
+
+- Track deletion playback continuity: deleting a track while playback is active preserves sounding voices, sample playback, and effect chains on surviving tracks instead of cutting audio off.
+- Transport stop and lock during export: audio export stops active playback and disables transport controls during rendering to avoid concurrent playback collisions.
