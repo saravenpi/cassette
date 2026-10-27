@@ -82,6 +82,7 @@ pub struct App {
     loaded_samples: HashMap<u8, std::sync::Arc<[f32]>>,
     producer: Option<Producer<SampleMsg>>,
     history: History,
+    pub(crate) clipboard: Option<clipboard::Clipboard>,
 }
 
 impl App {
@@ -139,6 +140,7 @@ impl App {
             loaded_samples: HashMap::new(),
             producer,
             history: History::default(),
+            clipboard: None,
         }
     }
 
@@ -430,11 +432,13 @@ impl App {
                 sub: track.instrument.sub,
                 name: track.name.clone(),
                 kind: track.kind,
-                preset: track
-                    .instrument
-                    .preset_index()
-                    .map(|i| Instrument::PRESETS[i].to_string())
-                    .unwrap_or_else(|| "Custom".into()),
+                preset: Instrument {
+                    enabled: true,
+                    ..track.instrument
+                }
+                .preset_index()
+                .map(|i| Instrument::PRESETS[i].to_string())
+                .unwrap_or_else(|| "Custom".into()),
                 waveform: track.instrument.waveform.name().to_string(),
                 gain: track.instrument.gain,
                 octave: track.instrument.octave,
@@ -485,7 +489,13 @@ impl App {
         UiState {
             project_path: None,
             project_dirty: false,
-            clipboard: None,
+            clipboard: self
+                .clipboard
+                .as_ref()
+                .map(|c| crate::ui::view::ClipboardView {
+                    tracks: c.lanes.len(),
+                    length_beats: c.length_beats,
+                }),
             bpm: self.song.bpm(),
             playing: self.engine.is_playing(),
             recording: self.recording,
