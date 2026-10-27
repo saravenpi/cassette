@@ -26,8 +26,6 @@ import {
 } from './pianoRoll';
 import type { BlockView, NoteView } from './wire';
 
-// bun test injects these as globals; @types/bun is not a dependency, so svelte-check
-// needs the shapes declared here to see them.
 interface Matchers {
 	toBe(expected: unknown): void;
 	toEqual(expected: unknown): void;
@@ -110,23 +108,37 @@ describe('hitNote', () => {
 	const zoom = 64;
 
 	test('finds the note under a point, preferring the one drawn last', () => {
-		expect(hitNote(notes, 10, pitchToY(60) + 2, zoom)).toEqual({ note: 0, edge: false });
-		expect(hitNote(notes, 40, pitchToY(60) + 2, zoom)).toEqual({ note: 1, edge: false });
+		expect(hitNote(notes, 10, pitchToY(60) + 2, zoom)).toEqual({ note: 0, edge: null });
+		expect(hitNote(notes, 40, pitchToY(60) + 2, zoom)).toEqual({ note: 1, edge: null });
 	});
 
-	test('reports the right edge as the resize handle', () => {
+	test('reports start and end edges on standard notes', () => {
+		const left = 0.5 * zoom;
 		const right = 1.5 * zoom;
-		expect(hitNote(notes, right - 1, pitchToY(60) + 2, zoom)).toEqual({ note: 1, edge: true });
+		expect(hitNote(notes, left + 1, pitchToY(60) + 2, zoom)).toEqual({
+			note: 1,
+			edge: 'start'
+		});
+		expect(hitNote(notes, right - 1, pitchToY(60) + 2, zoom)).toEqual({
+			note: 1,
+			edge: 'end'
+		});
 		expect(hitNote(notes, right - HANDLE_PX - 1, pitchToY(60) + 2, zoom)).toEqual({
 			note: 1,
-			edge: false
+			edge: null
 		});
 	});
 
-	test('keeps the left half of a narrow note for moving', () => {
+	test('splits a narrow note between start and end handles without overlap', () => {
 		const left = 2 * zoom;
-		expect(hitNote(notes, left + 1, pitchToY(62) + 2, zoom)).toEqual({ note: 2, edge: false });
-		expect(hitNote(notes, left + 7, pitchToY(62) + 2, zoom)).toEqual({ note: 2, edge: true });
+		expect(hitNote(notes, left + 1, pitchToY(62) + 2, zoom)).toEqual({
+			note: 2,
+			edge: 'start'
+		});
+		expect(hitNote(notes, left + 7, pitchToY(62) + 2, zoom)).toEqual({
+			note: 2,
+			edge: 'end'
+		});
 	});
 
 	test('misses on another row, past the end, and outside the grid', () => {

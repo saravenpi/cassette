@@ -1,23 +1,39 @@
 <script lang="ts">
 	/**
-	 * The piano roll: the open MIDI block's notes on a pitch-by-beat grid, with a
-	 * keyboard down the left that auditions a pitch while it is held. A click on
-	 * empty grid adds a note, a drag moves it or, from its right edge, resizes it,
-	 * the wheel over a note sets its velocity and Delete removes the selected one.
-	 * Edits go through the session's per-frame queues, and the edited note is drawn
-	 * from local state until the snapshot catches up. It fills the detail pane's
-	 * Clip view, whose header names the track and the block; the Quantize button
-	 * snaps note starts to the roll's grid.
+	 * The piano roll: notes of the open MIDI block on a pitch-by-beat grid, with a
+	 * keyboard down the left that auditions pitches while held. Double-click on
+	 * empty grid adds a note, dragging on empty grid draws a marquee selection, and
+	 * dragging a note moves the whole selection. Edges resize from start or end,
+	 * wheel sets velocity, and Delete removes selection. Draw mode toggles with B.
 	 */
 
 	import { onDestroy, onMount } from 'svelte';
 
 	import { beatsToPx, zoomBy } from '$lib/geometry';
 	import {
+		addSelection,
+		arrowNudge,
+		arrowResize,
+		arrowTranspose,
+		clampGroupMove,
+		clampGroupResizeLeft,
+		clampGroupResizeRight,
+		copySelection,
+		duplicateSelection,
+		getModuleClipboard,
+		marqueeSelect,
+		pasteClipboard,
+		rangeSelection,
+		remapAfterDelete,
+		setModuleClipboard,
+		toggleNote
+	} from '$lib/noteSelection';
+	import {
 		DEFAULT_NOTE_BEATS,
 		DEFAULT_VELOCITY,
 		KEYS_WIDTH,
 		MIDDLE_C,
+		MIN_NOTE_BEATS,
 		NOTE_GRID,
 		PITCH_COUNT,
 		PITCH_MAX,
@@ -25,7 +41,6 @@
 		ROW_PX,
 		cellAt,
 		clampLength,
-		clampMove,
 		floorToGrid,
 		hitNote,
 		isBlackKey,
@@ -36,25 +51,43 @@
 		velocityStep
 	} from '$lib/pianoRoll';
 	import { session } from '$lib/session.svelte';
-	import type { NoteView } from '$lib/wire';
+	import type { NoteEdit, NoteView } from '$lib/wire';
 
 	const SETTLE_TIMEOUT_MS = 250;
 	const SETTLE_EPSILON = 0.001;
 	const PITCHES = Array.from({ length: PITCH_COUNT }, (_, row) => PITCH_MAX - row);
 
-	interface NoteDrag {
-		kind: 'move' | 'resize';
-		note: number;
-		pitch: number;
-		startBeats: number;
-		lengthBeats: number;
-		grab: number;
+	interface ActiveDrag {
+		kind: 'move' | 'resize-start' | 'resize-end';
+		anchorIndex: number;
+		anchorStartBeats: number;
+		anchorPitch: number;
+		grabOffsetBeats: number;
+		initialNotes: Map<number, NoteView>;
+		currentEdits: Map<number, { pitch: number; startBeats: number; lengthBeats: number }>;
 		released: boolean;
 		releasedAt: number;
 	}
 
+	interface MarqueeState {
+		startX: number;
+		startY: number;
+		currentX: number;
+		currentY: number;
+		startBeat: number;
+		startPitch: number;
+		additive: boolean;
+		initialSelection: Set<number>;
+		hasMoved: boolean;
+	}
+
+	interface DrawState {
+		pitch: number;
+		startBeats: number;
+		lengthBeats: number;
+	}
+
 	interface PendingVelocity {
-		note: number;
 		velocity: number;
 		sentAt: number;
 	}
@@ -62,57 +95,149 @@
 	let scroller = $state<HTMLDivElement | null>(null);
 	let grid = $state<HTMLDivElement | null>(null);
 	let zoom = $state(ROLL_ZOOM_DEFAULT);
-	let selected = $state<number | null>(null);
-	let drag = $state<NoteDrag | null>(null);
-	let pending = $state<PendingVelocity | null>(null);
-	let hover = $state<'add' | 'move' | 'resize'>('add');
+	let selection = $state<Set<number>>(new Set());
+	let drawMode = $state(false);
+	let drag = $state<ActiveDrag | null>(null);
+	let marquee = $state<MarqueeState | null>(null);
+	let drawDrag = $state<DrawState | null>(null);
+	let pendingVelocities = $state<Map<number, PendingVelocity>>(new Map());
+	let hover = $state<'add' | 'draw' | 'move' | 'resize-start' | 'resize-end'>('add');
 	let auditioning = $state<number | null>(null);
+	let lastClickBeats = $state<number | null>(null);
+
+	let coalescedEdits: NoteEdit[] | null = null;
+	let animFrameId = 0;
 
 	const roll = $derived(session.roll);
-	const track = $derived(roll === null ? null : (session.snapshot?.tracks[roll.track] ?? null));
-	const block = $derived(roll === null || track === null ? null : (track.blocks[roll.block] ?? null));
+	const track = $derived(
+		roll === null ? null : (session.snapshot?.tracks[roll.track] ?? null)
+	);
+	const block = $derived(
+		roll === null || track === null ? null : (track.blocks[roll.block] ?? null)
+	);
 	const blockBeats = $derived(block?.lengthBeats ?? 0);
 	const beatsPerBar = $derived(session.snapshot?.beatsPerBar ?? 4);
 	const gridWidth = $derived(Math.max(1, beatsToPx(blockBeats, zoom)));
 	const gridHeight = PITCH_COUNT * ROW_PX;
 	const beats = $derived(Array.from({ length: Math.floor(blockBeats) + 1 }, (_, beat) => beat));
 
-	const notes = $derived.by((): NoteView[] =>
-		(block?.notes ?? []).map((note, index) => {
-			if (drag !== null && drag.note === index) {
-				return { ...note, pitch: drag.pitch, startBeats: drag.startBeats, lengthBeats: drag.lengthBeats };
+	const notes = $derived.by((): NoteView[] => {
+		const base = block?.notes ?? [];
+		return base.map((note, index) => {
+			if (drag !== null) {
+				const override = drag.currentEdits.get(index);
+				if (override !== undefined) {
+					return {
+						...note,
+						pitch: override.pitch,
+						startBeats: override.startBeats,
+						lengthBeats: override.lengthBeats
+					};
+				}
 			}
-			if (pending !== null && pending.note === index) return { ...note, velocity: pending.velocity };
+			const pendingVel = pendingVelocities.get(index);
+			if (pendingVel !== undefined) {
+				return { ...note, velocity: pendingVel.velocity };
+			}
 			return note;
-		})
-	);
+		});
+	});
 
-	const current = $derived(selected === null ? null : (notes[selected] ?? null));
+	const current = $derived(
+		selection.size === 1 ? (notes[Array.from(selection)[0]] ?? null) : null
+	);
 
 	onMount(() => {
 		if (scroller === null) return;
 		scroller.scrollTop = pitchToY(MIDDLE_C) + ROW_PX / 2 - scroller.clientHeight / 2;
 	});
 
-	onDestroy(() => release());
+	onDestroy(() => {
+		release();
+		if (animFrameId !== 0) cancelAnimationFrame(animFrameId);
+	});
 
 	$effect(() => {
 		const live = block?.notes ?? [];
 		const now = performance.now();
 		if (drag !== null && drag.released) {
-			const note = live[drag.note];
-			const confirmed =
-				note !== undefined &&
-				(drag.kind === 'move'
-					? note.pitch === drag.pitch && Math.abs(note.startBeats - drag.startBeats) < SETTLE_EPSILON
-					: Math.abs(note.lengthBeats - drag.lengthBeats) < SETTLE_EPSILON);
-			if (confirmed || now - drag.releasedAt > SETTLE_TIMEOUT_MS) drag = null;
+			let allSettled = true;
+			for (const [index, edit] of drag.currentEdits) {
+				const n = live[index];
+				if (
+					n === undefined ||
+					n.pitch !== edit.pitch ||
+					Math.abs(n.startBeats - edit.startBeats) >= SETTLE_EPSILON ||
+					Math.abs(n.lengthBeats - edit.lengthBeats) >= SETTLE_EPSILON
+				) {
+					allSettled = false;
+					break;
+				}
+			}
+			if (allSettled || now - drag.releasedAt > SETTLE_TIMEOUT_MS) {
+				drag = null;
+			}
 		}
-		if (pending !== null) {
-			const confirmed = live[pending.note]?.velocity === pending.velocity;
-			if (confirmed || now - pending.sentAt > SETTLE_TIMEOUT_MS) pending = null;
+		if (pendingVelocities.size > 0) {
+			let changed = false;
+			const next = new Map(pendingVelocities);
+			for (const [index, { velocity, sentAt }] of pendingVelocities) {
+				const n = live[index];
+				const settled = n !== undefined && n.velocity === velocity;
+				if (settled || now - sentAt > SETTLE_TIMEOUT_MS) {
+					next.delete(index);
+					changed = true;
+				}
+			}
+			if (changed) pendingVelocities = next;
 		}
 	});
+
+	$effect(() => {
+		const live = block?.notes ?? [];
+		let invalid = false;
+		for (const idx of selection) {
+			if (idx >= live.length) {
+				invalid = true;
+				break;
+			}
+		}
+		if (invalid) {
+			const filtered = new Set<number>();
+			for (const idx of selection) {
+				if (idx < live.length) filtered.add(idx);
+			}
+			selection = filtered;
+		}
+	});
+
+	function queueDragEdits(trackIndex: number, blockIndex: number, edits: NoteEdit[]): void {
+		coalescedEdits = edits;
+		if (animFrameId === 0) {
+			animFrameId = requestAnimationFrame(() => {
+				animFrameId = 0;
+				if (coalescedEdits !== null) {
+					session.dispatch({
+						editNotes: { track: trackIndex, block: blockIndex, edits: coalescedEdits }
+					});
+					coalescedEdits = null;
+				}
+			});
+		}
+	}
+
+	function flushDragEdits(trackIndex: number, blockIndex: number): void {
+		if (animFrameId !== 0) {
+			cancelAnimationFrame(animFrameId);
+			animFrameId = 0;
+		}
+		if (coalescedEdits !== null) {
+			session.dispatch({
+				editNotes: { track: trackIndex, block: blockIndex, edits: coalescedEdits }
+			});
+			coalescedEdits = null;
+		}
+	}
 
 	function pointIn(event: MouseEvent): { x: number; y: number } | null {
 		if (grid === null) return null;
@@ -120,9 +245,297 @@
 		return { x: event.clientX - rect.left, y: event.clientY - rect.top };
 	}
 
-	function add(x: number, y: number): void {
-		if (roll === null || block === null) return;
-		const cell = cellAt(x, y, zoom);
+	function onPointerDown(event: PointerEvent): void {
+		if (event.button !== 0 || grid === null) return;
+		const point = pointIn(event);
+		if (point === null) return;
+		event.preventDefault();
+		grid.focus();
+
+		const hit = hitNote(notes, point.x, point.y, zoom);
+
+		if (drawMode) {
+			if (hit !== null) {
+				if (roll !== null) {
+					session.dispatch({
+						deleteNote: { track: roll.track, block: roll.block, note: hit.note }
+					});
+					selection = remapAfterDelete(selection, [hit.note]);
+				}
+				return;
+			}
+			const cell = cellAt(point.x, point.y, zoom);
+			const snappedStart = floorToGrid(cell.beats);
+			const startBeats = Math.min(snappedStart, Math.max(0, blockBeats - NOTE_GRID));
+			const lengthBeats = clampLength(startBeats, NOTE_GRID, blockBeats);
+			grid.setPointerCapture(event.pointerId);
+			drawDrag = { pitch: cell.pitch, startBeats, lengthBeats };
+			return;
+		}
+
+		if (hit === null) {
+			grid.setPointerCapture(event.pointerId);
+			const cell = cellAt(point.x, point.y, zoom);
+			lastClickBeats = floorToGrid(cell.beats);
+			marquee = {
+				startX: point.x,
+				startY: point.y,
+				currentX: point.x,
+				currentY: point.y,
+				startBeat: cell.beats,
+				startPitch: cell.pitch,
+				additive: event.shiftKey,
+				initialSelection: new Set(selection),
+				hasMoved: false
+			};
+			return;
+		}
+
+		if (event.shiftKey) {
+			selection = toggleNote(selection, hit.note);
+		} else if (!selection.has(hit.note)) {
+			selection = new Set([hit.note]);
+		}
+
+		if (!selection.has(hit.note)) return;
+
+		grid.setPointerCapture(event.pointerId);
+		session.dispatch('checkpoint');
+
+		const anchor = notes[hit.note];
+		const cell = cellAt(point.x, point.y, zoom);
+		const initialNotes = new Map<number, NoteView>();
+		const currentEdits = new Map<
+			number,
+			{ pitch: number; startBeats: number; lengthBeats: number }
+		>();
+
+		for (const index of selection) {
+			const n = notes[index];
+			if (n === undefined) continue;
+			initialNotes.set(index, { ...n });
+			currentEdits.set(index, {
+				pitch: n.pitch,
+				startBeats: n.startBeats,
+				lengthBeats: n.lengthBeats
+			});
+		}
+
+		let kind: 'move' | 'resize-start' | 'resize-end' = 'move';
+		if (hit.edge === 'start') kind = 'resize-start';
+		else if (hit.edge === 'end') kind = 'resize-end';
+
+		drag = {
+			kind,
+			anchorIndex: hit.note,
+			anchorStartBeats: anchor.startBeats,
+			anchorPitch: anchor.pitch,
+			grabOffsetBeats: cell.beats - anchor.startBeats,
+			initialNotes,
+			currentEdits,
+			released: false,
+			releasedAt: 0
+		};
+	}
+
+	function onPointerMove(event: PointerEvent): void {
+		const point = pointIn(event);
+		if (point === null) return;
+
+		if (drawDrag !== null) {
+			const cell = cellAt(point.x, point.y, zoom);
+			const endBeats = snapToGrid(cell.beats, event.altKey);
+			if (endBeats > drawDrag.startBeats) {
+				drawDrag.lengthBeats = clampLength(
+					drawDrag.startBeats,
+					endBeats - drawDrag.startBeats,
+					blockBeats
+				);
+			}
+			return;
+		}
+
+		if (marquee !== null) {
+			marquee.currentX = point.x;
+			marquee.currentY = point.y;
+			if (
+				Math.abs(point.x - marquee.startX) > 3 ||
+				Math.abs(point.y - marquee.startY) > 3
+			) {
+				marquee.hasMoved = true;
+			}
+			const cell = cellAt(point.x, point.y, zoom);
+			const hits = marqueeSelect(notes, {
+				startBeat: marquee.startBeat,
+				endBeat: cell.beats,
+				startPitch: marquee.startPitch,
+				endPitch: cell.pitch
+			});
+			if (marquee.additive) {
+				selection = addSelection(marquee.initialSelection, hits);
+			} else {
+				selection = hits;
+			}
+			return;
+		}
+
+		if (drag !== null && !drag.released) {
+			if (roll === null) return;
+			const cell = cellAt(point.x, point.y, zoom);
+
+			if (drag.kind === 'move') {
+				const targetStart = snapToGrid(cell.beats - drag.grabOffsetBeats, event.altKey);
+				const deltaBeats = targetStart - drag.anchorStartBeats;
+				const deltaPitch = cell.pitch - drag.anchorPitch;
+				const clamped = clampGroupMove(
+					notes,
+					drag.initialNotes.keys(),
+					deltaPitch,
+					deltaBeats,
+					blockBeats
+				);
+				const edits: NoteEdit[] = [];
+				const nextEdits = new Map<
+					number,
+					{ pitch: number; startBeats: number; lengthBeats: number }
+				>();
+				for (const [idx, init] of drag.initialNotes) {
+					const p = init.pitch + clamped.deltaPitch;
+					const s = init.startBeats + clamped.deltaBeats;
+					const l = init.lengthBeats;
+					nextEdits.set(idx, { pitch: p, startBeats: s, lengthBeats: l });
+					edits.push({
+						note: idx,
+						pitch: p,
+						startBeats: s,
+						lengthBeats: l,
+						velocity: init.velocity
+					});
+				}
+				drag.currentEdits = nextEdits;
+				queueDragEdits(roll.track, roll.block, edits);
+			} else if (drag.kind === 'resize-start') {
+				const targetStart = snapToGrid(cell.beats, event.altKey);
+				const deltaBeats = targetStart - drag.anchorStartBeats;
+				const clampedDelta = clampGroupResizeLeft(
+					notes,
+					drag.initialNotes.keys(),
+					deltaBeats
+				);
+				const edits: NoteEdit[] = [];
+				const nextEdits = new Map<
+					number,
+					{ pitch: number; startBeats: number; lengthBeats: number }
+				>();
+				for (const [idx, init] of drag.initialNotes) {
+					const s = init.startBeats + clampedDelta;
+					const l = init.lengthBeats - clampedDelta;
+					nextEdits.set(idx, { pitch: init.pitch, startBeats: s, lengthBeats: l });
+					edits.push({
+						note: idx,
+						pitch: init.pitch,
+						startBeats: s,
+						lengthBeats: l,
+						velocity: init.velocity
+					});
+				}
+				drag.currentEdits = nextEdits;
+				queueDragEdits(roll.track, roll.block, edits);
+			} else if (drag.kind === 'resize-end') {
+				const targetEnd = snapToGrid(cell.beats, event.altKey);
+				const anchorInit = drag.initialNotes.get(drag.anchorIndex);
+				const anchorEnd =
+					anchorInit !== undefined
+						? anchorInit.startBeats + anchorInit.lengthBeats
+						: targetEnd;
+				const deltaBeats = targetEnd - anchorEnd;
+				const clampedDelta = clampGroupResizeRight(
+					notes,
+					drag.initialNotes.keys(),
+					deltaBeats,
+					blockBeats
+				);
+				const edits: NoteEdit[] = [];
+				const nextEdits = new Map<
+					number,
+					{ pitch: number; startBeats: number; lengthBeats: number }
+				>();
+				for (const [idx, init] of drag.initialNotes) {
+					const s = init.startBeats;
+					const l = init.lengthBeats + clampedDelta;
+					nextEdits.set(idx, { pitch: init.pitch, startBeats: s, lengthBeats: l });
+					edits.push({
+						note: idx,
+						pitch: init.pitch,
+						startBeats: s,
+						lengthBeats: l,
+						velocity: init.velocity
+					});
+				}
+				drag.currentEdits = nextEdits;
+				queueDragEdits(roll.track, roll.block, edits);
+			}
+			return;
+		}
+
+		if (drawMode) {
+			hover = 'draw';
+			return;
+		}
+
+		const hit = hitNote(notes, point.x, point.y, zoom);
+		if (hit === null) hover = 'add';
+		else if (hit.edge === 'start') hover = 'resize-start';
+		else if (hit.edge === 'end') hover = 'resize-end';
+		else hover = 'move';
+	}
+
+	function onPointerUp(): void {
+		if (drawDrag !== null) {
+			if (roll !== null) {
+				const { pitch, startBeats, lengthBeats } = drawDrag;
+				const index = block?.notes.length ?? 0;
+				void session
+					.request({
+						addNote: {
+							track: roll.track,
+							block: roll.block,
+							pitch,
+							startBeats,
+							lengthBeats,
+							velocity: DEFAULT_VELOCITY
+						}
+					})
+					.then((accepted) => {
+						if (accepted) selection = new Set([index]);
+					});
+			}
+			drawDrag = null;
+			return;
+		}
+
+		if (marquee !== null) {
+			if (!marquee.hasMoved && !marquee.additive) {
+				selection = new Set();
+			}
+			marquee = null;
+			return;
+		}
+
+		if (drag !== null && !drag.released) {
+			if (roll !== null) flushDragEdits(roll.track, roll.block);
+			drag.released = true;
+			drag.releasedAt = performance.now();
+		}
+	}
+
+	function onDblClick(event: MouseEvent): void {
+		if (drawMode || event.button !== 0 || roll === null || block === null) return;
+		const point = pointIn(event);
+		if (point === null) return;
+		const hit = hitNote(notes, point.x, point.y, zoom);
+		if (hit !== null) return;
+		const cell = cellAt(point.x, point.y, zoom);
 		const startBeats = Math.min(floorToGrid(cell.beats), Math.max(0, blockBeats - NOTE_GRID));
 		const lengthBeats = clampLength(startBeats, DEFAULT_NOTE_BEATS, blockBeats);
 		const index = block.notes.length;
@@ -139,88 +552,212 @@
 				}
 			})
 			.then((accepted) => {
-				if (accepted) selected = index;
+				if (accepted) selection = new Set([index]);
 			});
-	}
-
-	function onPointerDown(event: PointerEvent): void {
-		if (event.button !== 0 || grid === null) return;
-		const point = pointIn(event);
-		if (point === null) return;
-		event.preventDefault();
-		grid.focus();
-		const hit = hitNote(notes, point.x, point.y, zoom);
-		if (hit === null) {
-			add(point.x, point.y);
-			return;
-		}
-		const note = notes[hit.note];
-		selected = hit.note;
-		grid.setPointerCapture(event.pointerId);
-		session.dispatch('checkpoint');
-		drag = {
-			kind: hit.edge ? 'resize' : 'move',
-			note: hit.note,
-			pitch: note.pitch,
-			startBeats: note.startBeats,
-			lengthBeats: note.lengthBeats,
-			grab: cellAt(point.x, point.y, zoom).beats - note.startBeats,
-			released: false,
-			releasedAt: 0
-		};
-	}
-
-	function onPointerMove(event: PointerEvent): void {
-		const point = pointIn(event);
-		if (point === null) return;
-		if (drag === null || drag.released) {
-			const hit = hitNote(notes, point.x, point.y, zoom);
-			hover = hit === null ? 'add' : hit.edge ? 'resize' : 'move';
-			return;
-		}
-		const cell = cellAt(point.x, point.y, zoom);
-		if (drag.kind === 'move') {
-			const start = snapToGrid(cell.beats - drag.grab, event.altKey);
-			const next = clampMove(cell.pitch, start, drag.lengthBeats, blockBeats);
-			if (next.pitch === drag.pitch && next.startBeats === drag.startBeats) return;
-			drag.pitch = next.pitch;
-			drag.startBeats = next.startBeats;
-			session.queueNoteMove(drag.note, next.pitch, next.startBeats);
-		} else {
-			const end = snapToGrid(cell.beats, event.altKey);
-			const lengthBeats = clampLength(drag.startBeats, end - drag.startBeats, blockBeats);
-			if (lengthBeats === drag.lengthBeats) return;
-			drag.lengthBeats = lengthBeats;
-			session.queueNoteResize(drag.note, lengthBeats);
-		}
-	}
-
-	function onPointerUp(): void {
-		if (drag === null || drag.released) return;
-		drag.released = true;
-		drag.releasedAt = performance.now();
 	}
 
 	function onWheel(event: WheelEvent): void {
 		const point = pointIn(event);
-		if (point === null) return;
+		if (point === null || roll === null) return;
 		const hit = hitNote(notes, point.x, point.y, zoom);
 		const delta = event.shiftKey && event.deltaY === 0 ? event.deltaX : event.deltaY;
 		if (hit === null || delta === 0) return;
 		event.preventDefault();
-		const velocity = velocityStep(notes[hit.note].velocity, delta, event.shiftKey);
-		selected = hit.note;
-		pending = { note: hit.note, velocity, sentAt: performance.now() };
-		session.queueNoteVelocity(hit.note, velocity);
+		const targetIndices = selection.has(hit.note) ? Array.from(selection) : [hit.note];
+		const edits: NoteEdit[] = [];
+		const nextPending = new Map(pendingVelocities);
+		const now = performance.now();
+		for (const idx of targetIndices) {
+			const n = notes[idx];
+			if (n === undefined) continue;
+			const v = velocityStep(n.velocity, delta, event.shiftKey);
+			edits.push({
+				note: idx,
+				pitch: n.pitch,
+				startBeats: n.startBeats,
+				lengthBeats: n.lengthBeats,
+				velocity: v
+			});
+			nextPending.set(idx, { velocity: v, sentAt: now });
+		}
+		pendingVelocities = nextPending;
+		session.dispatch({ editNotes: { track: roll.track, block: roll.block, edits } });
 	}
 
 	function onKeyDown(event: KeyboardEvent): void {
-		if (session.renaming || (event.key !== 'Delete' && event.key !== 'Backspace')) return;
-		event.preventDefault();
-		event.stopPropagation();
-		if (roll === null || selected === null || block?.notes[selected] === undefined) return;
-		session.dispatch({ deleteNote: { track: roll.track, block: roll.block, note: selected } });
-		selected = null;
+		if (session.renaming) return;
+		if (event.key === ' ' || event.code === 'Space') return;
+
+		if (event.ctrlKey || event.metaKey) {
+			if (event.key === 'z' || event.key === 'Z') return;
+			if (event.key === 'y' || event.key === 'Y') return;
+			if (event.key === 'u' || event.key === 'U') return;
+
+			if (event.key === 'a' || event.key === 'A') {
+				event.preventDefault();
+				event.stopPropagation();
+				selection = new Set(notes.map((_, i) => i));
+				return;
+			}
+
+			if (event.key === 'c' || event.key === 'C') {
+				event.preventDefault();
+				event.stopPropagation();
+				const clip = copySelection(notes, selection);
+				if (clip !== null) setModuleClipboard(clip);
+				return;
+			}
+
+			if (event.key === 'x' || event.key === 'X') {
+				event.preventDefault();
+				event.stopPropagation();
+				if (roll !== null && selection.size > 0) {
+					const clip = copySelection(notes, selection);
+					if (clip !== null) setModuleClipboard(clip);
+					const toDelete = Array.from(selection).sort((a, b) => a - b);
+					session.dispatch({
+						deleteNotes: { track: roll.track, block: roll.block, notes: toDelete }
+					});
+					selection = new Set();
+				}
+				return;
+			}
+
+			if (event.key === 'v' || event.key === 'V') {
+				event.preventDefault();
+				event.stopPropagation();
+				const clip = getModuleClipboard();
+				if (roll !== null && clip !== null) {
+					const pasted = pasteClipboard(clip, lastClickBeats, blockBeats);
+					if (pasted.length > 0) {
+						const oldLength = block?.notes.length ?? 0;
+						void session
+							.request({
+								addNotes: { track: roll.track, block: roll.block, notes: pasted }
+							})
+							.then((accepted) => {
+								if (accepted) selection = rangeSelection(oldLength, pasted.length);
+							});
+					}
+				}
+				return;
+			}
+
+			if (event.key === 'd' || event.key === 'D') {
+				event.preventDefault();
+				event.stopPropagation();
+				if (roll !== null && selection.size > 0) {
+					const duped = duplicateSelection(notes, selection, blockBeats);
+					if (duped.length > 0) {
+						const oldLength = block?.notes.length ?? 0;
+						void session
+							.request({
+								addNotes: { track: roll.track, block: roll.block, notes: duped }
+							})
+							.then((accepted) => {
+								if (accepted) selection = rangeSelection(oldLength, duped.length);
+							});
+					}
+				}
+				return;
+			}
+		}
+
+		if (
+			(event.key === 'b' || event.key === 'B') &&
+			!event.ctrlKey &&
+			!event.metaKey &&
+			!event.altKey
+		) {
+			event.preventDefault();
+			event.stopPropagation();
+			drawMode = !drawMode;
+			return;
+		}
+
+		if (event.key === 'Delete' || event.key === 'Backspace') {
+			event.preventDefault();
+			event.stopPropagation();
+			if (roll !== null && selection.size > 0) {
+				const toDelete = Array.from(selection).sort((a, b) => a - b);
+				session.dispatch({
+					deleteNotes: { track: roll.track, block: roll.block, notes: toDelete }
+				});
+				selection = new Set();
+			}
+			return;
+		}
+
+		if (event.key === 'Escape') {
+			event.preventDefault();
+			event.stopPropagation();
+			if (selection.size > 0) {
+				selection = new Set();
+			} else {
+				session.closeRoll();
+			}
+			return;
+		}
+
+		if (event.key === 'ArrowUp') {
+			event.preventDefault();
+			event.stopPropagation();
+			if (roll !== null && selection.size > 0) {
+				const edits = arrowTranspose(notes, selection, event.shiftKey ? 12 : 1);
+				session.dispatch({ editNotes: { track: roll.track, block: roll.block, edits } });
+			}
+			return;
+		}
+
+		if (event.key === 'ArrowDown') {
+			event.preventDefault();
+			event.stopPropagation();
+			if (roll !== null && selection.size > 0) {
+				const edits = arrowTranspose(notes, selection, event.shiftKey ? -12 : -1);
+				session.dispatch({ editNotes: { track: roll.track, block: roll.block, edits } });
+			}
+			return;
+		}
+
+		if (event.key === 'ArrowLeft') {
+			event.preventDefault();
+			event.stopPropagation();
+			if (roll !== null && selection.size > 0) {
+				const step = event.altKey ? MIN_NOTE_BEATS : NOTE_GRID;
+				const edits = event.shiftKey
+					? arrowResize(notes, selection, -step, blockBeats)
+					: arrowNudge(notes, selection, -step, blockBeats);
+				session.dispatch({ editNotes: { track: roll.track, block: roll.block, edits } });
+			}
+			return;
+		}
+
+		if (event.key === 'ArrowRight') {
+			event.preventDefault();
+			event.stopPropagation();
+			if (roll !== null && selection.size > 0) {
+				const step = event.altKey ? MIN_NOTE_BEATS : NOTE_GRID;
+				const edits = event.shiftKey
+					? arrowResize(notes, selection, step, blockBeats)
+					: arrowNudge(notes, selection, step, blockBeats);
+				session.dispatch({ editNotes: { track: roll.track, block: roll.block, edits } });
+			}
+			return;
+		}
+	}
+
+	function onQuantize(): void {
+		if (roll === null) return;
+		const selectedList = selection.size > 0 ? Array.from(selection).sort((a, b) => a - b) : [];
+		session.dispatch({
+			quantizeBlock: {
+				track: roll.track,
+				block: roll.block,
+				gridBeats: NOTE_GRID,
+				notes: selectedList
+			}
+		});
+		grid?.focus();
 	}
 
 	function audition(event: PointerEvent, pitch: number): void {
@@ -240,24 +777,56 @@
 <section class="roll" aria-label="Piano roll">
 	<header class="bar">
 		<span class="info" aria-live="polite">
-			{#if current !== null}
-				{noteName(current.pitch)} at beat {current.startBeats + 1}, length {current.lengthBeats},
-				velocity {current.velocity}
+			{#if selection.size > 1}
+				{selection.size} selected
+			{:else if current !== null}
+				{noteName(current.pitch)} at beat {current.startBeats + 1},
+				length {current.lengthBeats}, velocity {current.velocity}
 			{:else}
 				{notes.length} {notes.length === 1 ? 'note' : 'notes'}
 			{/if}
 		</span>
 		<button
+			class="icon pencil"
+			class:active={drawMode}
+			title="Draw mode (B)"
+			aria-label="Toggle draw mode"
+			aria-pressed={drawMode}
+			onclick={() => {
+				drawMode = !drawMode;
+				grid?.focus();
+			}}
+		>
+			<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+				<path
+					d="M12.146.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1 0 .708l-10 10
+						a.5.5 0 0 1-.168.11l-5 2a.5.5 0 0 1-.65-.65l2-5
+						a.5.5 0 0 1 .11-.168l10-10zM11.207 2.5 13.5 4.793 14.793 3.5
+						12.5 1.207 11.207 2.5zm1.586 3L10.5 3.207 4 9.707V10h.5
+						a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.293l6.5-6.5zm-9.761 5.175
+						-.806 2.016 2.016-.806L4.05 11.7l-.87-.87-.18.175z"
+				/>
+			</svg>
+		</button>
+		<button
 			class="quantize"
 			title="Snap note starts to the sixteenth-note grid (Ctrl+U)"
-			onclick={() => session.quantizeSelected()}
+			onclick={onQuantize}
 		>
 			Quantize
 		</button>
-		<button class="icon" aria-label="Zoom the piano roll out" onclick={() => (zoom = zoomBy(zoom, -1))}>
+		<button
+			class="icon"
+			aria-label="Zoom the piano roll out"
+			onclick={() => (zoom = zoomBy(zoom, -1))}
+		>
 			&minus;
 		</button>
-		<button class="icon" aria-label="Zoom the piano roll in" onclick={() => (zoom = zoomBy(zoom, 1))}>
+		<button
+			class="icon"
+			aria-label="Zoom the piano roll in"
+			onclick={() => (zoom = zoomBy(zoom, 1))}
+		>
 			+
 		</button>
 		<button class="icon" aria-label="Close piano roll" onclick={() => session.closeRoll()}>
@@ -290,9 +859,14 @@
 			<div
 				class="grid {hover}"
 				class:dragging={drag !== null && !drag.released}
+				class:marquee={marquee !== null}
+				class:draw={drawMode}
 				role="grid"
 				aria-rowcount={PITCH_COUNT}
-				aria-label="Notes of {block?.name ?? 'the block'}: click to add, drag to move, drag the right edge to resize, wheel for velocity, Delete to remove"
+				aria-label="Notes of {block?.name ?? 'the block'}:
+					drag empty grid to marquee select, double-click to add,
+					drag note to move, drag edges to resize, wheel for velocity,
+					Delete to remove, B to toggle draw mode"
 				tabindex="0"
 				bind:this={grid}
 				style="width: {gridWidth}px; height: {gridHeight}px"
@@ -300,13 +874,20 @@
 				onpointermove={onPointerMove}
 				onpointerup={onPointerUp}
 				onpointercancel={onPointerUp}
+				ondblclick={onDblClick}
 				onwheel={onWheel}
 				onkeydown={onKeyDown}
 			>
 				<svg class="lines" width={gridWidth} height={gridHeight} aria-hidden="true">
 					{#each PITCHES as pitch (pitch)}
 						{#if isBlackKey(pitch)}
-							<rect class="black-row" x="0" y={pitchToY(pitch)} width={gridWidth} height={ROW_PX} />
+							<rect
+								class="black-row"
+								x="0"
+								y={pitchToY(pitch)}
+								width={gridWidth}
+								height={ROW_PX}
+							/>
 						{/if}
 						{#if pitch % 12 === 0}
 							<line
@@ -332,11 +913,39 @@
 				{#each notes as note, index (index)}
 					<div
 						class="note"
-						class:selected={selected === index}
+						class:selected={selection.has(index)}
 						aria-hidden="true"
-						style="left: {beatsToPx(note.startBeats, zoom)}px; top: {pitchToY(note.pitch)}px; width: {beatsToPx(note.lengthBeats, zoom)}px; height: {ROW_PX}px; opacity: {velocityOpacity(note.velocity)}"
+						style="left: {beatsToPx(note.startBeats, zoom)}px;
+							top: {pitchToY(note.pitch)}px;
+							width: {beatsToPx(note.lengthBeats, zoom)}px;
+							height: {ROW_PX}px;
+							opacity: {velocityOpacity(note.velocity)}"
 					></div>
 				{/each}
+
+				{#if drawDrag !== null}
+					<div
+						class="note preview"
+						aria-hidden="true"
+						style="left: {beatsToPx(drawDrag.startBeats, zoom)}px;
+							top: {pitchToY(drawDrag.pitch)}px;
+							width: {beatsToPx(drawDrag.lengthBeats, zoom)}px;
+							height: {ROW_PX}px;
+							opacity: {velocityOpacity(DEFAULT_VELOCITY)}"
+					></div>
+				{/if}
+
+				{#if marquee !== null && marquee.hasMoved}
+					{@const left = Math.min(marquee.startX, marquee.currentX)}
+					{@const top = Math.min(marquee.startY, marquee.currentY)}
+					{@const width = Math.abs(marquee.currentX - marquee.startX)}
+					{@const height = Math.abs(marquee.currentY - marquee.startY)}
+					<div
+						class="marquee-box"
+						style="left: {left}px; top: {top}px; width: {width}px; height: {height}px;"
+						aria-hidden="true"
+					></div>
+				{/if}
 			</div>
 		</div>
 	</div>
@@ -401,6 +1010,11 @@
 		color: var(--text);
 	}
 
+	.icon.pencil.active {
+		background: var(--green);
+		color: var(--on-green);
+	}
+
 	.scroller {
 		flex: 1;
 		min-height: 0;
@@ -462,6 +1076,10 @@
 	}
 
 	.grid.add {
+		cursor: default;
+	}
+
+	.grid.draw {
 		cursor: crosshair;
 	}
 
@@ -469,12 +1087,22 @@
 		cursor: grab;
 	}
 
-	.grid.resize {
+	.grid.resize-start,
+	.grid.resize-end {
 		cursor: ew-resize;
 	}
 
 	.grid.dragging.move {
 		cursor: grabbing;
+	}
+
+	.grid.dragging.resize-start,
+	.grid.dragging.resize-end {
+		cursor: ew-resize;
+	}
+
+	.grid.marquee {
+		cursor: crosshair;
 	}
 
 	.grid:focus-visible {
@@ -513,7 +1141,22 @@
 	}
 
 	.note.selected {
+		background: color-mix(in srgb, var(--green) 85%, var(--text));
 		box-shadow: inset 0 0 0 1px var(--bg);
 		outline: 1px solid var(--text);
+	}
+
+	.note.preview {
+		background: var(--green);
+		opacity: 0.6;
+		outline: 1px dashed var(--text);
+	}
+
+	.marquee-box {
+		position: absolute;
+		background: color-mix(in srgb, var(--green) 18%, transparent);
+		border: 1px solid var(--green);
+		pointer-events: none;
+		z-index: 3;
 	}
 </style>

@@ -79,15 +79,20 @@ export function noteName(pitch: number): string {
 	return `${NAMES[semitone]}${Math.floor(pitch / 12) - 1}`;
 }
 
-/** Which note sits under a point, and whether the point is on its resize handle. */
+/** Which edge of a note is under a point, or null for its body. */
+export type NoteEdge = 'start' | 'end' | null;
+
+/** Which note sits under a point, and whether the point is on an edge handle. */
 export interface NoteHit {
 	note: number;
-	edge: boolean;
+	edge: NoteEdge;
 }
 
 /**
  * The note under a point of the grid, searching from the last note drawn so the
- * one on top wins. A note narrower than two handles keeps its left half for moving.
+ * one on top wins. The start handle drags to resize from the left, the end handle
+ * from the right, and the body in between moves. Handles shrink to half the width
+ * on narrow notes so they never overlap.
  */
 export function hitNote(
 	notes: readonly NoteView[],
@@ -104,8 +109,15 @@ export function hitNote(
 		const left = beatsToPx(note.startBeats, pxPerBeat);
 		const right = left + beatsToPx(note.lengthBeats, pxPerBeat);
 		if (x < left || x > right) continue;
-		const handle = Math.min(HANDLE_PX, (right - left) / 2);
-		return { note: index, edge: x >= right - handle };
+		const width = right - left;
+		const handle = Math.min(HANDLE_PX, width / 2);
+		let edge: NoteEdge = null;
+		if (x - left < handle) {
+			edge = 'start';
+		} else if (right - x <= handle) {
+			edge = 'end';
+		}
+		return { note: index, edge };
 	}
 	return null;
 }
