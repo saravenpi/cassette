@@ -84,6 +84,7 @@ class Session {
 	private noteDrag = new KeyedQueue<EngineEvent>();
 	private noteVelocity = new KeyedQueue<EngineEvent>();
 	private effectParam = new KeyedQueue<EngineEvent>();
+	private instrumentTone = new KeyedQueue<EngineEvent>();
 	private opened = 0;
 	private notes = new NoteCache();
 	private backoff = 0;
@@ -360,6 +361,19 @@ class Session {
 		this.dispatch({ renameTrack: { track, name } });
 	}
 
+	/** Queue an instrument tone change, collapsed to one message per frame. */
+	queueInstrumentTone(
+		track: number,
+		cutoff: number,
+		resonance: number,
+		detune: number,
+		sub: number
+	): void {
+		this.instrumentTone.set(track, {
+			setInstrumentTone: { track, cutoff, resonance, detune, sub }
+		});
+	}
+
 	/** Close the piano roll. */
 	closeRoll(): void {
 		this.roll = null;
@@ -495,7 +509,8 @@ class Session {
 			...this.voice.drain(),
 			...this.noteDrag.drain(),
 			...this.noteVelocity.drain(),
-			...this.effectParam.drain()
+			...this.effectParam.drain(),
+			...this.instrumentTone.drain()
 		];
 		for (const event of queued) await this.send(event);
 	}

@@ -6,13 +6,13 @@
 
 	import EffectsPane from './EffectsPane.svelte';
 	import FileBrowser from './FileBrowser.svelte';
-	import VstPane from './VstPane.svelte';
+	import InstrumentsPane from './InstrumentsPane.svelte';
 
-	type Tab = 'files' | 'vst' | 'effects';
+	type Tab = 'files' | 'instruments' | 'effects';
 
 	const TABS: { id: Tab; label: string }[] = [
 		{ id: 'files', label: 'Browser' },
-		{ id: 'vst', label: 'VST' },
+		{ id: 'instruments', label: 'Instruments' },
 		{ id: 'effects', label: 'Effects' }
 	];
 
@@ -48,11 +48,11 @@
 		<div
 			class="pane"
 			role="tabpanel"
-			id="pane-vst"
-			aria-labelledby="tab-vst"
-			hidden={tab !== 'vst'}
+			id="pane-instruments"
+			aria-labelledby="tab-instruments"
+			hidden={tab !== 'instruments'}
 		>
-			<VstPane />
+			<InstrumentsPane />
 		</div>
 		<div
 			class="pane"
