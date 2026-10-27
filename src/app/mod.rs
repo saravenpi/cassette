@@ -171,6 +171,7 @@ impl App {
         if self.resync_pending {
             self.resync();
         }
+        self.engine.collect_garbage();
         let peaks = self.engine.shared().peaks();
         self.meters.update(&peaks);
     }
