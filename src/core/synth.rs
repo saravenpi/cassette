@@ -567,6 +567,22 @@ impl SynthEngine {
         self.recompute_active_voices();
     }
 
+    pub fn move_track(&mut self, from: usize, to: usize) {
+        if from >= self.track_count || to >= self.track_count || from == to {
+            return;
+        }
+        if from < to {
+            self.tracks[from..=to].rotate_left(1);
+            self.last_frame_outputs[from..=to].rotate_left(1);
+            self.current_frame_outputs[from..=to].rotate_left(1);
+        } else {
+            self.tracks[to..=from].rotate_right(1);
+            self.last_frame_outputs[to..=from].rotate_right(1);
+            self.current_frame_outputs[to..=from].rotate_right(1);
+        }
+        self.update_solo();
+    }
+
     /// Replace a track's instrument and mixer settings.
     pub fn configure_track(
         &mut self,

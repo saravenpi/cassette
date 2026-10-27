@@ -343,6 +343,8 @@ impl App {
             Event::DeleteTrack { track } => self.delete_track(track),
             Event::DuplicateTrack { track } => self.duplicate_track(track),
             Event::RenameTrack { track, name } => self.rename_track(track, &name),
+            Event::ReorderTrack { from, to } => self.reorder_track(from, to),
+            Event::SetTrackColor { track, color_index } => self.set_track_color(track, color_index),
             Event::CopyRange { range } => self.copy_range(range),
             Event::CutRange { range } => self.cut_range(range),
             Event::DeleteRange { range } => self.delete_range(range),
@@ -364,6 +366,15 @@ impl App {
                 sub,
             } => self.set_instrument_tone(track, cutoff, resonance, detune, sub),
             Event::AddEffect { track, kind, index } => self.add_effect(track, kind, index),
+            Event::PasteEffect {
+                track,
+                index,
+                kind,
+                params,
+                enabled,
+                sidechain,
+            } => self.paste_effect(track, index, kind, &params, enabled, sidechain),
+            Event::DuplicateEffect { track, index } => self.duplicate_effect(track, index),
             Event::RemoveEffect { track, index } => self.remove_effect(track, index),
             Event::MoveEffect { track, from, to } => self.move_effect(track, from, to),
             Event::SetEffectEnabled {
@@ -482,7 +493,7 @@ impl App {
                         rate: entry.rate,
                     })
                     .collect(),
-                color_index: (index % COLOR_SLOTS) as u8,
+                color_index: track.color_index.unwrap_or((index % COLOR_SLOTS) as u8),
                 notes_revision: self.note_revisions.get(index).copied().unwrap_or(0),
                 effects: track
                     .effects

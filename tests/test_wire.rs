@@ -128,6 +128,39 @@ fn a_loop_region_and_a_note_read_camel_case_fields() {
 }
 
 #[test]
+fn the_new_track_and_effect_events_read_camel_case_fields() {
+    let reorder = parse(r#"{"reorderTrack":{"from":0,"to":2}}"#);
+    assert_eq!(reorder, Event::ReorderTrack { from: 0, to: 2 });
+
+    let color = parse(r#"{"setTrackColor":{"track":1,"colorIndex":5}}"#);
+    assert_eq!(
+        color,
+        Event::SetTrackColor {
+            track: 1,
+            color_index: 5
+        }
+    );
+
+    let paste = parse(
+        r#"{"pasteEffect":{"track":0,"index":1,"kind":"reverb","params":[0.5,0.2],"enabled":true,"sidechain":2}}"#,
+    );
+    assert_eq!(
+        paste,
+        Event::PasteEffect {
+            track: 0,
+            index: Some(1),
+            kind: cassette::models::EffectKind::Reverb,
+            params: vec![0.5, 0.2],
+            enabled: true,
+            sidechain: Some(2),
+        }
+    );
+
+    let dup = parse(r#"{"duplicateEffect":{"track":2,"index":0}}"#);
+    assert_eq!(dup, Event::DuplicateEffect { track: 2, index: 0 });
+}
+
+#[test]
 fn the_clip_editing_events_read_camel_case_fields() {
     assert_eq!(
         parse(r#"{"splitBlock":{"track":1,"block":2,"atBeats":6.5}}"#),

@@ -11,6 +11,7 @@ use crate::models::{Effect, EffectChain, EffectKind, MAX_EFFECTS};
 pub(crate) enum TrackShift {
     Inserted(usize),
     Deleted(usize),
+    Moved { from: usize, to: usize },
 }
 
 impl App {
@@ -58,23 +59,43 @@ impl App {
     }
 
     pub(crate) fn remap_sidechains(&mut self, shift: TrackShift) {
-        for track in &mut self.song.tracks {
+        for (track_idx, track) in self.song.tracks.iter_mut().enumerate() {
             for effect in &mut track.effects {
                 if let Some(source) = effect.sidechain {
                     let s = source as usize;
-                    match shift {
+                    let next = match shift {
                         TrackShift::Deleted(deleted) => {
                             if s == deleted {
-                                effect.sidechain = None;
+                                None
                             } else if s > deleted {
-                                effect.sidechain = Some((s - 1) as u8);
+                                Some((s - 1) as u8)
+                            } else {
+                                Some(s as u8)
                             }
                         }
                         TrackShift::Inserted(inserted) => {
                             if s >= inserted {
-                                effect.sidechain = Some((s + 1) as u8);
+                                Some((s + 1) as u8)
+                            } else {
+                                Some(s as u8)
                             }
                         }
+                        TrackShift::Moved { from, to } => {
+                            if s == from {
+                                Some(to as u8)
+                            } else if from < to && s > from && s <= to {
+                                Some((s - 1) as u8)
+                            } else if to < from && s >= to && s < from {
+                                Some((s + 1) as u8)
+                            } else {
+                                Some(s as u8)
+                            }
+                        }
+                    };
+                    if next == Some(track_idx as u8) {
+                        effect.sidechain = None;
+                    } else {
+                        effect.sidechain = next;
                     }
                 }
             }
@@ -99,6 +120,69 @@ impl App {
         self.select_track(track);
         self.push_effects(track);
         self.status = format!("{} added to track {}", kind.name(), track + 1);
+    }
+
+    pub(crate) fn paste_effect(
+        &mut self,
+        track: usize,
+        index: Option<usize>,
+        kind: EffectKind,
+        params: &[f32],
+        enabled: bool,
+        sidechain: Option<usize>,
+    ) {
+        let Some(lane_len) = self.song.tracks.get(track).map(|lane| lane.effects.len()) else {
+            self.status = "no track there to paste an effect to".into();
+            return;
+        };
+        if lane_len >= MAX_EFFECTS {
+            self.status = format!("track {} already holds {MAX_EFFECTS} effects", track + 1);
+            return;
+        }
+        let id = self.song.next_effect_id();
+        let mut effect = Effect::new(kind);
+        effect.id = id;
+        effect.enabled = enabled;
+        let spec = kind.spec();
+        for (i, p) in effect.params[..spec.len()].iter_mut().enumerate() {
+            if let Some(&val) = params.get(i) {
+                *p = spec[i].clamp(val);
+            }
+        }
+        if let Some(s) = sidechain
+            && s != track
+            && s < self.song.tracks.len()
+            && kind.takes_sidechain()
+        {
+            effect.sidechain = Some(s as u8);
+        }
+        let at = index.map_or(lane_len, |idx| (idx + 1).min(lane_len));
+        self.song.tracks[track].effects.insert(at, effect);
+        self.select_track(track);
+        self.push_effects(track);
+        self.status = format!("{} pasted to track {}", kind.name(), track + 1);
+    }
+
+    pub(crate) fn duplicate_effect(&mut self, track: usize, index: usize) {
+        let Some(lane_len) = self.song.tracks.get(track).map(|lane| lane.effects.len()) else {
+            return;
+        };
+        if index >= lane_len {
+            return;
+        }
+        if lane_len >= MAX_EFFECTS {
+            self.status = format!("track {} already holds {MAX_EFFECTS} effects", track + 1);
+            return;
+        }
+        let mut copy = self.song.tracks[track].effects[index];
+        copy.id = self.song.next_effect_id();
+        let at = index + 1;
+        self.song.tracks[track].effects.insert(at, copy);
+        self.push_effects(track);
+        self.status = format!(
+            "duplicated {}",
+            self.song.tracks[track].effects[at].kind.name()
+        );
     }
 
     /// Take one effect out of a track's chain.
@@ -409,5 +493,32 @@ mod tests {
         assert!(app.song.tracks[1].effects.is_empty(), "undo of the add");
         app.submit(Event::Redo);
         assert_eq!(kinds(&app), vec![EffectKind::Reverb]);
+    }
+
+    #[test]
+    fn paste_and_duplicate_effects_preserve_values() {
+        let mut app = headless_app();
+        app.handle(Event::PasteEffect {
+            track: 0,
+            index: None,
+            kind: EffectKind::Filter,
+            params: vec![1.0, 1200.0, 0.7],
+            enabled: false,
+            sidechain: None,
+        });
+        assert_eq!(app.song.tracks[0].effects.len(), 1);
+        let eff = &app.song.tracks[0].effects[0];
+        assert_eq!(eff.kind, EffectKind::Filter);
+        assert!(!eff.enabled);
+        assert_eq!(eff.params[1], 1200.0);
+
+        app.handle(Event::DuplicateEffect { track: 0, index: 0 });
+        assert_eq!(app.song.tracks[0].effects.len(), 2);
+        assert_ne!(
+            app.song.tracks[0].effects[0].id,
+            app.song.tracks[0].effects[1].id
+        );
+        assert_eq!(app.song.tracks[0].effects[1].params[1], 1200.0);
+        assert!(!app.song.tracks[0].effects[1].enabled);
     }
 }

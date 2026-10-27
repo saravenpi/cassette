@@ -51,7 +51,9 @@ impl App {
             n += 1;
         }
         let name = format!("{prefix} {n}");
-        let new_track = Track::new(name.clone(), kind, kind.default_preset());
+        let color_index = (self.song.tracks.len() % 8) as u8;
+        let new_track =
+            Track::new(name.clone(), kind, kind.default_preset()).with_color(color_index);
         self.song.tracks.push(new_track);
         self.cursor.track = self.song.tracks.len() - 1;
         self.clamp_block();
@@ -108,6 +110,7 @@ impl App {
             effect.id = self.song.next_effect_id();
         }
         let insert_index = track + 1;
+        copy.color_index = Some((insert_index % 8) as u8);
         self.song.tracks.insert(insert_index, copy);
         self.cursor.track = insert_index;
         self.clamp_block();
@@ -119,6 +122,45 @@ impl App {
             self.touch_notes(t);
         }
         self.status = format!("duplicated track {}", self.song.tracks[insert_index].name);
+    }
+
+    pub(crate) fn reorder_track(&mut self, from: usize, to: usize) {
+        let count = self.song.tracks.len();
+        if from >= count || to >= count || from == to {
+            return;
+        }
+        let track_name = self.song.tracks[from].name.clone();
+        if from < to {
+            self.song.tracks[from..=to].rotate_left(1);
+            self.note_revisions[from..=to].rotate_left(1);
+        } else {
+            self.song.tracks[to..=from].rotate_right(1);
+            self.note_revisions[to..=from].rotate_right(1);
+        }
+        self.remap_sidechains(TrackShift::Moved { from, to });
+        if self.cursor.track == from {
+            self.cursor.track = to;
+        } else if from < to && self.cursor.track > from && self.cursor.track <= to {
+            self.cursor.track -= 1;
+        } else if to < from && self.cursor.track >= to && self.cursor.track < from {
+            self.cursor.track += 1;
+        }
+        self.clamp_block();
+        if !self.engine.move_track(from, to) {
+            self.resync_pending = true;
+        }
+        for t in 0..count {
+            self.touch_notes(t);
+            self.push_effects(t);
+        }
+        self.status = format!("moved track {track_name} to position {}", to + 1);
+    }
+
+    pub(crate) fn set_track_color(&mut self, track: usize, color_index: u8) {
+        if let Some(target) = self.song.tracks.get_mut(track) {
+            target.color_index = Some(color_index % 8);
+            self.status = format!("changed color for track {}", target.name);
+        }
     }
 
     pub(crate) fn rename_track(&mut self, track: usize, name: &str) {
@@ -658,5 +700,29 @@ mod tests {
             peak_after_later > 0.01,
             "track 0 should still be sounding after deleting later track 1, was {peak_after_later}"
         );
+    }
+
+    #[test]
+    fn reordering_tracks_moves_track_and_preserves_color() {
+        let mut app = headless_app();
+        assert_eq!(app.song.tracks[0].color_index, Some(0));
+        assert_eq!(app.song.tracks[1].color_index, Some(1));
+
+        app.handle(Event::SetTrackColor {
+            track: 0,
+            color_index: 7,
+        });
+        assert_eq!(app.song.tracks[0].color_index, Some(7));
+        assert_eq!(app.ui_state().tracks[0].color_index, 7);
+
+        app.handle(Event::ReorderTrack { from: 0, to: 2 });
+        assert_eq!(app.song.tracks[2].color_index, Some(7));
+        assert_eq!(app.ui_state().tracks[2].color_index, 7);
+        assert_eq!(app.song.tracks[0].color_index, Some(1));
+        assert_eq!(app.ui_state().tracks[0].color_index, 1);
+
+        app.handle(Event::Undo);
+        assert_eq!(app.song.tracks[0].color_index, Some(7));
+        assert_eq!(app.ui_state().tracks[0].color_index, 7);
     }
 }

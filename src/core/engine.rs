@@ -325,6 +325,23 @@ impl AudioEngine {
         self.send(RtCommand::DeleteTrack { track: track as u8 })
     }
 
+    pub fn move_track(&self, from: usize, to: usize) -> bool {
+        if from >= MAX_TRACKS || to >= MAX_TRACKS || from == to {
+            return false;
+        }
+        if let Ok(mut effects) = self.effects.lock() {
+            if from < to {
+                effects.last_chains[from..=to].rotate_left(1);
+            } else {
+                effects.last_chains[to..=from].rotate_right(1);
+            }
+        }
+        self.send(RtCommand::MoveTrack {
+            from: from as u8,
+            to: to as u8,
+        })
+    }
+
     /// Re-send the entire song to the audio thread. Recovery path when the
     /// command queue has overflowed, and used after bulk edits.
     ///

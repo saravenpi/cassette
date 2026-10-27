@@ -279,6 +279,16 @@ pub enum Event {
         track: usize,
         name: String,
     },
+    /// Reorder a track from index `from` to index `to`.
+    ReorderTrack {
+        from: usize,
+        to: usize,
+    },
+    /// Set a track's color index in the palette.
+    SetTrackColor {
+        track: usize,
+        color_index: u8,
+    },
     /// Copy the material inside a range to the clipboard.
     CopyRange {
         range: BeatRange,
@@ -327,6 +337,23 @@ pub enum Event {
         kind: EffectKind,
         index: Option<usize>,
     },
+    /// Paste an effect into a track's chain with saved parameter values.
+    PasteEffect {
+        track: usize,
+        index: Option<usize>,
+        kind: EffectKind,
+        #[serde(default)]
+        params: Vec<f32>,
+        #[serde(default = "default_true")]
+        enabled: bool,
+        #[serde(default)]
+        sidechain: Option<usize>,
+    },
+    /// Duplicate an effect in a track's chain right after it.
+    DuplicateEffect {
+        track: usize,
+        index: usize,
+    },
     /// Take an effect out of a track's chain.
     RemoveEffect {
         track: usize,
@@ -366,4 +393,8 @@ pub enum Event {
     /// Close the gesture collecting drag events, so the next drag is its own
     /// undo step. The webview sends it when a drag begins.
     Checkpoint,
+}
+
+const fn default_true() -> bool {
+    true
 }

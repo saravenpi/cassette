@@ -210,6 +210,10 @@ pub enum RtCommand {
     DeleteTrack {
         track: u8,
     },
+    MoveTrack {
+        from: u8,
+        to: u8,
+    },
     SetBpm {
         bpm: f32,
     },
@@ -550,6 +554,25 @@ impl RenderCore {
                     self.note_lens[last] = 0;
                     self.refresh_song_end();
                     self.synth.delete_track(track);
+                }
+            }
+            RtCommand::MoveTrack { from, to } => {
+                let from = from as usize;
+                let to = to as usize;
+                let count = self.synth.track_count();
+                if from < count && to < count && from != to {
+                    if from < to {
+                        self.blocks[from..=to].rotate_left(1);
+                        self.block_lens[from..=to].rotate_left(1);
+                        self.notes[from..=to].rotate_left(1);
+                        self.note_lens[from..=to].rotate_left(1);
+                    } else {
+                        self.blocks[to..=from].rotate_right(1);
+                        self.block_lens[to..=from].rotate_right(1);
+                        self.notes[to..=from].rotate_right(1);
+                        self.note_lens[to..=from].rotate_right(1);
+                    }
+                    self.synth.move_track(from, to);
                 }
             }
             RtCommand::SetBpm { bpm } => self.set_tempo(bpm),

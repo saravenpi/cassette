@@ -122,6 +122,10 @@ fn kind(event: &Event, cursor_track: usize, recording: bool) -> Kind {
         | Event::DeleteTrack { .. }
         | Event::DuplicateTrack { .. }
         | Event::RenameTrack { .. }
+        | Event::ReorderTrack { .. }
+        | Event::SetTrackColor { .. }
+        | Event::PasteEffect { .. }
+        | Event::DuplicateEffect { .. }
         | Event::CutRange { .. }
         | Event::DeleteRange { .. }
         | Event::PasteRange { .. }

@@ -172,6 +172,23 @@ mod red_zone {
         assert!(loudest > 0.0, "the mirrored notes played");
     }
 
+    #[test]
+    fn reordering_a_track_allocates_nothing() {
+        let song = Song::new();
+        let mut core = RenderCore::new(&song, DEFAULT_SAMPLE_RATE);
+        core.apply(RtCommand::SetBlocks {
+            track: 0,
+            blocks: lane(),
+        });
+
+        assert_no_alloc::assert_no_alloc(|| {
+            core.apply(RtCommand::MoveTrack { from: 0, to: 2 });
+            core.apply(RtCommand::MoveTrack { from: 2, to: 0 });
+        });
+
+        assert_eq!(core.block_count(0), 2);
+    }
+
     /// Fill one slot with `frames` frames of a constant value. The returned
     /// clone is the sender's, so the audio side never frees the buffer.
     fn load_slot(core: &mut RenderCore, slot: u8, frames: usize) -> Arc<[f32]> {

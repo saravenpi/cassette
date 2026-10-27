@@ -67,16 +67,20 @@ impl Default for Song {
 impl Song {
     /// A new session: two MIDI tracks and two audio tracks, all empty.
     pub fn new() -> Self {
-        let midi = |name: &str| Track::new(name, TrackKind::Midi, Instrument::preset("Lead"));
-        let audio = |name: &str| Track::new(name, TrackKind::Audio, Instrument::preset("Pluck"));
+        let midi = |name: &str, color: u8| {
+            Track::new(name, TrackKind::Midi, Instrument::preset("Lead")).with_color(color)
+        };
+        let audio = |name: &str, color: u8| {
+            Track::new(name, TrackKind::Audio, Instrument::preset("Pluck")).with_color(color)
+        };
         Self {
             version: PROJECT_VERSION,
             bpm: Tempo::default().bpm,
             tracks: vec![
-                midi("Midi 1"),
-                midi("Midi 2"),
-                audio("Audio 1"),
-                audio("Audio 2"),
+                midi("Midi 1", 0),
+                midi("Midi 2", 1),
+                audio("Audio 1", 2),
+                audio("Audio 2", 3),
             ],
             loop_region: None,
             next_effect_id: 1,
@@ -142,8 +146,11 @@ impl Song {
             ));
             self.tracks.truncate(MAX_TRACKS);
         }
-        for track in &mut self.tracks {
+        for (i, track) in self.tracks.iter_mut().enumerate() {
             problems.extend(track.sanitize(MAX_BLOCKS)?);
+            if track.color_index.is_none() {
+                track.color_index = Some((i % 8) as u8);
+            }
         }
         let mut max_id: u32 = 0;
         let mut seen_ids = std::collections::HashSet::new();

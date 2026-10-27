@@ -263,6 +263,8 @@ pub struct Track {
     /// Insert effects, in signal order.
     #[serde(default)]
     pub effects: Vec<Effect>,
+    #[serde(default)]
+    pub color_index: Option<u8>,
     /// Numbers handed to new blocks. It only ever rises, so a lane's automatic
     /// names stay unique even after a block is deleted.
     next_block_number: u32,
@@ -281,8 +283,14 @@ impl Track {
             solo: false,
             blocks: Vec::new(),
             effects: Vec::new(),
+            color_index: None,
             next_block_number: 1,
         }
+    }
+
+    pub fn with_color(mut self, color_index: u8) -> Self {
+        self.color_index = Some(color_index);
+        self
     }
 
     /// Insert a block, keeping `blocks` sorted by start position.
@@ -361,6 +369,9 @@ impl Track {
         instrument.decay = instrument.decay.clamp(0.0, 10.0);
         instrument.release = instrument.release.clamp(0.0, 10.0);
         instrument.octave = instrument.octave.clamp(-4, 4);
+        if let Some(color) = self.color_index {
+            self.color_index = Some(color % 8);
+        }
         if before != (self.volume, self.pan, *instrument) {
             problems.push(format!("track {:?}: mixer values clamped", self.name));
         }

@@ -399,3 +399,44 @@ fn delete_track_preserves_playback_on_surviving_tracks() {
         "track 0 (shifted from track 1) should still sound, was {peak_after}"
     );
 }
+
+#[test]
+fn reorder_track_preserves_playback_on_moved_track() {
+    let song = Song::new();
+    let engine = AudioEngine::start_silent(&song).expect("engine should start");
+    assert!(engine.set_blocks(
+        0,
+        vec![MirroredBlock {
+            start_beats: 0.0,
+            end_beats: 16.0,
+            slot: NO_SLOT,
+            gain: 0.0,
+            offset_seconds: 0.0,
+            rate: 1.0,
+        }],
+    ));
+    assert!(engine.set_notes(
+        0,
+        vec![MirroredNote {
+            start_beats: 0.0,
+            end_beats: 16.0,
+            pitch: 60,
+            velocity: 100,
+        }],
+    ));
+    engine.send(RtCommand::Play);
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let mut peak = 0.0f32;
+    while peak <= 0.01 && Instant::now() < deadline {
+        sleep(Duration::from_millis(10));
+        peak = engine.shared().peaks()[0];
+    }
+    assert!(peak > 0.01, "track 0 should sound");
+    assert!(engine.move_track(0, 2));
+    sleep(Duration::from_millis(50));
+    let peak_at_new_slot = engine.shared().peaks()[2];
+    assert!(
+        peak_at_new_slot > 0.01,
+        "track 2 (moved from track 0) should still sound without glitch, was {peak_at_new_slot}"
+    );
+}

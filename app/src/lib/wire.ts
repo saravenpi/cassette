@@ -268,6 +268,8 @@ export type EngineEvent =
 	| { deleteTrack: { track: number } }
 	| { duplicateTrack: { track: number } }
 	| { renameTrack: { track: number; name: string } }
+	| { reorderTrack: { from: number; to: number } }
+	| { setTrackColor: { track: number; colorIndex: number } }
 	| { copyRange: { range: BeatRange } }
 	| { cutRange: { range: BeatRange } }
 	| { deleteRange: { range: BeatRange } }
@@ -277,6 +279,17 @@ export type EngineEvent =
 	| { setInstrumentEnabled: { track: number; enabled: boolean } }
 	| { setInstrumentTone: { track: number; cutoff: number; resonance: number; detune: number; sub: number } }
 	| { addEffect: { track: number; kind: EffectKind; index: number | null } }
+	| {
+			pasteEffect: {
+				track: number;
+				index?: number | null;
+				kind: EffectKind;
+				params: number[];
+				enabled: boolean;
+				sidechain?: number | null;
+			};
+	  }
+	| { duplicateEffect: { track: number; index: number } }
 	| { removeEffect: { track: number; index: number } }
 	| { moveEffect: { track: number; from: number; to: number } }
 	| { setEffectEnabled: { track: number; index: number; enabled: boolean } }
