@@ -372,3 +372,34 @@ Loop points, frame-accurate note starts, and a review pass over v0.9.0.
 ### Fixed
 
 - Keyboard notes went silent after half a second while the key was still held: a timeout left over from the terminal interface released every note after 500 ms.
+
+## [0.15.0] - 2026-10-27
+
+### Added
+
+- Arrangement time selection: drag across empty lane space to select a time range across tracks, with edge handles to adjust the span and a length readout in the header corner.
+- Arrangement selection commands: `Ctrl/Cmd+C` copy, `Ctrl/Cmd+X` cut, `Ctrl/Cmd+V` paste at marker, `Ctrl/Cmd+D` duplicate, `Delete`/`Backspace` delete range without shifting time, and `Ctrl/Cmd+L` loop selection. A context menu on the selection band mirrors the commands.
+- Track management: add audio track (`Ctrl/Cmd+T`), add MIDI track (`Ctrl/Cmd+Shift+T`), plus a `+` button in the track header column, right-click on empty timeline space to add tracks, and track context menu to rename, duplicate, or delete up to 16 tracks.
+- Piano roll marquee selection: drag empty grid to marquee-select notes, Shift+marquee to add to the selection, Shift+click to toggle individual notes, `Ctrl/Cmd+A` select all, `Esc` clear.
+- Piano roll multi-note editing: moving or resizing any selected note shifts the entire selection while preserving relative pitch, timing, and chord shape.
+- Piano roll start-edge resizing: dragging the left edge of a note changes its start and length while pinning the end in place.
+- Piano roll draw mode: toggle with the pencil button or `B` key on the grid to click-drag new notes and click to delete existing notes.
+- Piano roll deep zoom: zoom in up to 2048 px/beat with the zoom buttons, `+`/`-` keys, or wheel while holding `Ctrl`, `Meta`, `Alt`, or hovering over empty grid.
+- Piano roll note clipboard: `Ctrl/Cmd+C`, `Ctrl/Cmd+X`, `Ctrl/Cmd+V`, and `Ctrl/Cmd+D` for selected notes.
+- Six new insert effects: Chorus, Phaser, Auto Pan, Redux (BitCrusher), Utility (Gain, Width, Pan), and Limiter.
+- Multi-instance insert effects: up to 8 effects per track, allowing multiple instances of the same effect kind. State is allocated on the control thread and handed to the audio thread over lock-free rings.
+- Compressor sidechain: the compressor can listen to another track's pre-fader post-chain signal from the previous frame to duck the audio. A muted ghost track still drives the ducking.
+- Expanded instrument voice features: unison detune (1 to 7 voices), sub oscillator, resonant low-pass filter (TPT SVF) with envelope sweep, pitch sweep envelope, two-operator FM synthesis, and instrument bypass with four Tone dials (Cutoff, Resonance, Detune, Sub).
+- Twelve new built-in presets: Supersaw, Sub Bass, Acid, Keys, Bell, Organ, Strings, Brass, 808, Tom, Clap, Rim.
+- Instruments browser: sidebar tab renamed to Instruments, grouping the 19 presets by role (Synth, Keys, Bass, Pad, Drums).
+- Project files: projects use the `.cassette` extension (JSON inside; `.json` files still load). Save prompts for a path on untitled projects, and `Ctrl/Cmd+Shift+S` opens Save As. Unsaved changes are marked with a dot next to the project name in the transport.
+
+### Changed
+
+- Saving an untitled project prompts with a native save file dialog to pick destination before saving.
+
+### Fixed
+
+- Live keyboard notes were cut off when the playback loop wrapped around: loop wrap now uses `release_timeline_notes()` to cut only sequenced timeline notes while held keyboard notes continue to sound.
+- Piano roll zoom was previously clamped to timeline scale (256 px/beat), preventing deep zoom on short notes.
+- Nobody has heard the new effects, instruments, metronome or sidechain in a running window.

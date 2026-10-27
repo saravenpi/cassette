@@ -592,7 +592,7 @@ Step B measures the serialized size and trims to the selected block if it hurts.
 The piano roll cannot be exercised by an automated test beyond the geometry
 helpers, so it needs a hand pass in the running window.
 
-## Phase 9: Editing, arrangement, sound library (in progress)
+## Phase 9: Editing, arrangement, sound library (done, v0.15.0)
 
 ### UX review (2026-10-27)
 
@@ -666,6 +666,13 @@ https://www.ableton.com/en/live-manual/12/editing-midi/
 | B app | `src/app/**`, `src/models/{effect,track,song,note}.rs` | Range clipboard ops, track add, delete, duplicate and rename, batch note events, quantizing a subset, effect ids and duplicates, sidechain and instrument events, project path, dirty flag and `.cassette`. |
 | C piano roll | `app/src/lib/components/PianoRoll.svelte`, `app/src/lib/pianoRoll.ts`, `app/src/lib/noteSelection.ts` (new), tests | Everything in the piano roll bullet above. |
 | D arrangement | every other file under `app/src/**`, `app/src-tauri/**` | Time selection and its commands, track management, the save, open and export dialogs and `.cassette`, the Instruments tab, the instrument activator and Tone dials, the sidechain picker on the compressor. |
+
+### Departures in implementation
+
+- Held keyboard notes are preserved across loop wraps using `release_timeline_notes()` instead of cutting all synth voices.
+- Piano roll zoom scale has dedicated bounds (`ROLL_ZOOM_MIN = 16`, `ROLL_ZOOM_MAX = 2048`), allowing deep inspection and editing of micro-timings.
+- Right-clicking empty timeline space below tracks opens a context menu to add Audio or MIDI tracks.
+- Sidechain compressor detector reads the source track's post-chain pre-fader signal from the previous frame.
 
 ## Phase 8: Devices, metronome, quantize (done, v0.14.0)
 

@@ -99,7 +99,17 @@ cargo clippy --all-targets
 | `B` | split the block under the pointer at the hover line (the selected block at the playhead when the pointer is off every block) |
 | `ctrl` `E` (`cmd` on macOS) | split the selected block at the playhead |
 | `ctrl` `Z` / `ctrl` `shift` `Z` or `ctrl` `Y` (`cmd` on macOS) | undo / redo an edit |
-| `ctrl` `D` (`cmd` on macOS) | duplicate the selected block |
+| `ctrl` `D` (`cmd` on macOS) | duplicate the selected block (or selection range, or notes) |
+| `ctrl` `C` / `ctrl` `X` / `ctrl` `V` (`cmd` on macOS) | copy / cut / paste time selection range or notes |
+| `ctrl` `L` (`cmd` on macOS) | loop the arrangement time selection |
+| `ctrl` `T` (`cmd` on macOS) | add an audio track |
+| `ctrl` `shift` `T` (`cmd` on macOS) | add a MIDI track |
+| `ctrl` `S` / `ctrl` `shift` `S` (`cmd` on macOS) | save / save as project (`.cassette`) |
+| `ctrl` `O` (`cmd` on macOS) | open project |
+| `B` in the roll | toggle note draw mode |
+| `+` / `-` in the roll | zoom piano roll in / out (up to 2048 px/beat) |
+| drag empty lane space | draw arrangement time selection range |
+| drag a note's left edge | resize note start while pinning its end |
 | drag a block's left edge | trim its start; the end stays put |
 | `shift` + drag an audio block's right edge | stretch it (the rate changes, so pitch follows) |
 
