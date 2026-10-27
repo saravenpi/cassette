@@ -374,6 +374,11 @@ class Session {
 		});
 	}
 
+	/** Set an effect's sidechain audio source track, or null for self. */
+	setEffectSidechain(track: number, index: number, source: number | null): void {
+		this.dispatch({ setEffectSidechain: { track, index, source } });
+	}
+
 	/** Close the piano roll. */
 	closeRoll(): void {
 		this.roll = null;

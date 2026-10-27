@@ -17,6 +17,7 @@
 	import { effectDrag } from '$lib/effectDrag.svelte';
 	import { deviceMenu, type MenuEntry } from '$lib/menu';
 	import { menu } from '$lib/menu.svelte';
+	import { trackColor } from '$lib/palette';
 	import { session } from '$lib/session.svelte';
 	import type { EffectKind, TrackView } from '$lib/wire';
 	import Device from './Device.svelte';
@@ -48,6 +49,7 @@
 	let browserSlot = $state<number | null>(null);
 	let lineX = $state<number | null>(null);
 
+	const allTracks = $derived(session.snapshot?.tracks ?? []);
 	const catalog = $derived(session.snapshot?.effectCatalog ?? []);
 	const effects = $derived(track.effects);
 	const addable = $derived(addableKinds(catalog, effects));
@@ -94,8 +96,8 @@
 		return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
 	}
 
-	function foldKey(kind: EffectKind | 'source'): string {
-		return `${index}:${kind}`;
+	function foldKey(key: number | string): string {
+		return `${index}:${key}`;
 	}
 
 	function toggleFold(key: string): void {
@@ -113,8 +115,8 @@
 		session.dispatch({ removeEffect: { track: index, index: at } });
 	}
 
-	function openDeviceMenu(event: MouseEvent, at: number, kind: EffectKind): void {
-		const key = foldKey(kind);
+	function openDeviceMenu(event: MouseEvent, at: number, id: number): void {
+		const key = foldKey(id);
 		menu.open(event.clientX, event.clientY, deviceMenu(session, index, at, effects.length, folded.has(key), () => toggleFold(key)));
 	}
 
@@ -174,7 +176,13 @@
 	<div class="row" bind:this={row} style="gap: {GAP}px">
 		<div class="slot" role="listitem">
 			{#if track.kind === 'midi'}
-				<Device name="Instrument" folded={folded.has(foldKey('source'))} onfold={() => toggleFold(foldKey('source'))}>
+				<Device
+					name="Instrument"
+					folded={folded.has(foldKey('source'))}
+					enabled={track.instrumentEnabled}
+					onfold={() => toggleFold(foldKey('source'))}
+					ontoggle={() => session.dispatch({ setInstrumentEnabled: { track: index, enabled: !track.instrumentEnabled } })}
+				>
 					<VoiceEditor {track} {index} />
 				</Device>
 			{:else}
@@ -184,9 +192,9 @@
 			{/if}
 		</div>
 
-		{#each effects as effect, at (effect.kind)}
+		{#each effects as effect, at (effect.id)}
 			{@const spec = specFor(catalog, effect.kind)}
-			{@const key = foldKey(effect.kind)}
+			{@const key = foldKey(effect.id)}
 			<div class="slot" role="listitem">
 				<Device
 					name={effect.name}
@@ -198,7 +206,7 @@
 					ontoggle={() => session.dispatch({ setEffectEnabled: { track: index, index: at, enabled: !effect.enabled } })}
 					ondelete={() => remove(at)}
 					onmove={(direction) => move(at, direction)}
-					onmenu={(event) => openDeviceMenu(event, at, effect.kind)}
+					onmenu={(event) => openDeviceMenu(event, at, effect.id)}
 					ongrab={(event) => grab(event, at)}
 				>
 					{#if spec === null}
@@ -233,6 +241,36 @@
 								{/if}
 							{/each}
 						</div>
+
+						{#if spec.takesSidechain}
+							<div class="sidechain-picker" role="group" aria-label="Sidechain for {effect.name}">
+								<span class="sidechain-label">Sidechain</span>
+								<select
+									class="sidechain-select"
+									aria-label="Sidechain source for {effect.name}"
+									value={effect.sidechain ?? ''}
+									onchange={(event) => {
+										const val = event.currentTarget.value;
+										const source = val === '' ? null : Number(val);
+										session.setEffectSidechain(index, at, source);
+									}}
+								>
+									<option value="">Off</option>
+									{#each allTracks as otherTrack, t (t)}
+										{#if t !== index}
+											<option value={t}>{otherTrack.name}</option>
+										{/if}
+									{/each}
+								</select>
+								{#if effect.sidechain !== null && allTracks[effect.sidechain]}
+									<span
+										class="track-swatch"
+										style="background: {trackColor(allTracks[effect.sidechain].colorIndex)}"
+										title="Sidechain: {allTracks[effect.sidechain].name}"
+									></span>
+								{/if}
+							</div>
+						{/if}
 					{/if}
 				</Device>
 			</div>
@@ -244,7 +282,7 @@
 				type="button"
 				class="plus"
 				aria-label="Add an effect to {track.name}"
-				title={addable.length === 0 ? 'Every effect is on this track' : 'Pick an effect to add'}
+				title={addable.length === 0 ? 'Track chain is full (maximum 8 effects)' : 'Pick an effect to add'}
 				disabled={addable.length === 0}
 				onclick={openAddMenu}
 			>
@@ -378,5 +416,42 @@
 		width: 2px;
 		background: var(--green);
 		pointer-events: none;
+	}
+
+	.sidechain-picker {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		margin-top: 10px;
+		padding-top: 8px;
+		border-top: 1px solid var(--border-subtle);
+	}
+
+	.sidechain-label {
+		font-size: 9px;
+		letter-spacing: 0.14em;
+		text-transform: uppercase;
+		color: var(--text-subtle);
+	}
+
+	.sidechain-select {
+		flex: 1;
+		min-width: 0;
+		height: 22px;
+		padding: 0 4px;
+		font-size: 11px;
+		color: var(--text);
+		background: var(--bg);
+		border: 1px solid var(--border-subtle);
+	}
+
+	.sidechain-select:focus-visible {
+		outline: 1px solid var(--green);
+	}
+
+	.track-swatch {
+		flex: none;
+		width: 8px;
+		height: 8px;
 	}
 </style>
