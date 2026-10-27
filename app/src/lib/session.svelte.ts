@@ -79,6 +79,7 @@ class Session {
 	drag: DragController;
 
 	private errorFrom: 'poll' | 'send' | null = null;
+	private exportActive = false;
 	private frame = 0;
 	private running = false;
 	private polling = false;
@@ -537,13 +538,14 @@ class Session {
 			if (path === null) return;
 			this.exporting = true;
 			this.exportProgress = 0;
-			try {
-				await this.send({ exportAudio: { path } });
-			} finally {
+			const sent = await this.send({ exportAudio: { path } });
+			if (!sent) {
 				this.exporting = false;
 				this.exportProgress = null;
 			}
 		} catch (error) {
+			this.exporting = false;
+			this.exportProgress = null;
 			this.fail(error, 'send');
 		}
 	}
@@ -589,6 +591,16 @@ class Session {
 			if (this.snapshot?.exportProgress !== undefined && this.snapshot?.exportProgress !== null) {
 				this.exportProgress = this.snapshot.exportProgress;
 				this.exporting = true;
+				this.exportActive = true;
+			} else if (
+				this.exportActive ||
+				(this.exporting &&
+					(this.snapshot?.status?.startsWith('exported audio') ||
+						this.snapshot?.status?.startsWith('export audio failed')))
+			) {
+				this.exportProgress = null;
+				this.exporting = false;
+				this.exportActive = false;
 			}
 			this.followRoll();
 			this.backoff = 0;

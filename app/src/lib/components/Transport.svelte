@@ -9,7 +9,7 @@
 	import { formatCountIn, formatPosition } from '$lib/geometry';
 	import { metronomeMenu, type MenuEntry } from '$lib/menu';
 	import { menu } from '$lib/menu.svelte';
-	import { projectStem } from '$lib/project';
+	import { formatExportPercent, projectStem } from '$lib/project';
 	import { session } from '$lib/session.svelte';
 
 	const snapshot = $derived(session.snapshot);
@@ -21,11 +21,7 @@
 	const countIn = $derived(formatCountIn(snapshot?.countInBeatsLeft ?? 0));
 	const isMac = typeof navigator !== 'undefined' && /Macintosh|Mac OS X/.test(navigator.userAgent);
 	const exportProgress = $derived(session.snapshot?.exportProgress ?? session.exportProgress);
-	const exportPercent = $derived(
-		exportProgress !== null && exportProgress !== undefined
-			? Math.round(exportProgress * 100)
-			: null
-	);
+	const exportPercent = $derived(formatExportPercent(exportProgress));
 
 	function openMetronomeMenu(event: MouseEvent): void {
 		const button = event.currentTarget;

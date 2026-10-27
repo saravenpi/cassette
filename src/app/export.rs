@@ -103,8 +103,8 @@ impl App {
             output.extend_from_slice(slice);
             frames_rendered += chunk_frames;
 
-            if total_frames > 0 {
-                let pct = (frames_rendered * 100 / total_frames) as u32;
+            if let Some(pct) = (frames_rendered * 100).checked_div(total_frames) {
+                let pct = pct as u32;
                 if pct != last_pct {
                     last_pct = pct;
                     self.report_export_progress(Some(pct as f32 / 100.0));
@@ -382,6 +382,23 @@ mod tests {
         assert!(app.status.contains("exported audio to"));
         let leftovers = std::fs::read_dir(&dir.0).expect("list").count();
         assert_eq!(leftovers, 1, "the temp file must be renamed away");
+    }
+
+    #[test]
+    fn audio_export_reports_progress_and_clears_it_at_the_end() {
+        let mut app = headless_app();
+        let reported = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = Arc::clone(&reported);
+        app.set_progress_reporter(move |p| {
+            sink.lock().unwrap().push(p);
+        });
+        let dir = TempDir::new();
+        app.export_audio(dir.arg("progress.wav"));
+        let reports = reported.lock().unwrap().clone();
+        assert!(!reports.is_empty());
+        assert_eq!(reports.first().copied(), Some(Some(0.0)));
+        assert_eq!(reports.last().copied(), Some(None));
+        assert!(app.ui_state().export_progress.is_none());
     }
 
     #[test]

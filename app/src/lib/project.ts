@@ -2,6 +2,11 @@
  * Project path, stem and document title helpers.
  */
 
+/** Format an export progress ratio (0..1) as a percentage integer (0..100). */
+export function formatExportPercent(progress: number | null | undefined): number | null {
+	return progress !== null && progress !== undefined ? Math.round(progress * 100) : null;
+}
+
 /** Resulting event payload when saving a project, or null if cancelled. */
 export type SaveProjectEvent = { exportProject: { path: string | null } };
 

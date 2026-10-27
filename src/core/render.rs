@@ -483,7 +483,8 @@ impl RenderCore {
         let beats = self.transport.position_beats_exact();
         let frames_per_beat = self.transport.frames_per_beat();
         let notes = &self.notes[track][..self.note_lens[track]];
-        self.synth.follow_notes(track, beats, frames_per_beat, notes);
+        self.synth
+            .follow_notes(track, beats, frames_per_beat, notes);
     }
 
     /// Replace one track's note mirror, keeping at most [`MAX_NOTES`] notes.

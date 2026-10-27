@@ -424,3 +424,10 @@ Loop points, frame-accurate note starts, and a review pass over v0.9.0.
 - Selection band z-index: arrangement selection band and resize handles now render below sticky track headers and ruler instead of painting over the track UI at the right.
 - Double-click to open MIDI blocks: double-clicking a block reliably opens the piano roll.
 - Double-click reset on controls: double-clicking track volume/pan faders, voice envelope/gain/octave sliders, or tone and effect knobs resets them to their default values.
+
+## [0.15.2] - 2026-10-27
+
+### Fixed
+
+- Audio export progress reset: export button and progress indicator now properly reset to idle once rendering completes instead of staying stuck at 100%.
+- Track level metering post-fader: channel volume meters now scale with the track volume fader instead of ignoring it and displaying pre-fader insert chain peaks.

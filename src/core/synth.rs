@@ -949,8 +949,8 @@ impl SynthEngine {
     /// Returns `(left, right)` already clamped to `[-1, 1]`. Each track's sample
     /// voice, when it has one, is summed into the track's mono mix after the
     /// synth voices. The mono mix runs through the track's insert chain as a
-    /// stereo pair, the meter reads the chain's output before the fader, and
-    /// then volume, instrument gain and balance pan apply.
+    /// stereo pair, the meter reads the chain's output scaled by track volume, and
+    /// then instrument gain and balance pan apply.
     ///
     /// Muted and non-solo tracks still run their chain and discard the result,
     /// so a tail keeps its state across a mute and a meter keeps moving.
@@ -1030,7 +1030,7 @@ impl SynthEngine {
                 *track_count,
             );
             self.current_frame_outputs[ti] = (l, r);
-            let magnitude = l.abs().max(r.abs());
+            let magnitude = l.abs().max(r.abs()) * track.volume;
             if magnitude > peaks[ti] {
                 peaks[ti] = magnitude;
             }
@@ -1476,21 +1476,31 @@ mod tests {
         for _ in 0..256 {
             assert_eq!(e.process_frame(&mut peaks), (expected_l, expected_r));
         }
-        assert_eq!(peaks[0], 0.5);
+        assert!((peaks[0] - 0.35).abs() < 1e-6);
     }
 
     #[test]
-    fn the_meter_reads_after_the_chain_and_before_the_fader() {
+    fn the_meter_reads_after_the_chain_and_scales_with_volume() {
         let mut e = engine();
-        e.configure_track(0, Instrument::preset("Lead"), 0.1, 0.0, false, false);
+        e.configure_track(0, Instrument::preset("Lead"), 0.5, 0.0, false, false);
         let mut quiet = Effect::new(EffectKind::Saturator);
         quiet.params = [0.0, -20.0, 1.0, 0.0, 0.0];
         e.set_effects(0, &chain(&[quiet]));
         constant(&mut e, 0, 4_096, 0.5);
         assert!(e.play_sample(0, EVENT, 0, SampleCue::START, 1.0, 0));
         let peaks = run(&mut e, 2_048);
-        let expected = 0.5f32.tanh() * 0.1;
+        let expected = 0.5f32.tanh() * 0.1 * 0.5;
         assert!((peaks[0] - expected).abs() < 1e-3, "{}", peaks[0]);
+    }
+
+    #[test]
+    fn zero_volume_silences_the_meter() {
+        let mut e = engine();
+        e.configure_track(0, Instrument::preset("Lead"), 0.0, 0.0, false, false);
+        constant(&mut e, 0, 4_096, 0.5);
+        assert!(e.play_sample(0, EVENT, 0, SampleCue::START, 1.0, 0));
+        let peaks = run(&mut e, 2_048);
+        assert_eq!(peaks[0], 0.0);
     }
 
     #[test]

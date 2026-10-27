@@ -308,10 +308,10 @@ fn engine_thread(commands: Receiver<Event>, snapshot: Snapshot) {
     let mut app = start_app();
     let published = snapshot.clone();
     app.set_progress_reporter(move |progress| {
-        if let Ok(mut slot) = published.lock() {
-            if let Some(ref mut state) = *slot {
-                state.export_progress = progress;
-            }
+        if let Ok(mut slot) = published.lock()
+            && let Some(ref mut state) = *slot
+        {
+            state.export_progress = progress;
         }
     });
     let publish = |app: &App| {

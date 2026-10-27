@@ -1,4 +1,5 @@
 import {
+	formatExportPercent,
 	projectStem,
 	projectTitle,
 	resolveSaveAction,
@@ -92,5 +93,18 @@ describe('resolveSaveAsAction', () => {
 		const stubPick = async () => null;
 		const action = await resolveSaveAsAction(stubPick);
 		expect(action).toBe(null);
+	});
+});
+
+describe('formatExportPercent', () => {
+	test('returns null for null or undefined', () => {
+		expect(formatExportPercent(null)).toBe(null);
+		expect(formatExportPercent(undefined)).toBe(null);
+	});
+
+	test('rounds progress ratio to percentage integer', () => {
+		expect(formatExportPercent(0)).toBe(0);
+		expect(formatExportPercent(0.456)).toBe(46);
+		expect(formatExportPercent(1.0)).toBe(100);
 	});
 });
