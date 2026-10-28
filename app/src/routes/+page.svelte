@@ -26,6 +26,11 @@
 	import { settingsStore } from '$lib/settings.svelte';
 
 	function onWindowKeyDown(event: KeyboardEvent): void {
+		if (event.key === ',' && (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey) {
+			event.preventDefault();
+			settingsStore.toggle();
+			return;
+		}
 		if (
 			event.key === 'Tab' &&
 			!event.shiftKey &&

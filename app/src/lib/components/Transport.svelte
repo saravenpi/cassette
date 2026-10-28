@@ -1,8 +1,8 @@
 <script lang="ts">
 	/**
 	 * The transport bar: play, stop, loop, record, the metronome with its menu
-	 * (count-in and record quantize), tempo, the position readout, the play
-	 * octave and the engine's note about which backend it settled on. While a
+	 * (count-in and record quantize), tempo, the position readout, the view
+	 * switcher and the engine's note about which backend it settled on. While a
 	 * count-in runs, the readout shows the beats left as `-N` in the alert colour.
 	 */
 
@@ -59,6 +59,64 @@
 </script>
 
 <header data-tauri-drag-region class:mac={isMac}>
+	<div class="group" role="group" aria-label="Project">
+		<span class="project-name" title={snapshot?.projectPath ?? 'Untitled'}>
+			{stem}{#if snapshot?.projectDirty}<span class="dirty" aria-hidden="true">&bull;</span>{/if}
+		</span>
+		<div class="save-pair">
+			<button
+				class="icon-btn"
+				class:loading={session.saving}
+				aria-label="Save"
+				title="Save project (Ctrl+S)"
+				disabled={session.saving}
+				onclick={() => session.saveProject()}
+			>
+				{#if session.saving}
+					<span class="spinner" aria-hidden="true"></span>
+				{:else}
+					<Icon icon="pixelarticons:save-sharp" width="16" height="16" />
+				{/if}
+			</button>
+			<button
+				class="step"
+				aria-label="Save options"
+				aria-haspopup="menu"
+				title="Save options"
+				disabled={session.saving}
+				onclick={openSaveMenu}
+			>
+				&#9662;
+			</button>
+		</div>
+		<button
+			class="export-btn icon-btn"
+			class:loading={session.exporting}
+			aria-label="Export"
+			title="Export audio"
+			disabled={session.exporting}
+			onclick={() => session.exportAudio()}
+		>
+			{#if session.exporting}
+				<span class="spinner" aria-hidden="true"></span>
+				{#if exportPercent !== null}{exportPercent}%{/if}
+			{:else}
+				<Icon icon="pixelarticons:upload-sharp" width="16" height="16" />
+			{/if}
+			{#if session.exporting && exportPercent !== null}
+				<span class="progress-bar" style="width: {exportPercent}%"></span>
+			{/if}
+		</button>
+		<button
+			class="icon-btn"
+			aria-label="Open"
+			title="Open project (Ctrl+O)"
+			onclick={() => session.loadProjectFromDialog()}
+		>
+			<Icon icon="pixelarticons:folder-sharp" width="16" height="16" />
+		</button>
+	</div>
+
 	<div class="group" role="group" aria-label="Transport">
 		<button
 			class="icon-btn"
@@ -120,6 +178,16 @@
 		</button>
 	</div>
 
+	<div class="group" role="group" aria-label="Tempo">
+		<button class="step" aria-label="Slower" onclick={() => session.dispatch({ bpmDelta: -1 })}>
+			&minus;
+		</button>
+		<span class="readout">{bpm}<small>bpm</small></span>
+		<button class="step" aria-label="Faster" onclick={() => session.dispatch({ bpmDelta: 1 })}>
+			+
+		</button>
+	</div>
+
 	<div class="group" role="group" aria-label="History">
 		<button
 			class="icon-btn"
@@ -141,93 +209,15 @@
 		</button>
 	</div>
 
-	<div class="group" role="group" aria-label="Project">
-		<button
-			class="export-btn icon-btn"
-			class:loading={session.exporting}
-			aria-label="Export"
-			title="Export audio"
-			disabled={session.exporting}
-			onclick={() => session.exportAudio()}
-		>
-			{#if session.exporting}
-				<span class="spinner" aria-hidden="true"></span>
-				{#if exportPercent !== null}{exportPercent}%{/if}
-			{:else}
-				<Icon icon="pixelarticons:upload-sharp" width="16" height="16" />
-			{/if}
-			{#if session.exporting && exportPercent !== null}
-				<span class="progress-bar" style="width: {exportPercent}%"></span>
-			{/if}
-		</button>
-		<div class="save-pair">
-			<button
-				class="icon-btn"
-				class:loading={session.saving}
-				aria-label="Save"
-				title="Save project (Ctrl+S)"
-				disabled={session.saving}
-				onclick={() => session.saveProject()}
-			>
-				{#if session.saving}
-					<span class="spinner" aria-hidden="true"></span>
-				{:else}
-					<Icon icon="pixelarticons:save-sharp" width="16" height="16" />
-				{/if}
-			</button>
-			<button
-				class="step"
-				aria-label="Save options"
-				aria-haspopup="menu"
-				title="Save options"
-				disabled={session.saving}
-				onclick={openSaveMenu}
-			>
-				&#9662;
-			</button>
-		</div>
-		<button
-			class="icon-btn"
-			aria-label="Open"
-			title="Open project (Ctrl+O)"
-			onclick={() => session.loadProjectFromDialog()}
-		>
-			<Icon icon="pixelarticons:folder-sharp" width="16" height="16" />
-		</button>
-		<span class="project-name" title={snapshot?.projectPath ?? 'Untitled'}>
-			{stem}{#if snapshot?.projectDirty}<span class="dirty" aria-hidden="true">&bull;</span>{/if}
-		</span>
-	</div>
-
-	<div class="group" role="group" aria-label="Tempo">
-		<button class="step" aria-label="Slower" onclick={() => session.dispatch({ bpmDelta: -1 })}>
-			&minus;
-		</button>
-		<span class="readout">{bpm}<small>bpm</small></span>
-		<button class="step" aria-label="Faster" onclick={() => session.dispatch({ bpmDelta: 1 })}>
-			+
-		</button>
-	</div>
-
-	<div class="group" role="group" aria-label="Play octave">
-		<button
-			class="step"
-			aria-label="Octave down"
-			onclick={() => session.dispatch({ octaveDelta: -1 })}
-		>
-			&minus;
-		</button>
-		<span class="readout"><small class="lead">oct</small>{snapshot?.octave ?? 0}</span>
-		<button class="step" aria-label="Octave up" onclick={() => session.dispatch({ octaveDelta: 1 })}>
-			+
-		</button>
-	</div>
-
 	{#if countIn !== null}
 		<span class="position counting" aria-label="Count-in, beats left">{countIn}</span>
 	{:else}
 		<span class="position" aria-label="Position">{position}</span>
 	{/if}
+
+	<div class="engine">
+		<span class="note">{snapshot?.backendNote ?? ''}</span>
+	</div>
 
 	<div class="group view-group" role="group" aria-label="View">
 		<button
@@ -250,11 +240,6 @@
 		>
 			<Icon icon="pixelarticons:sliders-vertical" width="16" height="16" />
 		</button>
-	</div>
-
-	<div class="engine">
-		<span class="backend">{snapshot?.backend ?? 'connecting'}</span>
-		<span class="note">{snapshot?.backendNote ?? ''}</span>
 	</div>
 
 	<div class="group settings-group" role="group" aria-label="Settings">
@@ -424,10 +409,6 @@
 		color: var(--text-subtle);
 	}
 
-	.readout small.lead {
-		margin: 0 4px 0 0;
-	}
-
 	.position {
 		padding: 0 14px;
 		border-left: 1px solid var(--border-subtle);
@@ -449,12 +430,6 @@
 		min-width: 0;
 		font-size: 11px;
 		color: var(--text-subtle);
-	}
-
-	.backend {
-		letter-spacing: 0.14em;
-		text-transform: uppercase;
-		color: var(--text);
 	}
 
 	.note {

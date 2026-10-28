@@ -108,6 +108,8 @@ pub struct MirroredBlock {
     pub offset_seconds: f32,
     /// Speed the material plays at, relative to its own.
     pub rate: f32,
+    /// Tempo the material was laid out at, or zero to play it unwarped.
+    pub source_bpm: f32,
 }
 
 impl MirroredBlock {
@@ -140,6 +142,7 @@ const EMPTY_BLOCK: MirroredBlock = MirroredBlock {
     gain: 0.0,
     offset_seconds: 0.0,
     rate: 1.0,
+    source_bpm: 0.0,
 };
 
 /// One note, flattened for the audio thread: absolute beats on the timeline,
@@ -882,6 +885,7 @@ impl RenderCore {
                     elapsed_frames: (from_beats - f64::from(block.start_beats)).max(0.0)
                         * frames_per_beat,
                     rate: block.rate,
+                    source_bpm: block.source_bpm,
                 };
                 self.synth.play_sample_faded(
                     track,
@@ -972,6 +976,7 @@ mod tests {
                 gain: 1.0,
                 offset_seconds: 0.0,
                 rate: 1.0,
+                source_bpm: 0.0,
             })
             .collect()
     }
@@ -1198,6 +1203,7 @@ mod tests {
                 gain: 0.0,
                 offset_seconds: 0.0,
                 rate: 1.0,
+                source_bpm: 0.0,
             }]),
         });
         core.apply(RtCommand::SetNotes {
@@ -1298,6 +1304,7 @@ mod tests {
                     gain: 1.0,
                     offset_seconds,
                     rate: 1.0,
+                    source_bpm: 0.0,
                 }]),
             });
             core.apply(RtCommand::Play);
@@ -1333,6 +1340,7 @@ mod tests {
                 gain: 1.0,
                 offset_seconds,
                 rate,
+                source_bpm: 0.0,
             }]),
         }
     }
@@ -1695,6 +1703,7 @@ mod tests {
             gain: 1.0,
             offset_seconds: 0.0,
             rate: 1.0,
+            source_bpm: 0.0,
         };
         let from = transport.position_beats_exact();
         let to = transport.beats_after(2);
@@ -1912,6 +1921,7 @@ mod tests {
             gain: 1.0,
             offset_seconds: 0.0,
             rate: 1.0,
+            source_bpm: 0.0,
         };
         assert!(block.covers(2.0));
         assert!(!block.covers(6.0));

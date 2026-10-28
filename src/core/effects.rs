@@ -1902,6 +1902,25 @@ mod tests {
     }
 
     #[test]
+    fn utility_width_scales_the_side_signal_and_mono_ignores_it() {
+        let mut wide = with(&[effect(EffectKind::Utility, &[0.0, 2.0, 0.0, 0.0, 0.0])]);
+        let (l, r) = wide.process(0.5, 0.1);
+        assert!((l - 0.7).abs() < 1e-4, "{l}");
+        assert!((r - (-0.1)).abs() < 1e-4, "{r}");
+
+        let mut narrow = with(&[effect(EffectKind::Utility, &[0.0, 0.0, 0.0, 0.0, 0.0])]);
+        let (l, r) = narrow.process(0.8, -0.2);
+        assert!((l - r).abs() < 1e-6);
+
+        let mut mono = with(&[effect(EffectKind::Utility, &[0.0, 4.0, 0.0, 1.0, 120.0])]);
+        for frame in 0..SR as usize {
+            let x = sine(220.0, frame);
+            let (l, r) = mono.process(x, -0.3 * x);
+            assert!((l - r).abs() < 1e-5);
+        }
+    }
+
+    #[test]
     fn eq_eight_filters_bands() {
         let mut low_cut_params = [0.0; MAX_PARAMS];
         low_cut_params[0] = 500.0;

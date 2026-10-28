@@ -467,6 +467,7 @@ impl AudioEngine {
                     gain: sample_gain(&track.instrument),
                     offset_seconds: block.offset_seconds,
                     rate: block.rate,
+                    source_bpm: block.source_bpm,
                 })
                 .collect();
             ok &= self.set_blocks(track_index, blocks);

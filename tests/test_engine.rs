@@ -112,6 +112,7 @@ fn block_edits_can_be_pushed_while_running() {
             gain: 1.0,
             offset_seconds: 0.0,
             rate: 1.0,
+            source_bpm: 0.0,
         }],
     );
     assert!(pushed, "command queue should accept the edit");
@@ -174,6 +175,7 @@ fn a_block_under_the_playhead_reaches_the_meter() {
             gain: 1.0,
             offset_seconds: 0.0,
             rate: 1.0,
+            source_bpm: 0.0,
         }],
     ));
     engine.send(RtCommand::Play);
@@ -207,6 +209,7 @@ fn a_block_later_in_the_song_stays_silent() {
             gain: 1.0,
             offset_seconds: 0.0,
             rate: 1.0,
+            source_bpm: 0.0,
         }],
     ));
     engine.send(RtCommand::Play);
@@ -232,6 +235,7 @@ fn a_mirrored_note_sounds_at_its_start() {
             gain: 0.0,
             offset_seconds: 0.0,
             rate: 1.0,
+            source_bpm: 0.0,
         }],
     ));
     assert!(engine.set_notes(
@@ -372,6 +376,7 @@ fn delete_track_preserves_playback_on_surviving_tracks() {
             gain: 0.0,
             offset_seconds: 0.0,
             rate: 1.0,
+            source_bpm: 0.0,
         }],
     ));
     assert!(engine.set_notes(
@@ -413,6 +418,7 @@ fn reorder_track_preserves_playback_on_moved_track() {
             gain: 0.0,
             offset_seconds: 0.0,
             rate: 1.0,
+            source_bpm: 0.0,
         }],
     ));
     assert!(engine.set_notes(
@@ -456,6 +462,7 @@ fn master_volume_and_effects_can_be_updated_while_running() {
             gain: 0.0,
             offset_seconds: 0.0,
             rate: 1.0,
+            source_bpm: 0.0,
         }],
     ));
     assert!(engine.set_notes(

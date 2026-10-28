@@ -325,6 +325,9 @@ pub struct SampleCue {
     pub offset_seconds: f32,
     pub elapsed_frames: f64,
     pub rate: f32,
+    /// Tempo the material was laid out at; above zero the voice time-stretches
+    /// to follow the song's tempo without changing pitch.
+    pub source_bpm: f32,
 }
 
 impl SampleCue {
@@ -333,7 +336,78 @@ impl SampleCue {
         offset_seconds: 0.0,
         elapsed_frames: 0.0,
         rate: 1.0,
+        source_bpm: 0.0,
     };
+}
+
+/// Frames in one grain of the time-stretcher.
+const GRAIN_FRAMES: u32 = 2048;
+/// Frames between two grain starts: half a grain, so the Hann windows sum to one.
+const GRAIN_HOP: u32 = GRAIN_FRAMES / 2;
+/// Source frames the stretcher looks either side of a grain's nominal start
+/// for the best waveform match.
+const GRAIN_SEARCH: i64 = 384;
+/// Source frames between two candidate starts in that search.
+const GRAIN_SEARCH_STRIDE: usize = 4;
+/// Frames between the points compared in that search.
+const GRAIN_COMPARE_STRIDE: usize = 16;
+/// Tempo ratios closer to one than this play unstretched.
+const WARP_DEAD_ZONE: f64 = 0.002;
+
+/// One windowed read of the source in the time-stretcher.
+#[derive(Clone, Copy, Debug)]
+struct Grain {
+    pos: f64,
+    age: u32,
+}
+
+impl Grain {
+    const DONE: Grain = Grain {
+        pos: 0.0,
+        age: GRAIN_FRAMES,
+    };
+}
+
+/// The interpolated source frame at `pos`, or silence outside the material.
+fn read_at(frames: &[f32], pos: f64) -> f32 {
+    let at = pos.floor();
+    if at < 0.0 || at >= frames.len() as f64 {
+        return 0.0;
+    }
+    let at = at as usize;
+    let next = (at + 1).min(frames.len() - 1);
+    let frac = (pos - at as f64) as f32;
+    frames[at] + (frames[next] - frames[at]) * frac
+}
+
+/// Where a new grain should start: near `nominal`, at the offset whose waveform
+/// best continues what `previous` is about to play, so the overlap adds in
+/// phase instead of combing.
+fn best_grain_start(frames: &[f32], nominal: f64, previous: f64, step: f64) -> f64 {
+    let points = GRAIN_HOP as usize / GRAIN_COMPARE_STRIDE;
+    let mut best = nominal.max(0.0);
+    let mut best_score = f32::NEG_INFINITY;
+    let mut shift = -GRAIN_SEARCH;
+    while shift <= GRAIN_SEARCH {
+        let start = nominal + shift as f64;
+        if start >= 0.0 {
+            let mut dot = 0.0f32;
+            let mut energy = 0.0f32;
+            for k in 0..points {
+                let offset = (k * GRAIN_COMPARE_STRIDE) as f64 * step;
+                let candidate = read_at(frames, start + offset);
+                dot += candidate * read_at(frames, previous + offset);
+                energy += candidate * candidate;
+            }
+            let score = dot / (energy + 1e-6).sqrt();
+            if score > best_score {
+                best_score = score;
+                best = start;
+            }
+        }
+        shift += GRAIN_SEARCH_STRIDE as i64;
+    }
+    best
 }
 
 /// One track's sample voice: where its slot is playing, and how fast it moves.
@@ -355,6 +429,12 @@ struct SamplePlayer {
     level: f32,
     /// Per-frame change in `level`; negative once the voice is releasing.
     level_step: f32,
+    /// Tempo the material was laid out at, or zero to play unwarped.
+    warp_base: f32,
+    grains: [Grain; 2],
+    next_grain: usize,
+    spawn_in: u32,
+    grains_live: bool,
 }
 
 impl SamplePlayer {
@@ -368,7 +448,59 @@ impl SamplePlayer {
         tag: 0,
         level: 1.0,
         level_step: 0.0,
+        warp_base: 0.0,
+        grains: [Grain::DONE; 2],
+        next_grain: 0,
+        spawn_in: 0,
+        grains_live: false,
     };
+
+    /// How much faster than real time the material's position must advance to
+    /// stay on the grid at `tempo`, or one when the voice is not warped.
+    fn warp_factor(&self, tempo: f32) -> f64 {
+        if self.warp_base > 0.0 && tempo.is_finite() && tempo > 0.0 {
+            f64::from(tempo) / f64::from(self.warp_base)
+        } else {
+            1.0
+        }
+    }
+
+    /// Next frame of the time-stretched voice. The grains read the material at
+    /// the voice's own pitch while their starts follow the stretched position.
+    fn stretched_frame(&mut self, frames: &[f32]) -> f32 {
+        if !self.grains_live {
+            self.grains = [
+                Grain {
+                    pos: self.position,
+                    age: GRAIN_HOP,
+                },
+                Grain::DONE,
+            ];
+            self.next_grain = 1;
+            self.spawn_in = 0;
+            self.grains_live = true;
+        }
+        if self.spawn_in == 0 {
+            let other = self.grains[self.next_grain ^ 1];
+            let start = best_grain_start(frames, self.position, other.pos, self.step);
+            self.grains[self.next_grain] = Grain { pos: start, age: 0 };
+            self.next_grain ^= 1;
+            self.spawn_in = GRAIN_HOP;
+        }
+        self.spawn_in -= 1;
+        let mut out = 0.0f32;
+        for grain in &mut self.grains {
+            if grain.age >= GRAIN_FRAMES {
+                continue;
+            }
+            let phase = grain.age as f32 / GRAIN_FRAMES as f32;
+            let window = 0.5 - 0.5 * (std::f32::consts::TAU * phase).cos();
+            out += window * read_at(frames, grain.pos);
+            grain.age += 1;
+            grain.pos += self.step;
+        }
+        out
+    }
 
     /// Whether the player currently has a slot to read.
     fn playing(&self) -> bool {
@@ -492,6 +624,7 @@ pub struct SynthEngine {
     pool: SamplePool,
     sample_consumer: Option<Consumer<SampleMsg>>,
     sample_ratios: [f32; MAX_SAMPLE_SLOTS],
+    tempo: f32,
     effect_consumer: Option<Consumer<EffectHandoff>>,
     return_producer: Option<Producer<Box<EffectInstance>>>,
     last_frame_outputs: [(f32, f32); MAX_TRACKS],
@@ -518,6 +651,7 @@ impl SynthEngine {
             pool: SamplePool::new(),
             sample_consumer: None,
             sample_ratios: [1.0; MAX_SAMPLE_SLOTS],
+            tempo: 120.0,
             effect_consumer: None,
             return_producer: None,
             last_frame_outputs: [(0.0, 0.0); MAX_TRACKS],
@@ -723,7 +857,17 @@ impl SynthEngine {
         };
         let slot_rate = ratio * f64::from(self.sample_rate);
         let offset = f64::from(cue.offset_seconds.max(0.0)) * slot_rate;
-        let position = offset + cue.elapsed_frames.max(0.0) * ratio * rate;
+        let source_bpm = if cue.source_bpm.is_finite() && cue.source_bpm > 0.0 {
+            cue.source_bpm
+        } else {
+            0.0
+        };
+        let warp = if source_bpm > 0.0 {
+            f64::from(self.tempo) / f64::from(source_bpm)
+        } else {
+            1.0
+        };
+        let position = offset + cue.elapsed_frames.max(0.0) * ratio * rate * warp;
         let (level, level_step) = if fade_in {
             (0.0, 1.0 / RELEASE_FADE_FRAMES as f32)
         } else {
@@ -740,6 +884,11 @@ impl SynthEngine {
             tag,
             level,
             level_step,
+            warp_base: source_bpm,
+            grains: [Grain::DONE; 2],
+            next_grain: 0,
+            spawn_in: 0,
+            grains_live: false,
         };
         if was_idle {
             self.active_voices += 1;
@@ -889,6 +1038,7 @@ impl SynthEngine {
 
     /// Set the tempo every track's tempo-synced delay follows. Allocation-free.
     pub fn set_tempo(&mut self, bpm: f32) {
+        self.tempo = bpm;
         for track in &mut self.tracks {
             track.effects.set_tempo(bpm);
         }
@@ -1082,6 +1232,7 @@ impl SynthEngine {
             meter_frames,
             rng,
             active_voices,
+            tempo,
             pool,
             ..
         } = self;
@@ -1106,6 +1257,15 @@ impl SynthEngine {
             if track.sample.playing() {
                 match sample_at(&track.sample, pool) {
                     Some(frame) => {
+                        let warp = track.sample.warp_factor(*tempo);
+                        let stretching = (warp - 1.0).abs() > WARP_DEAD_ZONE;
+                        let frame = if stretching {
+                            let frames = pool.frames(track.sample.slot);
+                            track.sample.stretched_frame(frames)
+                        } else {
+                            track.sample.grains_live = false;
+                            frame
+                        };
                         if track.sample.level_step > 0.0 {
                             track.sample.level =
                                 (track.sample.level + track.sample.level_step).min(1.0);
@@ -1121,7 +1281,7 @@ impl SynthEngine {
                             finished += 1;
                         } else {
                             mono += frame * track.sample.gain * track.sample.level;
-                            track.sample.position += track.sample.step;
+                            track.sample.position += track.sample.step * warp;
                             let end = pool.frames(track.sample.slot).len() as f64;
                             if track.sample.position >= end {
                                 track.sample = SamplePlayer::IDLE;
@@ -1431,6 +1591,39 @@ mod tests {
 
         assert!(fast_peaks[0] > 0.5, "at engine rate it is half way through");
         assert_eq!(slow_peaks[0], 0.0, "at half rate it read half as far");
+    }
+
+    #[test]
+    fn a_warped_sample_follows_the_tempo_and_keeps_its_pitch() {
+        let sine: Vec<f32> = (0..88_200)
+            .map(|n| (std::f32::consts::TAU * 440.0 * n as f32 / 44_100.0).sin())
+            .collect();
+        let mut e = engine();
+        e.set_tempo(240.0);
+        load(&mut e, 0, &sine, 44_100.0);
+        let cue = SampleCue {
+            source_bpm: 120.0,
+            ..SampleCue::START
+        };
+        assert!(e.play_sample(0, EVENT, 0, cue, 1.0, 0));
+        let mut peaks = [0.0; MAX_TRACKS];
+        let mut out = Vec::new();
+        while e.is_sample_playing(0) && out.len() < 88_200 {
+            out.push(e.process_frame(&mut peaks).0);
+        }
+        assert!(
+            (40_000..48_000).contains(&out.len()),
+            "double tempo halves a two second loop, got {} frames",
+            out.len()
+        );
+        let crossings = out[4_410..26_460]
+            .windows(2)
+            .filter(|pair| pair[0] <= 0.0 && pair[1] > 0.0)
+            .count();
+        assert!(
+            (180..=220).contains(&crossings),
+            "half a second of 440 Hz is 220 cycles, got {crossings}"
+        );
     }
 
     #[test]

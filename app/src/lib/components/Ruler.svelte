@@ -1,6 +1,6 @@
 <script lang="ts">
 	/**
-	 * The bar and beat ruler. Click or drag to seek the transport; shift-drag to
+	 * The bar and beat ruler. Double-click to seek the transport; shift-drag to
 	 * draw the loop region, and double-click the region to loop the whole song.
 	 */
 
@@ -50,7 +50,7 @@
 
 	const region = $derived(drawing ?? session.snapshot?.loopRegion ?? null);
 
-	function beatsAt(event: PointerEvent): number | null {
+	function beatsAt(event: MouseEvent): number | null {
 		const ruler = document.querySelector('.ruler');
 		if (!ruler) return null;
 		const rect = ruler.getBoundingClientRect();
@@ -58,7 +58,7 @@
 		return snapBeats(Math.max(0, pxToBeats(px, pxPerBeat)), gridStep(pxPerBeat));
 	}
 
-	function seekFromPointer(event: PointerEvent): void {
+	function seekFromPointer(event: MouseEvent): void {
 		const beats = beatsAt(event);
 		if (beats !== null) session.dispatch({ seek: { beats } });
 	}
@@ -70,12 +70,10 @@
 	}
 
 	function onPointerDown(event: PointerEvent): void {
-		if (event.button !== 0) return;
-		const anchor = event.shiftKey ? beatsAt(event) : null;
-		const onMove =
-			anchor === null
-				? (e: PointerEvent) => seekFromPointer(e)
-				: (e: PointerEvent) => drawFromPointer(anchor, e);
+		if (event.button !== 0 || !event.shiftKey) return;
+		const anchor = beatsAt(event);
+		if (anchor === null) return;
+		const onMove = (e: PointerEvent) => drawFromPointer(anchor, e);
 		const onUp = () => {
 			window.removeEventListener('pointermove', onMove);
 			window.removeEventListener('pointerup', onUp);
@@ -84,8 +82,7 @@
 			}
 			drawing = null;
 		};
-		if (anchor === null) seekFromPointer(event);
-		else drawing = { startBeats: anchor, endBeats: anchor };
+		drawing = { startBeats: anchor, endBeats: anchor };
 		window.addEventListener('pointermove', onMove);
 		window.addEventListener('pointerup', onUp);
 	}
@@ -102,6 +99,7 @@
 	role="presentation"
 	style="width: {width !== undefined ? `${width}px` : '100%'}; height: {RULER_HEIGHT}px"
 	onpointerdown={onPointerDown}
+	ondblclick={seekFromPointer}
 >
 	{#if region !== null}
 		<button

@@ -19,8 +19,6 @@
 	import { MASTER_TRACK, type EffectView } from '$lib/wire';
 	import Knob from './Knob.svelte';
 
-	const WIDTH = 540;
-	const HEIGHT = 140;
 	const SPECTRUM_BINS = 36;
 
 	interface Props {
@@ -30,6 +28,11 @@
 	}
 
 	let { effect, index, at }: Props = $props();
+
+	let displayWidth = $state(380);
+	let displayHeight = $state(130);
+	const WIDTH = $derived(Math.max(120, displayWidth));
+	const HEIGHT = $derived(Math.max(80, displayHeight));
 
 	let selectedBand = $state(2);
 	let dragging = $state<{ band: number; startX: number; startY: number; startQ: number } | null>(null);
@@ -187,11 +190,10 @@
 </script>
 
 <div class="eq-eight" role="region" aria-label="EQ Eight visual equalizer">
-	<div class="display">
+	<div class="display" bind:clientWidth={displayWidth} bind:clientHeight={displayHeight}>
 		<svg
 			bind:this={svgElem}
 			viewBox="0 0 {WIDTH} {HEIGHT}"
-			preserveAspectRatio="none"
 			class="display-svg"
 		>
 			<defs>
@@ -338,23 +340,26 @@
 <style>
 	.eq-eight {
 		display: flex;
-		flex-direction: column;
-		width: 530px;
+		gap: 8px;
+		width: 100%;
+		min-width: 560px;
 		height: 100%;
-		gap: 6px;
 		user-select: none;
 	}
 
 	.display {
 		position: relative;
-		width: 100%;
-		height: 130px;
+		flex: 1;
+		min-width: 300px;
+		min-height: 100px;
 		background: #090909;
 		border: 1px solid var(--border);
 		overflow: hidden;
 	}
 
 	.display-svg {
+		position: absolute;
+		inset: 0;
 		width: 100%;
 		height: 100%;
 		display: block;
@@ -441,9 +446,13 @@
 	}
 
 	.controls-bar {
+		flex: none;
+		width: 232px;
 		display: flex;
 		flex-direction: column;
+		justify-content: space-between;
 		gap: 6px;
+		min-height: 0;
 		background: var(--surface);
 		border: 1px solid var(--border-subtle);
 		padding: 6px;
@@ -493,16 +502,15 @@
 
 	.band-strip {
 		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 12px;
+		flex-direction: column;
+		align-items: stretch;
+		gap: 6px;
 	}
 
 	.types-row {
 		display: flex;
 		flex-wrap: wrap;
 		gap: 2px;
-		max-width: 260px;
 	}
 
 	.type-pill {
@@ -529,6 +537,7 @@
 	.dials-row {
 		display: flex;
 		align-items: center;
-		gap: 8px;
+		justify-content: space-between;
+		gap: 4px;
 	}
 </style>

@@ -218,6 +218,7 @@ impl App {
                         gain: 0.0,
                         offset_seconds: 0.0,
                         rate: 1.0,
+                        source_bpm: 0.0,
                     };
                 }
                 MirroredBlock {
@@ -227,6 +228,7 @@ impl App {
                     gain: sample_gain(&source.instrument),
                     offset_seconds: block.offset_seconds,
                     rate: block.rate,
+                    source_bpm: block.source_bpm,
                 }
             })
             .collect()

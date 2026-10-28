@@ -1,12 +1,11 @@
 <script lang="ts">
 	/**
 	 * One track's lane: the bar, beat and snap grid behind it, the blocks on it,
-	 * and the double-click that selects the track and puts the marker on the snapped
-	 * beat, the way Ableton's insert marker works. A drop from the file browser
+	 * and the right-click menu that adds a clip. A drop from the file browser
 	 * finds this element by its `data-lane-track` attribute.
 	 */
 
-	import { ROW_HEIGHT, gridStep, pxToBeats, snapBeats } from '$lib/geometry';
+	import { ROW_HEIGHT, gridStep, pxToBeats } from '$lib/geometry';
 	import { laneMenu } from '$lib/menu';
 	import { menu } from '$lib/menu.svelte';
 	import { session } from '$lib/session.svelte';
@@ -77,20 +76,6 @@
 		return out;
 	});
 
-	function onDoubleClick(event: MouseEvent): void {
-		if (event.target instanceof Element && event.target.closest('[data-block]') !== null) return;
-		const lane = event.currentTarget;
-		if (!(lane instanceof HTMLElement)) return;
-		const beats = pxToBeats(event.clientX - lane.getBoundingClientRect().left, session.zoom);
-		const start = Math.max(0, snapBeats(beats, gridStep(session.zoom), event.altKey));
-		session.selectTrack(index);
-		if (track.kind === 'midi') {
-			session.createMidiBlockAt(index, start);
-		} else {
-			session.dispatch({ seek: { beats: start } });
-		}
-	}
-
 	function onContextMenu(event: MouseEvent): void {
 		if (event.target instanceof Element && event.target.closest('[data-block]') !== null) return;
 		const lane = event.currentTarget;
@@ -108,7 +93,6 @@
 	aria-label="Blocks on {track.name}"
 	data-lane-track={index}
 	style="width: {width}px; height: {height ?? ROW_HEIGHT}px"
-	ondblclick={onDoubleClick}
 	oncontextmenu={onContextMenu}
 >
 	<svg class="grid-lines" width={width} height="100%" aria-hidden="true">

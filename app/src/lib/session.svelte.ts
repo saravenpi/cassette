@@ -155,6 +155,10 @@ class Session {
 	/** Apply one intent. */
 	dispatch(event: EngineEvent): void {
 		if (this.exporting && (event === 'togglePlay' || event === 'toggleRecord')) return;
+		if (event === 'addBlock' && this.snapshot !== null) {
+			this.addBlockAtPlayhead(this.snapshot);
+			return;
+		}
 		if (typeof event === 'object' && 'selectTrack' in event) {
 			this.selectedTrack = event.selectTrack.track;
 		}
@@ -162,6 +166,14 @@ class Session {
 			trackSelection.reorderTrack(event.reorderTrack.from, event.reorderTrack.to);
 		}
 		void this.send(event);
+	}
+
+	/** Insert a MIDI block on the cursor's track at the snapped playhead, as Ableton does at its insert marker. */
+	private addBlockAtPlayhead(snapshot: UiState): void {
+		const track = snapshot.cursor.track;
+		if (snapshot.tracks[track]?.kind !== 'midi') return;
+		const start = snapBeats(snapshot.transportPositionBeats, gridStep(this.zoom));
+		this.createMidiBlockAt(track, Math.max(0, start));
 	}
 
 	/** Apply one intent and resolve to whether the engine accepted it. */

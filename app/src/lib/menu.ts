@@ -202,7 +202,7 @@ export function laneMenu(
 	const start = snapBeats(beats, step);
 	return [
 		item(
-			'New block here',
+			'New MIDI clip here',
 			() =>
 				void host.request({
 					createBlock: {

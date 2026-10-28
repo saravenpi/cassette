@@ -29,6 +29,7 @@ mod red_zone {
                 gain: 0.0,
                 offset_seconds: 0.0,
                 rate: 1.0,
+                source_bpm: 0.0,
             },
             MirroredBlock {
                 start_beats: 8.0,
@@ -37,6 +38,7 @@ mod red_zone {
                 gain: 0.0,
                 offset_seconds: 0.0,
                 rate: 1.0,
+                source_bpm: 0.0,
             },
         ])
     }
@@ -124,6 +126,7 @@ mod red_zone {
             gain: 0.0,
             offset_seconds: 0.0,
             rate: 1.0,
+            source_bpm: 0.0,
         }]);
         let command = RtCommand::SetBlocks {
             track: 0,
@@ -219,6 +222,7 @@ mod red_zone {
                 gain: 0.5,
                 offset_seconds: 0.0,
                 rate: 1.0,
+                source_bpm: 0.0,
             }]),
         });
         core.apply(RtCommand::Play);

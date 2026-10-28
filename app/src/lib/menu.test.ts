@@ -127,8 +127,8 @@ describe('split point', () => {
 
 describe('lane and track menus', () => {
 	test('an audio lane cannot create a block', () => {
-		expect(find(laneMenu(host(), 0, 'audio', 3, 4, 1), 'New block here').disabled).toBe(true);
-		expect(find(laneMenu(host(), 0, 'midi', 3, 4, 1), 'New block here').disabled).toBe(undefined);
+		expect(find(laneMenu(host(), 0, 'audio', 3, 4, 1), 'New MIDI clip here').disabled).toBe(true);
+		expect(find(laneMenu(host(), 0, 'midi', 3, 4, 1), 'New MIDI clip here').disabled).toBe(undefined);
 	});
 
 	test('loop from here spans one bar from the snapped beat', () => {

@@ -80,6 +80,12 @@ pub struct Block {
     /// and an octave up. One for a MIDI block.
     #[serde(default = "unit_rate")]
     pub rate: f32,
+    /// Tempo the audio block's material was laid out at. When above zero the
+    /// engine time-stretches the material to follow the song's tempo while
+    /// keeping its pitch, so the block stays on the grid. Zero plays the
+    /// material at its own speed whatever the tempo.
+    #[serde(default)]
+    pub source_bpm: f32,
 }
 
 fn unit_rate() -> f32 {
@@ -113,6 +119,18 @@ impl Block {
             notes: Vec::new(),
             offset_seconds: 0.0,
             rate: 1.0,
+            source_bpm: 0.0,
+        }
+    }
+
+    /// Seconds of source material one beat of this block covers at a song
+    /// tempo of `1 / seconds_per_beat`. A warped block covers the same
+    /// material per beat at any tempo.
+    pub fn material_per_beat(&self, seconds_per_beat: f32) -> f32 {
+        if self.source_bpm > 0.0 {
+            60.0 / self.source_bpm * self.rate
+        } else {
+            seconds_per_beat * self.rate
         }
     }
 
@@ -156,7 +174,9 @@ impl Block {
             })
             .collect();
         let offset_seconds = match self.kind {
-            TrackKind::Audio => self.offset_seconds + into * seconds_per_beat * self.rate,
+            TrackKind::Audio => {
+                self.offset_seconds + into * self.material_per_beat(seconds_per_beat)
+            }
             TrackKind::Midi => self.offset_seconds,
         };
         let split = Block {
@@ -174,6 +194,7 @@ impl Block {
                 .collect(),
             offset_seconds,
             rate: self.rate,
+            source_bpm: self.source_bpm,
         };
         self.length_beats = into;
         Some(split)
@@ -190,7 +211,7 @@ impl Block {
         let end = self.end_beats();
         let mut start =
             finite_or(start_beats, self.start_beats).clamp(0.0, end - Self::MIN_LENGTH_BEATS);
-        let material_per_beat = seconds_per_beat * self.rate;
+        let material_per_beat = self.material_per_beat(seconds_per_beat);
         if self.kind == TrackKind::Audio && material_per_beat > 0.0 {
             start = start.max(self.start_beats - self.offset_seconds / material_per_beat);
         }
@@ -387,6 +408,7 @@ impl Track {
             block.set_length(before.1);
             block.offset_seconds = finite_or(before.2, 0.0).max(0.0);
             block.rate = unit_rate_or(before.3);
+            block.source_bpm = finite_or(block.source_bpm, 0.0).clamp(0.0, 400.0);
             let after = (
                 block.start_beats,
                 block.length_beats,
@@ -582,6 +604,7 @@ mod tests {
                 notes: Vec::new(),
                 offset_seconds: 0.0,
                 rate: 1.0,
+                source_bpm: 0.0,
             });
         }
         let problems = track.sanitize(2).expect("finite track");

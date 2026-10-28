@@ -17,6 +17,10 @@ use crate::core::wav::{self, Sample};
 use crate::models::{Block, TrackKind};
 use crate::ui::view::Cursor;
 
+/// Shortest audio, in seconds, that a fresh block warps to the song's tempo.
+/// Shorter material is a one-shot, and stretching a hit only smears it.
+const WARP_MIN_SECONDS: f64 = 2.0;
+
 /// Buckets [`peaks`] reduces a waveform to by default.
 pub const WAVEFORM_BUCKETS: usize = 256;
 
@@ -62,13 +66,18 @@ impl App {
         if flipped {
             self.sync_default_track_name(track_index, old_kind);
         }
-        let index = self.song.tracks[track_index].insert_block(Block::new(
+        let seconds = loaded.frames as f64 / loaded.rate as f64;
+        let mut block = Block::new(
             name.clone(),
             TrackKind::Audio,
             start_beats,
             length_beats,
             path,
-        ));
+        );
+        if seconds >= WARP_MIN_SECONDS {
+            block.source_bpm = self.song.bpm();
+        }
+        let index = self.song.tracks[track_index].insert_block(block);
         self.cursor = Cursor {
             track: track_index,
             block: index,

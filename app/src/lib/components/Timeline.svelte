@@ -125,11 +125,7 @@
 			selection.clear();
 			const start = Math.max(0, snappedBeats);
 			session.selectTrack(lane.track);
-			if (tracks[lane.track]?.kind === 'midi') {
-				session.createMidiBlockAt(lane.track, start);
-			} else {
-				session.dispatch({ seek: { beats: start } });
-			}
+			session.dispatch({ seek: { beats: start } });
 			return;
 		}
 		lastGridDown = { time: now, track: lane.track, x: event.clientX, y: event.clientY };
@@ -164,9 +160,7 @@
 			if (!drawn && !moved) {
 				selection.clear();
 				const endLane = laneUnder(e.clientX, e.clientY, session.zoom) ?? lane;
-				const endBeats = snapBeats(endLane.beats, gridStep(session.zoom), e.altKey);
 				session.dispatch({ selectTrack: { track: endLane.track } });
-				session.dispatch({ seek: { beats: Math.max(0, endBeats) } });
 			}
 		};
 
