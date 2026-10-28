@@ -538,3 +538,23 @@ Loop points, frame-accurate note starts, and a review pass over v0.9.0.
 - Double-click on MIDI blocks reliably opens the clip editor (`PianoRoll`) under WebKitGTK pointer capture.
 - Track kind and default name synchronization: importing or dropping a sample onto a default-named MIDI track renames `"Midi N"` to the next `"Audio N"` and supports dropping onto track headers and mixer strips.
 - Smooth mixer meter decay: buffer-size-aware exponential decay in the audio engine and removal of lagging CSS height transitions on meter fills.
+
+## [0.18.0] - 2026-10-28
+
+### Added
+
+- Audio warp: audio blocks of two seconds or more stretch with the song tempo and keep their pitch, so changing the BPM no longer pulls samples off the grid. Shorter one-shots and projects saved before this release play unwarped.
+- `Cmd/Ctrl+,` toggles the settings panel.
+- Right-click on a lane offers "New MIDI clip here".
+
+### Changed
+
+- `N` and `Enter` create a MIDI clip on the selected track at the playhead, snapped to the grid.
+- Double-click moves the playhead; a single click on the grid or ruler no longer does. Double-click no longer creates a clip.
+- Top bar: project name, save, export and open come first; tempo sits next to the metronome; the timeline/mixer switcher sits beside settings. The octave control and the backend label are gone.
+- EQ Eight: the display fills the device and the controls sit beside it instead of overflowing the pane.
+
+### Fixed
+
+- Sample preview in the file browser is audible: the content security policy now allows `blob:` media.
+- Utility: tests cover width scaling and a true mono sum with bass mono and 400% width.
