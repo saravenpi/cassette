@@ -110,6 +110,10 @@ pub struct MirroredBlock {
     pub rate: f32,
     /// Tempo the material was laid out at, or zero to play it unwarped.
     pub source_bpm: f32,
+    /// Duration of the fade-in envelope in beats.
+    pub fade_in_beats: f32,
+    /// Duration of the fade-out envelope in beats.
+    pub fade_out_beats: f32,
 }
 
 impl MirroredBlock {
@@ -143,6 +147,8 @@ const EMPTY_BLOCK: MirroredBlock = MirroredBlock {
     offset_seconds: 0.0,
     rate: 1.0,
     source_bpm: 0.0,
+    fade_in_beats: 0.0,
+    fade_out_beats: 0.0,
 };
 
 /// One note, flattened for the audio thread: absolute beats on the timeline,
@@ -487,11 +493,21 @@ impl RenderCore {
             return;
         }
         let beats = self.transport.position_beats_exact();
+        let frames_per_beat = self.transport.frames_per_beat();
         let covering = self.blocks[track][..self.block_lens[track]]
             .iter()
             .position(|block| block.slot != NO_SLOT && block.covers(beats));
         match covering {
-            Some(index) => self.synth.retag_sample(track, index as u8),
+            Some(index) => {
+                let block = &self.blocks[track][index];
+                self.synth.retag_sample(track, index as u8);
+                self.synth.set_sample_fades(
+                    track,
+                    f64::from(block.end_beats - block.start_beats).max(0.0) * frames_per_beat,
+                    f64::from(block.fade_in_beats).max(0.0) * frames_per_beat,
+                    f64::from(block.fade_out_beats).max(0.0) * frames_per_beat,
+                );
+            }
             None => self.synth.release_playing_sample(track),
         }
     }
@@ -886,6 +902,10 @@ impl RenderCore {
                         * frames_per_beat,
                     rate: block.rate,
                     source_bpm: block.source_bpm,
+                    block_frames: f64::from(block.end_beats - block.start_beats).max(0.0)
+                        * frames_per_beat,
+                    fade_in_frames: f64::from(block.fade_in_beats).max(0.0) * frames_per_beat,
+                    fade_out_frames: f64::from(block.fade_out_beats).max(0.0) * frames_per_beat,
                 };
                 self.synth.play_sample_faded(
                     track,
@@ -977,6 +997,8 @@ mod tests {
                 offset_seconds: 0.0,
                 rate: 1.0,
                 source_bpm: 0.0,
+                fade_in_beats: 0.0,
+                fade_out_beats: 0.0,
             })
             .collect()
     }
@@ -1204,6 +1226,8 @@ mod tests {
                 offset_seconds: 0.0,
                 rate: 1.0,
                 source_bpm: 0.0,
+                fade_in_beats: 0.0,
+                fade_out_beats: 0.0,
             }]),
         });
         core.apply(RtCommand::SetNotes {
@@ -1305,6 +1329,8 @@ mod tests {
                     offset_seconds,
                     rate: 1.0,
                     source_bpm: 0.0,
+                    fade_in_beats: 0.0,
+                    fade_out_beats: 0.0,
                 }]),
             });
             core.apply(RtCommand::Play);
@@ -1341,6 +1367,8 @@ mod tests {
                 offset_seconds,
                 rate,
                 source_bpm: 0.0,
+                fade_in_beats: 0.0,
+                fade_out_beats: 0.0,
             }]),
         }
     }
@@ -1704,6 +1732,8 @@ mod tests {
             offset_seconds: 0.0,
             rate: 1.0,
             source_bpm: 0.0,
+            fade_in_beats: 0.0,
+            fade_out_beats: 0.0,
         };
         let from = transport.position_beats_exact();
         let to = transport.beats_after(2);
@@ -1922,6 +1952,8 @@ mod tests {
             offset_seconds: 0.0,
             rate: 1.0,
             source_bpm: 0.0,
+            fade_in_beats: 0.0,
+            fade_out_beats: 0.0,
         };
         assert!(block.covers(2.0));
         assert!(!block.covers(6.0));

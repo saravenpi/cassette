@@ -20,8 +20,19 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use anyhow::{Result, anyhow};
+use serde::{Deserialize, Serialize};
 
 use crate::core::{DEFAULT_SAMPLE_RATE, MAX_TRACKS};
+
+/// Available audio output and input devices on the host.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioDeviceList {
+    pub outputs: Vec<String>,
+    pub inputs: Vec<String>,
+    pub default_output: Option<String>,
+    pub default_input: Option<String>,
+}
 
 /// Frames per render call for backends that pace themselves in software.
 const CHUNK_FRAMES: usize = 512;
@@ -673,6 +684,7 @@ mod cpal_backend {
     /// Direct device output through cpal.
     pub struct CpalBackend {
         device: cpal::Device,
+        device_label: String,
         config: StreamConfig,
         format: SampleFormat,
         sample_rate: u32,
@@ -681,12 +693,32 @@ mod cpal_backend {
     }
 
     impl CpalBackend {
-        /// Open the default output device.
-        pub fn new() -> Result<Self> {
+        /// Open a named output device, or the default output device when `None`.
+        pub fn with_device(name: Option<&str>) -> Result<Self> {
             let host = cpal::default_host();
-            let device = host
-                .default_output_device()
-                .ok_or_else(|| anyhow!("no default output device"))?;
+            let device = match name.filter(|s| !s.is_empty() && *s != "default") {
+                Some(wanted) => {
+                    let mut found = None;
+                    if let Ok(devices) = host.output_devices() {
+                        for d in devices {
+                            if d.name().ok().as_deref() == Some(wanted) {
+                                found = Some(d);
+                                break;
+                            }
+                        }
+                    }
+                    match found {
+                        Some(d) => d,
+                        None => host
+                            .default_output_device()
+                            .ok_or_else(|| anyhow!("output device {wanted:?} not found"))?,
+                    }
+                }
+                None => host
+                    .default_output_device()
+                    .ok_or_else(|| anyhow!("no default output device"))?,
+            };
+            let device_label = device.name().unwrap_or_else(|_| "default".into());
             let supported = device
                 .default_output_config()
                 .map_err(|e| anyhow!("no output config: {e}"))?;
@@ -699,10 +731,15 @@ mod cpal_backend {
                 sample_rate: config.sample_rate.0,
                 channels: config.channels as usize,
                 device,
+                device_label,
                 config,
                 format,
                 stream: None,
             })
+        }
+
+        pub fn device_label(&self) -> &str {
+            &self.device_label
         }
 
         fn build<T>(&self, mut render: RenderFn) -> Result<cpal::Stream>
@@ -775,6 +812,230 @@ mod cpal_backend {
     pub fn available() -> bool {
         cpal::default_host().default_output_device().is_some()
     }
+
+    pub fn list_devices() -> super::AudioDeviceList {
+        let host = cpal::default_host();
+        let default_output = host.default_output_device().and_then(|d| d.name().ok());
+        let default_input = host.default_input_device().and_then(|d| d.name().ok());
+        let mut outputs = Vec::new();
+        if let Ok(devs) = host.output_devices() {
+            for d in devs {
+                if let Ok(name) = d.name()
+                    && !name.is_empty()
+                    && !outputs.contains(&name)
+                {
+                    outputs.push(name);
+                }
+            }
+        }
+        let mut inputs = Vec::new();
+        if let Ok(devs) = host.input_devices() {
+            for d in devs {
+                if let Ok(name) = d.name()
+                    && !name.is_empty()
+                    && !inputs.contains(&name)
+                {
+                    inputs.push(name);
+                }
+            }
+        }
+        super::AudioDeviceList {
+            outputs,
+            inputs,
+            default_output,
+            default_input,
+        }
+    }
+}
+
+/// Enumerate available audio output and input devices on the host.
+pub fn list_audio_devices() -> AudioDeviceList {
+    #[cfg(feature = "cpal")]
+    {
+        cpal_backend::list_devices()
+    }
+    #[cfg(not(feature = "cpal"))]
+    {
+        AudioDeviceList::default()
+    }
+}
+
+/// Active audio input recording session running on a dedicated thread.
+pub struct AudioInputRecorder {
+    stop_tx: Option<Sender<()>>,
+    samples: Arc<Mutex<Vec<f32>>>,
+    sample_rate: u32,
+    handle: Option<JoinHandle<()>>,
+}
+
+impl AudioInputRecorder {
+    /// Start recording from the named input device (or system default when `None`).
+    pub fn start(device_name: Option<&str>) -> Result<Self> {
+        #[cfg(feature = "cpal")]
+        {
+            use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+            let wanted = device_name
+                .filter(|s| !s.is_empty() && *s != "default")
+                .map(str::to_owned);
+            let samples = Arc::new(Mutex::new(Vec::with_capacity(48_000 * 10)));
+            let samples_clone = samples.clone();
+            let (ready_tx, ready_rx) = mpsc::channel::<Result<u32>>();
+            let (stop_tx, stop_rx) = mpsc::channel::<()>();
+
+            let handle = thread::Builder::new()
+                .name("cassette-audio-input".into())
+                .spawn(move || {
+                    let host = cpal::default_host();
+                    let device = match wanted.as_deref() {
+                        Some(name) => {
+                            let mut found = None;
+                            if let Ok(devs) = host.input_devices() {
+                                for d in devs {
+                                    if d.name().ok().as_deref() == Some(name) {
+                                        found = Some(d);
+                                        break;
+                                    }
+                                }
+                            }
+                            found.or_else(|| host.default_input_device())
+                        }
+                        None => host.default_input_device(),
+                    };
+                    let Some(device) = device else {
+                        let _ = ready_tx.send(Err(anyhow!("no audio input device available")));
+                        return;
+                    };
+                    let supported = match device.default_input_config() {
+                        Ok(c) => c,
+                        Err(e) => {
+                            let _ = ready_tx.send(Err(anyhow!("no input config: {e}")));
+                            return;
+                        }
+                    };
+                    let format = supported.sample_format();
+                    let config: cpal::StreamConfig = supported.config();
+                    let sr = config.sample_rate.0;
+                    let channels = (config.channels as usize).max(1);
+
+                    let push_mono = move |mono_slice: &[f32]| {
+                        if let Ok(mut guard) = samples_clone.lock() {
+                            guard.extend_from_slice(mono_slice);
+                        }
+                    };
+
+                    let stream_res = match format {
+                        cpal::SampleFormat::F32 => {
+                            let push = push_mono.clone();
+                            device.build_input_stream(
+                                &config,
+                                move |data: &[f32], _: &cpal::InputCallbackInfo| {
+                                    let mut chunk = Vec::with_capacity(data.len() / channels + 1);
+                                    for frame in data.chunks(channels) {
+                                        let sum: f32 = frame.iter().copied().sum();
+                                        chunk.push(sum / channels as f32);
+                                    }
+                                    push(&chunk);
+                                },
+                                |err| eprintln!("[audio-in] stream error: {err}"),
+                                None,
+                            )
+                        }
+                        cpal::SampleFormat::I16 => {
+                            let push = push_mono.clone();
+                            device.build_input_stream(
+                                &config,
+                                move |data: &[i16], _: &cpal::InputCallbackInfo| {
+                                    let mut chunk = Vec::with_capacity(data.len() / channels + 1);
+                                    for frame in data.chunks(channels) {
+                                        let sum: f32 =
+                                            frame.iter().map(|&s| f32::from(s) / 32_768.0).sum();
+                                        chunk.push(sum / channels as f32);
+                                    }
+                                    push(&chunk);
+                                },
+                                |err| eprintln!("[audio-in] stream error: {err}"),
+                                None,
+                            )
+                        }
+                        cpal::SampleFormat::U16 => {
+                            let push = push_mono;
+                            device.build_input_stream(
+                                &config,
+                                move |data: &[u16], _: &cpal::InputCallbackInfo| {
+                                    let mut chunk = Vec::with_capacity(data.len() / channels + 1);
+                                    for frame in data.chunks(channels) {
+                                        let sum: f32 = frame
+                                            .iter()
+                                            .map(|&s| (f32::from(s) - 32_768.0) / 32_768.0)
+                                            .sum();
+                                        chunk.push(sum / channels as f32);
+                                    }
+                                    push(&chunk);
+                                },
+                                |err| eprintln!("[audio-in] stream error: {err}"),
+                                None,
+                            )
+                        }
+                        other => {
+                            let _ =
+                                ready_tx.send(Err(anyhow!("unsupported input format {other:?}")));
+                            return;
+                        }
+                    };
+
+                    let stream = match stream_res {
+                        Ok(s) => s,
+                        Err(e) => {
+                            let _ = ready_tx.send(Err(anyhow!("failed to open input stream: {e}")));
+                            return;
+                        }
+                    };
+                    if let Err(e) = stream.play() {
+                        let _ = ready_tx.send(Err(anyhow!("failed to start input stream: {e}")));
+                        return;
+                    }
+                    let _ = ready_tx.send(Ok(sr));
+                    let _ = stop_rx.recv();
+                    drop(stream);
+                })
+                .map_err(|e| anyhow!("failed to spawn input thread: {e}"))?;
+
+            match ready_rx.recv_timeout(Duration::from_secs(3)) {
+                Ok(Ok(sample_rate)) => Ok(Self {
+                    stop_tx: Some(stop_tx),
+                    samples,
+                    sample_rate,
+                    handle: Some(handle),
+                }),
+                Ok(Err(e)) => {
+                    let _ = handle.join();
+                    Err(e)
+                }
+                Err(_) => Err(anyhow!("timed out opening audio input device")),
+            }
+        }
+        #[cfg(not(feature = "cpal"))]
+        {
+            let _ = device_name;
+            Err(anyhow!("cpal feature is not enabled"))
+        }
+    }
+
+    /// Stop recording and return `(mono_samples, sample_rate)`.
+    pub fn stop(mut self) -> (Vec<f32>, u32) {
+        if let Some(tx) = self.stop_tx.take() {
+            let _ = tx.send(());
+        }
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
+        let data = self
+            .samples
+            .lock()
+            .map(|mut g| std::mem::take(&mut *g))
+            .unwrap_or_default();
+        (data, self.sample_rate)
+    }
 }
 
 /// The chosen backend plus a human-readable note explaining the choice.
@@ -798,6 +1059,14 @@ pub enum BackendPreference {
 /// The note always explains the outcome so the UI can tell the user *why* it is
 /// silent and what to install.
 pub fn select_backend(preference: BackendPreference) -> BackendChoice {
+    select_backend_for_device(preference, None)
+}
+
+/// Pick the best backend available on this machine, optionally targeting a specific output device.
+pub fn select_backend_for_device(
+    preference: BackendPreference,
+    output_device: Option<&str>,
+) -> BackendChoice {
     if let BackendPreference::Stream { port } = preference {
         return match TcpStreamBackend::new(DEFAULT_SAMPLE_RATE, port) {
             Ok(backend) => {
@@ -821,16 +1090,19 @@ pub fn select_backend(preference: BackendPreference) -> BackendChoice {
     #[cfg(feature = "cpal")]
     {
         if cpal_backend::available()
-            && let Ok(backend) = cpal_backend::CpalBackend::new()
+            && let Ok(backend) = cpal_backend::CpalBackend::with_device(output_device)
         {
             let sample_rate = backend.sample_rate();
+            let note = format!("direct device output ({})", backend.device_label());
             return BackendChoice {
                 backend: Box::new(backend),
                 sample_rate,
-                note: "direct device output".into(),
+                note,
             };
         }
     }
+    #[cfg(not(feature = "cpal"))]
+    let _ = output_device;
 
     match SubprocessBackend::new(DEFAULT_SAMPLE_RATE) {
         Ok(backend) => BackendChoice {

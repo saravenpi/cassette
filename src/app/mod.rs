@@ -18,7 +18,9 @@ mod timeline;
 mod tracks;
 mod transport;
 
-pub use samples::{WAVEFORM_BUCKETS, peaks};
+pub use samples::{
+    ClipSpectrum, SPECTRUM_BINS, SPECTRUM_SLICES, WAVEFORM_BUCKETS, clip_spectrum, peaks,
+};
 
 use std::collections::HashMap;
 use std::sync::atomic::Ordering;
@@ -235,6 +237,13 @@ impl App {
                 block,
                 length_beats,
             } => self.stretch_block(track, block, length_beats),
+            Event::SetBlockFades {
+                track,
+                block,
+                fade_in_beats,
+                fade_out_beats,
+            } => self.set_block_fades(track, block, fade_in_beats, fade_out_beats),
+            Event::SetOutputDevice { device } => self.set_output_device(device),
             Event::AddNote {
                 track,
                 block,
@@ -426,6 +435,44 @@ impl App {
         });
     }
 
+    pub(crate) fn set_output_device(&mut self, device: Option<String>) {
+        let was_playing = self.engine.is_playing();
+        let pos_beats = (self.engine.shared().position_frames.load(Ordering::Relaxed) as f64
+            / self.frames_per_beat()) as f32;
+        match AudioEngine::start_with_device(&self.song, device.as_deref()) {
+            Ok(mut next_engine) => {
+                self.producer = next_engine.take_sample_producer();
+                self.engine = next_engine;
+                self.samples.clear();
+                self.loaded_samples.clear();
+                let sources: Vec<String> = self
+                    .song
+                    .tracks
+                    .iter()
+                    .flat_map(|t| t.blocks.iter().map(|b| b.source.clone()))
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                for source in sources {
+                    let _ = self.load_sample_source(&source);
+                }
+                self.resync();
+                self.send(RtCommand::Seek { beats: pos_beats });
+                if was_playing {
+                    self.send(RtCommand::Play);
+                }
+                self.status = format!(
+                    "audio {} at {} Hz ({})",
+                    self.engine.backend_name(),
+                    self.engine.sample_rate(),
+                    self.engine.note()
+                );
+            }
+            Err(error) => {
+                self.status = format!("failed to switch output device: {error}");
+            }
+        }
+    }
+
     /// Push a whole mixer strip for one track.
     fn send_mix(&mut self, track: usize, volume: f32, pan: f32, muted: bool, solo: bool) {
         self.send(RtCommand::SetTrackMix {
@@ -501,6 +548,8 @@ impl App {
                         notes: entry.notes.clone(),
                         offset_seconds: entry.offset_seconds,
                         rate: entry.rate,
+                        fade_in_beats: entry.fade_in_beats,
+                        fade_out_beats: entry.fade_out_beats,
                     })
                     .collect(),
                 color_index: track.color_index.unwrap_or((index % COLOR_SLOTS) as u8),

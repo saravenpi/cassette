@@ -63,6 +63,24 @@ export function rollZoomByWheel(pxPerBeat: number, deltaY: number): number {
 	return rollClampZoom(pxPerBeat * Math.exp(-deltaY * ROLL_WHEEL_ZOOM_RATE));
 }
 
+/** Adaptive note snap grid in beats for a piano roll zoom level. */
+export function rollGridStep(pxPerBeat: number): number {
+	if (pxPerBeat >= 320) return 0.0625;
+	if (pxPerBeat >= 160) return 0.125;
+	if (pxPerBeat >= 64) return 0.25;
+	if (pxPerBeat >= 32) return 0.5;
+	return 1.0;
+}
+
+/** Musical division label for a piano roll grid step. */
+export function rollGridLabel(gridBeats: number): string {
+	if (gridBeats <= 0.0625) return '1/64';
+	if (gridBeats <= 0.125) return '1/32';
+	if (gridBeats <= 0.25) return '1/16';
+	if (gridBeats <= 0.5) return '1/8';
+	return '1/4';
+}
+
 /** A pitch held inside the MIDI range and rounded to a whole semitone. */
 export function clampPitch(pitch: number): number {
 	return clamp(Math.round(pitch), PITCH_MIN, PITCH_MAX);
@@ -202,15 +220,16 @@ export function locateBlock(
 	blocks: readonly BlockView[],
 	hint: number,
 	name: string,
-	startBeats: number
+	startBeats: number,
+	kind: 'midi' | 'audio' = 'midi'
 ): number | null {
 	const here = blocks[hint];
-	const kept = here?.kind === 'midi' && (here.name === name || here.startBeats === startBeats);
+	const kept = here?.kind === kind && (here.name === name || here.startBeats === startBeats);
 	if (kept) return hint;
 	let best: number | null = null;
 	let distance = Infinity;
 	blocks.forEach((block, index) => {
-		if (block.kind !== 'midi' || block.name !== name) return;
+		if (block.kind !== kind || block.name !== name) return;
 		const away = Math.abs(block.startBeats - startBeats);
 		if (away < distance) {
 			distance = away;

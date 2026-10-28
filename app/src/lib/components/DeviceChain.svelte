@@ -19,7 +19,8 @@
 	import { menu } from '$lib/menu.svelte';
 	import { trackColor } from '$lib/palette';
 	import { session } from '$lib/session.svelte';
-	import type { EffectKind, TrackView } from '$lib/wire';
+	import { MASTER_TRACK, type TrackView } from '$lib/wire';
+	import CompressorView from './CompressorView.svelte';
 	import Device from './Device.svelte';
 	import EqEightView from './EqEightView.svelte';
 	import Knob from './Knob.svelte';
@@ -210,23 +211,25 @@
 
 <div class="scroller" bind:this={scroller} role="list" aria-label="Devices on {track.name}" onpointerdown={onScrollerPointerDown}>
 	<div class="row" bind:this={row} style="gap: {GAP}px">
-		<div class="slot" role="listitem">
-			{#if track.kind === 'midi'}
-				<Device
-					name="Instrument"
-					folded={folded.has(foldKey('source'))}
-					enabled={track.instrumentEnabled}
-					onfold={() => toggleFold(foldKey('source'))}
-					ontoggle={() => session.dispatch({ setInstrumentEnabled: { track: index, enabled: !track.instrumentEnabled } })}
-				>
-					<VoiceEditor {track} {index} />
-				</Device>
-			{:else}
-				<Device name="Sample" folded={folded.has(foldKey('source'))} onfold={() => toggleFold(foldKey('source'))}>
-					<p class="note">The block's sample plays through the chain.</p>
-				</Device>
-			{/if}
-		</div>
+		{#if index !== MASTER_TRACK}
+			<div class="slot" role="listitem">
+				{#if track.kind === 'midi'}
+					<Device
+						name="Instrument"
+						folded={folded.has(foldKey('source'))}
+						enabled={track.instrumentEnabled}
+						onfold={() => toggleFold(foldKey('source'))}
+						ontoggle={() => session.dispatch({ setInstrumentEnabled: { track: index, enabled: !track.instrumentEnabled } })}
+					>
+						<VoiceEditor {track} {index} />
+					</Device>
+				{:else}
+					<Device name="Sample" folded={folded.has(foldKey('source'))} onfold={() => toggleFold(foldKey('source'))}>
+						<p class="note">The block's sample plays through the chain.</p>
+					</Device>
+				{/if}
+			</div>
+		{/if}
 
 		{#each effects as effect, at (effect.id)}
 			{@const spec = specFor(catalog, effect.kind)}
@@ -251,6 +254,8 @@
 						<p class="note">The engine lists no controls for {effect.name}.</p>
 					{:else if effect.kind === 'eqEight'}
 						<EqEightView {effect} {index} {at} />
+					{:else if effect.kind === 'compressor'}
+						<CompressorView {effect} {index} {at} />
 					{:else}
 						<div class="params">
 							{#each spec.params as param, p (param.name)}

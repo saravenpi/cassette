@@ -1,6 +1,10 @@
+import { sendNow } from './api';
+
 export type SettingsTab = 'audio' | 'updates' | 'general';
 
 const STORAGE_KEY_AUTO_UPDATE = 'cassette:autoUpdate';
+const STORAGE_KEY_OUTPUT_DEVICE = 'cassette:outputDevice';
+const STORAGE_KEY_INPUT_DEVICE = 'cassette:inputDevice';
 
 function loadAutoUpdate(): boolean {
 	try {
@@ -19,10 +23,28 @@ function saveAutoUpdate(val: boolean): void {
 	}
 }
 
+function loadString(key: string, fallback: string): string {
+	try {
+		return globalThis.localStorage?.getItem(key) || fallback;
+	} catch {
+		return fallback;
+	}
+}
+
+function saveString(key: string, val: string): void {
+	try {
+		globalThis.localStorage?.setItem(key, val);
+	} catch {
+		return;
+	}
+}
+
 export class SettingsStore {
 	isOpen = $state(false);
 	activeTab = $state<SettingsTab>('audio');
 	autoUpdate = $state(loadAutoUpdate());
+	outputDevice = $state(loadString(STORAGE_KEY_OUTPUT_DEVICE, 'default'));
+	inputDevice = $state(loadString(STORAGE_KEY_INPUT_DEVICE, 'default'));
 
 	get open(): boolean {
 		return this.isOpen;
@@ -54,6 +76,17 @@ export class SettingsStore {
 	setAutoUpdate = (enabled: boolean): void => {
 		this.autoUpdate = enabled;
 		saveAutoUpdate(enabled);
+	};
+
+	setOutputDevice = (device: string): void => {
+		this.outputDevice = device;
+		saveString(STORAGE_KEY_OUTPUT_DEVICE, device);
+		sendNow({ setOutputDevice: { device: device === 'default' ? null : device } });
+	};
+
+	setInputDevice = (device: string): void => {
+		this.inputDevice = device;
+		saveString(STORAGE_KEY_INPUT_DEVICE, device);
 	};
 }
 

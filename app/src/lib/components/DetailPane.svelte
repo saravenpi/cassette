@@ -15,6 +15,8 @@
 	import { RESIZE_BIG_STEP, RESIZE_STEP, MIN_HEIGHT, MAX_SHARE, clampHeight } from '$lib/detail';
 	import { detail } from '$lib/detail.svelte';
 	import { session } from '$lib/session.svelte';
+	import { MASTER_TRACK, type TrackView } from '$lib/wire';
+	import AudioClipView from './AudioClipView.svelte';
 	import DeviceChain from './DeviceChain.svelte';
 	import PianoRoll from './PianoRoll.svelte';
 
@@ -23,12 +25,45 @@
 
 	const height = $derived(clampHeight(detail.height, windowHeight));
 	const maxHeight = $derived(Math.max(MIN_HEIGHT, Math.floor(windowHeight * MAX_SHARE)));
+	const isMaster = $derived(session.selectedTrack === MASTER_TRACK);
 	const trackIndex = $derived(session.snapshot?.cursor.track ?? 0);
 	const track = $derived(session.snapshot?.tracks[trackIndex] ?? null);
+	const masterTrack = $derived<TrackView | null>(
+		session.snapshot
+			? {
+					name: 'Master',
+					kind: 'audio',
+					preset: '',
+					waveform: 'sine',
+					gain: 1,
+					octave: 0,
+					attack: 0,
+					decay: 0,
+					sustain: 1,
+					release: 0,
+					volume: session.snapshot.masterVolume ?? 0.85,
+					pan: 0,
+					muted: false,
+					solo: false,
+					level: session.snapshot.masterLevel ?? 0,
+					colorIndex: 0,
+					notesRevision: 0,
+					blocks: [],
+					effects: session.snapshot.masterEffects ?? [],
+					instrumentEnabled: false,
+					cutoff: 1,
+					resonance: 0,
+					detune: 0,
+					sub: 0
+				}
+			: null
+	);
+	const activeTrack = $derived(isMaster ? masterTrack : track);
+	const activeTrackIndex = $derived(isMaster ? MASTER_TRACK : trackIndex);
 	const roll = $derived(session.roll);
 	const rollTrack = $derived(roll === null ? null : (session.snapshot?.tracks[roll.track] ?? null));
 	const rollBlock = $derived(roll === null || rollTrack === null ? null : (rollTrack.blocks[roll.block] ?? null));
-	const shownTrack = $derived(detail.view === 'clip' && rollTrack !== null ? rollTrack : track);
+	const shownTrack = $derived(detail.view === 'clip' && rollTrack !== null ? rollTrack : activeTrack);
 
 	onDestroy(() => stopResize());
 
@@ -131,17 +166,21 @@
 	{#if detail.open}
 		<div class="body" id="detail-body" role="region" aria-label="{detail.view === 'clip' ? 'Clip' : 'Devices'}" style="height: {height}px">
 			{#if detail.view === 'clip'}
-				{#if roll !== null}
-					{#key roll.serial}
-						<PianoRoll />
-					{/key}
+				{#if roll !== null && rollBlock !== null && rollTrack !== null}
+					{#if rollBlock.kind === 'audio'}
+						<AudioClipView track={roll.track} blockIndex={roll.block} block={rollBlock} trackView={rollTrack} />
+					{:else}
+						{#key roll.serial}
+							<PianoRoll />
+						{/key}
+					{/if}
 				{:else}
-					<p class="empty">Click a MIDI clip to edit its notes</p>
+					<p class="empty">Click a clip to inspect or edit it</p>
 				{/if}
-			{:else if track === null}
+			{:else if activeTrack === null}
 				<p class="empty">connecting…</p>
 			{:else}
-				<DeviceChain {track} index={trackIndex} />
+				<DeviceChain track={activeTrack} index={activeTrackIndex} />
 			{/if}
 		</div>
 	{/if}

@@ -328,6 +328,9 @@ pub struct SampleCue {
     /// Tempo the material was laid out at; above zero the voice time-stretches
     /// to follow the song's tempo without changing pitch.
     pub source_bpm: f32,
+    pub block_frames: f64,
+    pub fade_in_frames: f64,
+    pub fade_out_frames: f64,
 }
 
 impl SampleCue {
@@ -337,6 +340,9 @@ impl SampleCue {
         elapsed_frames: 0.0,
         rate: 1.0,
         source_bpm: 0.0,
+        block_frames: 0.0,
+        fade_in_frames: 0.0,
+        fade_out_frames: 0.0,
     };
 }
 
@@ -431,6 +437,10 @@ struct SamplePlayer {
     level_step: f32,
     /// Tempo the material was laid out at, or zero to play unwarped.
     warp_base: f32,
+    elapsed_frames: f64,
+    block_frames: f64,
+    fade_in_frames: f64,
+    fade_out_frames: f64,
     grains: [Grain; 2],
     next_grain: usize,
     spawn_in: u32,
@@ -449,11 +459,32 @@ impl SamplePlayer {
         level: 1.0,
         level_step: 0.0,
         warp_base: 0.0,
+        elapsed_frames: 0.0,
+        block_frames: 0.0,
+        fade_in_frames: 0.0,
+        fade_out_frames: 0.0,
         grains: [Grain::DONE; 2],
         next_grain: 0,
         spawn_in: 0,
         grains_live: false,
     };
+
+    fn fade_envelope(&self) -> f32 {
+        let mut gain = 1.0f32;
+        if self.fade_in_frames > 0.0 && self.elapsed_frames < self.fade_in_frames {
+            let t = (self.elapsed_frames / self.fade_in_frames).clamp(0.0, 1.0) as f32;
+            gain *= t * t * (3.0 - 2.0 * t);
+        }
+        if self.fade_out_frames > 0.0
+            && self.block_frames > 0.0
+            && self.elapsed_frames > self.block_frames - self.fade_out_frames
+        {
+            let rem = (self.block_frames - self.elapsed_frames).max(0.0);
+            let t = (rem / self.fade_out_frames).clamp(0.0, 1.0) as f32;
+            gain *= t * t * (3.0 - 2.0 * t);
+        }
+        gain
+    }
 
     /// How much faster than real time the material's position must advance to
     /// stay on the grid at `tempo`, or one when the voice is not warped.
@@ -885,6 +916,10 @@ impl SynthEngine {
             level,
             level_step,
             warp_base: source_bpm,
+            elapsed_frames: cue.elapsed_frames.max(0.0),
+            block_frames: cue.block_frames.max(0.0),
+            fade_in_frames: cue.fade_in_frames.max(0.0),
+            fade_out_frames: cue.fade_out_frames.max(0.0),
             grains: [Grain::DONE; 2],
             next_grain: 0,
             spawn_in: 0,
@@ -918,6 +953,22 @@ impl SynthEngine {
     pub fn retag_sample(&mut self, track: usize, tag: u8) {
         if track < self.track_count {
             self.tracks[track].sample.tag = tag;
+        }
+    }
+
+    /// Update fade envelope parameters on `track`'s active sample voice.
+    pub fn set_sample_fades(
+        &mut self,
+        track: usize,
+        block_frames: f64,
+        fade_in_frames: f64,
+        fade_out_frames: f64,
+    ) {
+        if track < self.track_count {
+            let player = &mut self.tracks[track].sample;
+            player.block_frames = block_frames.max(0.0);
+            player.fade_in_frames = fade_in_frames.max(0.0);
+            player.fade_out_frames = fade_out_frames.max(0.0);
         }
     }
 
@@ -1280,7 +1331,9 @@ impl SynthEngine {
                             track.sample = SamplePlayer::IDLE;
                             finished += 1;
                         } else {
-                            mono += frame * track.sample.gain * track.sample.level;
+                            let fade_env = track.sample.fade_envelope();
+                            mono += frame * track.sample.gain * track.sample.level * fade_env;
+                            track.sample.elapsed_frames += 1.0;
                             track.sample.position += track.sample.step * warp;
                             let end = pool.frames(track.sample.slot).len() as f64;
                             if track.sample.position >= end {

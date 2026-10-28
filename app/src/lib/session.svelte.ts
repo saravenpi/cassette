@@ -12,7 +12,9 @@ import {
 	pickSaveProject,
 	send as sendEvent,
 	sendNow as sendWithoutWaiting,
-	state
+	startNativeAudioRecording,
+	 state,
+	stopNativeAudioRecording
 } from './api';
 import { paramKey } from './chain';
 import { detail } from './detail.svelte';
@@ -21,14 +23,15 @@ import { DEFAULT_LENGTH_BEATS, ZOOM_DEFAULT, clampZoom, gridStep, snapBeats, zoo
 import { SvelteSet } from 'svelte/reactivity';
 import { attachKeyboard } from './keyboard';
 import { NoteCache } from './noteCache';
-import { NOTE_GRID, locateBlock } from './pianoRoll';
+import { locateBlock, rollGridStep } from './pianoRoll';
 import { resolveSaveAction, resolveSaveAsAction } from './project';
 import { KeyedQueue, nextBackoff } from './queue';
 import { selection } from './selection.svelte';
+import { settingsStore } from './settings.svelte';
 import { menu } from './menu.svelte';
 import { TRACK_PALETTE } from './palette';
 import { trackSelection, type SelectTrackOptions } from './trackSelection.svelte';
-import type { EffectKind, EngineEvent, TrackKind, UiState } from './wire';
+import { MASTER_TRACK, type EffectKind, type EngineEvent, type TrackKind, type UiState } from './wire';
 
 /** A track's voice, as the effects pane edits it. */
 export interface Voice {
@@ -41,7 +44,7 @@ export interface Voice {
 }
 
 /**
- * The MIDI block the piano roll edits, with what identifies it across re-sorts.
+ * The block the clip pane edits or inspects, with what identifies it across re-sorts.
  * `serial` changes only when a block is opened, so the pane can tell a fresh
  * open from the same block moving. `seated` turns true once a snapshot shows
  * the cursor on the block's track: the keyboard and the audition keys play the
@@ -54,6 +57,7 @@ export interface OpenBlock {
 	block: number;
 	name: string;
 	startBeats: number;
+	kind?: 'midi' | 'audio';
 }
 
 /**
@@ -81,8 +85,12 @@ class Session {
 	snapshot = $state<UiState | null>(null);
 	error = $state<string | null>(null);
 	zoom = $state(ZOOM_DEFAULT);
+	rollZoom = $state(96);
+	selectedNotes = $state<number[]>([]);
 	scrollRequest = $state(0);
 	roll = $state<OpenBlock | null>(null);
+	armedAudioTrack = $state<number | null>(null);
+	audioTake = $state<{ track: number; startBeats: number } | null>(null);
 
 	/** Pitches currently sounding from the keyboard or the audition keys. */
 	readonly heldPitches = new SvelteSet<number>();
@@ -159,8 +167,28 @@ class Session {
 	/** Apply one intent. */
 	dispatch(event: EngineEvent): void {
 		if (this.exporting && (event === 'togglePlay' || event === 'toggleRecord')) return;
+		if (event === 'toggleRecord') {
+			if (this.audioTake !== null) {
+				void this.finishAudioTake(true);
+				return;
+			}
+			const cursorTrack = this.snapshot?.cursor.track ?? 0;
+			const targetAudioTrack =
+				this.armedAudioTrack ??
+				(this.snapshot?.tracks[cursorTrack]?.kind === 'audio' ? cursorTrack : null);
+			if (targetAudioTrack !== null && this.snapshot?.tracks[targetAudioTrack]?.kind === 'audio') {
+				void this.startAudioTake(targetAudioTrack);
+				return;
+			}
+		}
 		if (event === 'stop') {
 			this.heldPitches.clear();
+			if (this.audioTake !== null) {
+				void this.finishAudioTake(false);
+			}
+		}
+		if (event === 'togglePlay' && this.audioTake !== null && this.snapshot?.playing) {
+			void this.finishAudioTake(false);
 		}
 		if (event === 'addBlock' && this.snapshot !== null) {
 			this.addBlockAtPlayhead(this.snapshot);
@@ -169,11 +197,64 @@ class Session {
 		if (typeof event === 'object' && 'selectTrack' in event) {
 			this.selectedTrack = event.selectTrack.track;
 			detail.followTrack();
+			if (event.selectTrack.track === MASTER_TRACK) return;
 		}
 		if (typeof event === 'object' && 'reorderTrack' in event) {
 			trackSelection.reorderTrack(event.reorderTrack.from, event.reorderTrack.to);
 		}
 		void this.flushAndSend(event);
+	}
+
+	/** Toggle record-arm on an audio track. */
+	toggleArmAudioTrack(track: number): void {
+		if (this.snapshot?.tracks[track]?.kind !== 'audio') return;
+		if (this.armedAudioTrack === track) {
+			this.armedAudioTrack = null;
+		} else {
+			this.armedAudioTrack = track;
+			this.selectTrack(track);
+		}
+	}
+
+	private async startAudioTake(track: number): Promise<void> {
+		const startBeats = Math.max(
+			0,
+			snapBeats(this.snapshot?.transportPositionBeats ?? 0, gridStep(this.zoom))
+		);
+		const device = settingsStore.inputDevice === 'default' ? null : settingsStore.inputDevice;
+		try {
+			await startNativeAudioRecording(device);
+		} catch (error) {
+			this.fail(error, 'send');
+			return;
+		}
+		this.audioTake = { track, startBeats };
+		if (!this.snapshot?.playing) {
+			await this.flushAndSend('togglePlay');
+		}
+	}
+
+	private async finishAudioTake(stopTransport: boolean): Promise<void> {
+		const take = this.audioTake;
+		if (take === null) return;
+		this.audioTake = null;
+		if (stopTransport && this.snapshot?.playing) {
+			await this.flushAndSend('stop');
+		}
+		const trackName = (this.snapshot?.tracks[take.track]?.name ?? 'track')
+			.toLowerCase()
+			.replace(/[^a-z0-9]+/g, '-');
+		const stamp = Math.floor(Date.now() / 1000);
+		try {
+			const path = await stopNativeAudioRecording(`${trackName}-${stamp}.wav`);
+			if (path) {
+				await this.flushAndSend({
+					importSample: { track: take.track, path, startBeats: take.startBeats }
+				});
+			}
+		} catch (error) {
+			this.fail(error, 'send');
+		}
 	}
 
 	/** Insert a MIDI block on the cursor's track at the snapped playhead, as Ableton does at its insert marker. */
@@ -251,11 +332,11 @@ class Session {
 
 	/** Select a track from its header, and show its devices if the detail pane is open. */
 	selectTrack(track: number, options?: SelectTrackOptions): void {
+		if (this.selectedTrack !== track) {
+			this.selectedEffectIndex = null;
+		}
 		this.selectedTrack = track;
-		if (track !== 999) {
-			if (this.snapshot?.cursor.track !== track) {
-				this.selectedEffectIndex = null;
-			}
+		if (track !== MASTER_TRACK) {
 			if (options) {
 				trackSelection.selectTrack(track, {
 					...options,
@@ -266,17 +347,17 @@ class Session {
 					totalTracks: this.snapshot?.tracks.length ?? 1
 				});
 			}
+			this.dispatch({ selectTrack: { track } });
 		}
-		this.dispatch({ selectTrack: { track } });
 		detail.followTrack();
 	}
 
 	selectNextTrack(): void {
 		const total = this.snapshot?.tracks.length ?? 0;
 		if (total === 0) return;
-		if (this.selectedTrack === 999) return;
+		if (this.selectedTrack === MASTER_TRACK) return;
 		if (this.selectedTrack >= total - 1) {
-			this.selectTrack(999);
+			this.selectTrack(MASTER_TRACK);
 		} else {
 			this.selectTrack(this.selectedTrack + 1);
 		}
@@ -285,7 +366,7 @@ class Session {
 	selectPreviousTrack(): void {
 		const total = this.snapshot?.tracks.length ?? 0;
 		if (total === 0) return;
-		if (this.selectedTrack === 999) {
+		if (this.selectedTrack === MASTER_TRACK) {
 			this.selectTrack(total - 1);
 		} else if (this.selectedTrack > 0) {
 			this.selectTrack(Math.max(0, this.selectedTrack - 1));
@@ -303,10 +384,12 @@ class Session {
 	}
 
 	copyEffect(trackIndex?: number, effectIndex?: number): void {
-		const track = trackIndex ?? this.snapshot?.cursor.track;
+		const track = trackIndex ?? (this.selectedTrack === MASTER_TRACK ? MASTER_TRACK : this.snapshot?.cursor.track);
 		const at = effectIndex ?? this.selectedEffectIndex;
 		if (track === undefined || at === null || at === undefined) return;
-		const effect = this.snapshot?.tracks[track]?.effects[at];
+		const effects =
+			track === MASTER_TRACK ? this.snapshot?.masterEffects : this.snapshot?.tracks[track]?.effects;
+		const effect = effects?.[at];
 		if (!effect) return;
 		this.effectClipboard = {
 			kind: effect.kind,
@@ -319,10 +402,11 @@ class Session {
 	pasteEffect(trackIndex?: number, effectIndex?: number | null): void {
 		const clip = this.effectClipboard;
 		if (clip === null) return;
-		const track = trackIndex ?? this.snapshot?.cursor.track;
+		const track = trackIndex ?? (this.selectedTrack === MASTER_TRACK ? MASTER_TRACK : this.snapshot?.cursor.track);
 		if (track === undefined) return;
-		const trackView = this.snapshot?.tracks[track];
-		if (!trackView || trackView.effects.length >= 8) return;
+		const effects =
+			track === MASTER_TRACK ? this.snapshot?.masterEffects : this.snapshot?.tracks[track]?.effects;
+		if (!effects || effects.length >= 8) return;
 		const at = effectIndex !== undefined ? effectIndex : this.selectedEffectIndex;
 		this.dispatch({
 			pasteEffect: {
@@ -335,25 +419,24 @@ class Session {
 			}
 		});
 		const newIndex =
-			at !== null && at !== undefined
-				? Math.min(trackView.effects.length, at + 1)
-				: trackView.effects.length;
+			at !== null && at !== undefined ? Math.min(effects.length, at + 1) : effects.length;
 		this.selectedEffectIndex = newIndex;
 	}
 
 	duplicateEffect(trackIndex?: number, effectIndex?: number): void {
-		const track = trackIndex ?? this.snapshot?.cursor.track;
+		const track = trackIndex ?? (this.selectedTrack === MASTER_TRACK ? MASTER_TRACK : this.snapshot?.cursor.track);
 		const at = effectIndex ?? this.selectedEffectIndex;
 		if (track === undefined || at === null || at === undefined) return;
-		const trackView = this.snapshot?.tracks[track];
-		if (!trackView || at >= trackView.effects.length || trackView.effects.length >= 8) return;
+		const effects =
+			track === MASTER_TRACK ? this.snapshot?.masterEffects : this.snapshot?.tracks[track]?.effects;
+		if (!effects || at >= effects.length || effects.length >= 8) return;
 		this.dispatch({
 			duplicateEffect: {
 				track,
 				index: at
 			}
 		});
-		this.selectedEffectIndex = Math.min(trackView.effects.length, at + 1);
+		this.selectedEffectIndex = Math.min(effects.length, at + 1);
 	}
 
 	deselectEffect(): void {
@@ -387,13 +470,21 @@ class Session {
 	}
 
 	/**
-	 * Quantize note starts: the open roll's block to the roll's grid, or else the
-	 * selected MIDI block to the timeline grid.
+	 * Quantize note starts and lengths: the open roll's block to the roll's zoom
+	 * grid (for selected notes or all notes), or else the selected MIDI block to
+	 * the timeline grid.
 	 */
 	quantizeSelected(): void {
 		const roll = this.roll;
-		if (roll !== null) {
-			this.dispatch({ quantizeBlock: { track: roll.track, block: roll.block, gridBeats: NOTE_GRID, notes: [] } });
+		if (roll !== null && (roll.kind ?? 'midi') === 'midi' && detail.view === 'clip') {
+			this.dispatch({
+				quantizeBlock: {
+					track: roll.track,
+					block: roll.block,
+					gridBeats: rollGridStep(this.rollZoom),
+					notes: [...this.selectedNotes]
+				}
+			});
 			return;
 		}
 		const cursor = this.snapshot?.cursor;
@@ -407,19 +498,21 @@ class Session {
 		});
 	}
 
-	/** Open the piano roll on a block, if it is a MIDI block, and show the Clip view. */
+	/** Open the clip pane on a MIDI or Audio block, and show the Clip view. */
 	openRoll(track: number, block: number): void {
 		const view = this.snapshot?.tracks[track]?.blocks[block];
-		if (view === undefined || view.kind !== 'midi') return;
+		if (view === undefined || (view.kind !== 'midi' && view.kind !== 'audio')) return;
 		detail.showClip();
 		this.opened += 1;
+		this.selectedNotes = [];
 		this.roll = {
 			serial: this.opened,
 			seated: this.snapshot?.cursor.track === track,
 			track,
 			block,
 			name: view.name,
-			startBeats: view.startBeats
+			startBeats: view.startBeats,
+			kind: view.kind
 		};
 	}
 
@@ -904,14 +997,15 @@ class Session {
 				} else if (changed) {
 					trackSelection.selectedTracks = valid;
 				}
-				if (this.selectedTrack === 999) {
-					if (this.activeView === 'timeline') {
-						this.selectedTrack = Math.max(0, Math.min(this.snapshot.cursor.track, count - 1));
+				if (this.selectedTrack !== MASTER_TRACK) {
+					if (this.selectedTrack >= count) {
+						this.selectedTrack = Math.max(0, count - 1);
+					} else if (this.activeView === 'timeline' && this.selectedTrack !== this.snapshot.cursor.track) {
+						this.selectedTrack = this.snapshot.cursor.track;
 					}
-				} else if (this.selectedTrack >= count) {
-					this.selectedTrack = Math.max(0, count - 1);
-				} else if (this.activeView === 'timeline' && this.selectedTrack !== this.snapshot.cursor.track) {
-					this.selectedTrack = this.snapshot.cursor.track;
+				}
+				if (this.armedAudioTrack !== null && this.snapshot.tracks[this.armedAudioTrack]?.kind !== 'audio') {
+					this.armedAudioTrack = null;
 				}
 			}
 			if (this.snapshot?.exportProgress !== undefined && this.snapshot?.exportProgress !== null) {
@@ -978,7 +1072,7 @@ class Session {
 			this.roll = roll;
 		}
 		const blocks = snapshot.tracks[roll.track]?.blocks ?? [];
-		const index = locateBlock(blocks, roll.block, roll.name, roll.startBeats);
+		const index = locateBlock(blocks, roll.block, roll.name, roll.startBeats, roll.kind ?? 'midi');
 		if (index === null) {
 			this.roll = null;
 			return;

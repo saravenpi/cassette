@@ -86,6 +86,12 @@ pub struct Block {
     /// material at its own speed whatever the tempo.
     #[serde(default)]
     pub source_bpm: f32,
+    /// Duration of the fade-in envelope in beats.
+    #[serde(default)]
+    pub fade_in_beats: f32,
+    /// Duration of the fade-out envelope in beats.
+    #[serde(default)]
+    pub fade_out_beats: f32,
 }
 
 fn unit_rate() -> f32 {
@@ -120,7 +126,25 @@ impl Block {
             offset_seconds: 0.0,
             rate: 1.0,
             source_bpm: 0.0,
+            fade_in_beats: 0.0,
+            fade_out_beats: 0.0,
         }
+    }
+
+    /// Keep fade-in and fade-out durations non-negative and within the block length.
+    pub fn clamp_fades(&mut self) {
+        let len = self.length_beats.max(0.0);
+        self.fade_in_beats = if self.fade_in_beats.is_finite() {
+            self.fade_in_beats.clamp(0.0, len)
+        } else {
+            0.0
+        };
+        self.fade_out_beats = if self.fade_out_beats.is_finite() {
+            self.fade_out_beats
+                .clamp(0.0, (len - self.fade_in_beats).max(0.0))
+        } else {
+            0.0
+        };
     }
 
     /// Seconds of source material one beat of this block covers at a song
@@ -147,6 +171,7 @@ impl Block {
     /// Resize the block, respecting the minimum length.
     pub fn set_length(&mut self, beats: f32) {
         self.length_beats = clamp_length(beats);
+        self.clamp_fades();
     }
 
     /// Cut the block at `at_beats` on the timeline, keeping the left part and
@@ -179,6 +204,7 @@ impl Block {
             }
             TrackKind::Midi => self.offset_seconds,
         };
+        let right_fade_out = self.fade_out_beats.min(rest);
         let split = Block {
             name: String::new(),
             kind: self.kind,
@@ -195,8 +221,12 @@ impl Block {
             offset_seconds,
             rate: self.rate,
             source_bpm: self.source_bpm,
+            fade_in_beats: 0.0,
+            fade_out_beats: right_fade_out,
         };
         self.length_beats = into;
+        self.fade_in_beats = self.fade_in_beats.min(into);
+        self.fade_out_beats = 0.0;
         Some(split)
     }
 
@@ -232,6 +262,10 @@ impl Block {
         }
         self.start_beats = start;
         self.length_beats = end - start;
+        if delta > 0.0 {
+            self.fade_in_beats = (self.fade_in_beats - delta).max(0.0);
+        }
+        self.clamp_fades();
     }
 
     /// Fit an audio block's material to `length_beats` by changing how fast it
@@ -241,12 +275,18 @@ impl Block {
         let wanted = clamp_length(length_beats);
         if self.kind == TrackKind::Midi {
             self.length_beats = wanted;
+            self.clamp_fades();
             return;
         }
+        let old_len = self.length_beats.max(Self::MIN_LENGTH_BEATS);
         let material = self.length_beats * self.rate;
         let rate = (material / wanted).clamp(Self::MIN_RATE, Self::MAX_RATE);
         self.rate = rate;
         self.length_beats = clamp_length(material / rate);
+        let scale = self.length_beats / old_len;
+        self.fade_in_beats *= scale;
+        self.fade_out_beats *= scale;
+        self.clamp_fades();
     }
 }
 
@@ -409,6 +449,7 @@ impl Track {
             block.offset_seconds = finite_or(before.2, 0.0).max(0.0);
             block.rate = unit_rate_or(before.3);
             block.source_bpm = finite_or(block.source_bpm, 0.0).clamp(0.0, 400.0);
+            block.clamp_fades();
             let after = (
                 block.start_beats,
                 block.length_beats,
@@ -605,6 +646,8 @@ mod tests {
                 offset_seconds: 0.0,
                 rate: 1.0,
                 source_bpm: 0.0,
+                fade_in_beats: 0.0,
+                fade_out_beats: 0.0,
             });
         }
         let problems = track.sanitize(2).expect("finite track");

@@ -33,6 +33,8 @@ export interface BlockView {
 	notes: NoteView[];
 	offsetSeconds: number;
 	rate: number;
+	fadeInBeats?: number;
+	fadeOutBeats?: number;
 }
 
 export type EffectKind =
@@ -187,6 +189,19 @@ export interface Waveform {
 	seconds: number;
 }
 
+export interface ClipSpectrum {
+	overall: number[];
+	slices: number[][];
+	durationSeconds: number;
+}
+
+export interface AudioDeviceList {
+	outputs: string[];
+	inputs: string[];
+	defaultOutput: string | null;
+	defaultInput: string | null;
+}
+
 export type SampleKind = 'dir' | 'wav' | 'audio' | 'project' | 'other';
 
 /** One entry the file browser can show. */
@@ -228,6 +243,15 @@ export type EngineEvent =
 	| { duplicateBlock: { track: number; block: number } }
 	| { trimBlockStart: { track: number; block: number; startBeats: number } }
 	| { stretchBlock: { track: number; block: number; lengthBeats: number } }
+	| {
+			setBlockFades: {
+				track: number;
+				block: number;
+				fadeInBeats: number;
+				fadeOutBeats: number;
+			};
+	  }
+	| { setOutputDevice: { device: string | null } }
 	| {
 			addNote: {
 				track: number;

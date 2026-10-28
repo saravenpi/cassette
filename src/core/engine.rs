@@ -14,6 +14,7 @@ use rtrb::{Consumer, Producer, RingBuffer};
 
 use crate::core::audio::{
     AudioBackend, BackendPreference, NullBackend, RenderFn, SharedState, select_backend,
+    select_backend_for_device,
 };
 use crate::core::effects::{EFFECT_RING_CAPACITY, EffectHandoff, EffectInstance};
 use crate::core::render::{MirroredBlock, MirroredNote, RenderCore, RtCommand};
@@ -95,6 +96,12 @@ impl AudioEngine {
     /// Start audio for `song` with an explicit backend preference.
     pub fn start_preferred(song: &Song, preference: BackendPreference) -> Result<Self> {
         let choice = select_backend(preference);
+        Self::start_with(song, choice.backend, choice.sample_rate, choice.note)
+    }
+
+    /// Start audio for `song` using a specific output device name (or default when `None`).
+    pub fn start_with_device(song: &Song, output_device: Option<&str>) -> Result<Self> {
+        let choice = select_backend_for_device(BackendPreference::Auto, output_device);
         Self::start_with(song, choice.backend, choice.sample_rate, choice.note)
     }
 
@@ -468,6 +475,8 @@ impl AudioEngine {
                     offset_seconds: block.offset_seconds,
                     rate: block.rate,
                     source_bpm: block.source_bpm,
+                    fade_in_beats: block.fade_in_beats,
+                    fade_out_beats: block.fade_out_beats,
                 })
                 .collect();
             ok &= self.set_blocks(track_index, blocks);

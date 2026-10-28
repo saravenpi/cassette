@@ -112,6 +112,17 @@ pub enum Event {
         block: usize,
         length_beats: f32,
     },
+    /// Set the fade-in and fade-out durations on an audio block.
+    SetBlockFades {
+        track: usize,
+        block: usize,
+        fade_in_beats: f32,
+        fade_out_beats: f32,
+    },
+    /// Select the audio output device by name, or `None` for the system default.
+    SetOutputDevice {
+        device: Option<String>,
+    },
     /// Append an empty block to the selected track.
     AddBlock,
     /// Remove the block under the cursor.

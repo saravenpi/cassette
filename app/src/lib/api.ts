@@ -6,7 +6,14 @@
 import { invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
 
-import type { EngineEvent, SampleEntry, UiState, Waveform } from './wire';
+import type {
+	AudioDeviceList,
+	ClipSpectrum,
+	EngineEvent,
+	SampleEntry,
+	UiState,
+	Waveform
+} from './wire';
 
 /**
  * The engine's snapshot, or null in the moment before it first publishes. Tracks
@@ -90,4 +97,31 @@ export function pickExportWav(defaultName?: string): Promise<string | null> {
 /** Write recorded audio bytes to a WAV file in the temporary directory. */
 export function saveRecordedSample(name: string, bytes: Uint8Array | number[]): Promise<string> {
 	return invoke<string>('save_recorded_sample', { name, bytes: Array.from(bytes) });
+}
+
+export function getAudioDevices(): Promise<AudioDeviceList> {
+	return invoke<AudioDeviceList>('get_audio_devices');
+}
+
+export function startNativeAudioRecording(device: string | null): Promise<void> {
+	return invoke<void>('start_audio_recording', { device });
+}
+
+export function stopNativeAudioRecording(name: string): Promise<string> {
+	return invoke<string>('stop_audio_recording', { name });
+}
+
+export function readSpectrum(path: string): Promise<ClipSpectrum> {
+	return invoke<ClipSpectrum>('read_spectrum', { path });
+}
+
+const spectrums = new Map<string, Promise<ClipSpectrum>>();
+
+export function loadSpectrum(path: string): Promise<ClipSpectrum> {
+	const cached = spectrums.get(path);
+	if (cached) return cached;
+	const request = readSpectrum(path);
+	request.catch(() => spectrums.delete(path));
+	spectrums.set(path, request);
+	return request;
 }

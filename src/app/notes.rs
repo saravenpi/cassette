@@ -175,11 +175,22 @@ impl App {
             return;
         };
         let (offset, limit) = (target.start_beats, target.length_beats);
+        let quantize_one = |note: &mut Note| {
+            let snapped_start = (((offset + note.start_beats) / grid_beats).round() * grid_beats
+                - offset)
+                .clamp(0.0, (limit - Note::MIN_LENGTH_BEATS).max(0.0));
+            let snapped_len = ((note.length_beats / grid_beats).round().max(1.0) * grid_beats)
+                .clamp(
+                    Note::MIN_LENGTH_BEATS,
+                    (limit - snapped_start).max(Note::MIN_LENGTH_BEATS),
+                );
+            note.start_beats = snapped_start;
+            note.length_beats = snapped_len;
+            note.clamp_to(limit);
+        };
         let count = if notes.is_empty() {
             for note in &mut target.notes {
-                note.start_beats =
-                    ((offset + note.start_beats) / grid_beats).round() * grid_beats - offset;
-                note.clamp_to(limit);
+                quantize_one(note);
             }
             target.notes.len()
         } else {
@@ -189,14 +200,34 @@ impl App {
             let mut modified = 0;
             for idx in indices {
                 if let Some(note) = target.notes.get_mut(idx) {
-                    note.start_beats =
-                        ((offset + note.start_beats) / grid_beats).round() * grid_beats - offset;
-                    note.clamp_to(limit);
+                    quantize_one(note);
                     modified += 1;
                 }
             }
             modified
         };
+        let mut order: Vec<usize> = (0..target.notes.len()).collect();
+        order.sort_by(|&a, &b| {
+            target.notes[a]
+                .pitch
+                .cmp(&target.notes[b].pitch)
+                .then_with(|| {
+                    target.notes[a]
+                        .start_beats
+                        .total_cmp(&target.notes[b].start_beats)
+                })
+        });
+        for pair in order.windows(2) {
+            let (a, b) = (pair[0], pair[1]);
+            if target.notes[a].pitch == target.notes[b].pitch {
+                let b_start = target.notes[b].start_beats;
+                let a_start = target.notes[a].start_beats;
+                if b_start > a_start && a_start + target.notes[a].length_beats > b_start {
+                    target.notes[a].length_beats = (b_start - a_start).max(Note::MIN_LENGTH_BEATS);
+                    target.notes[a].clamp_to(limit);
+                }
+            }
+        }
         let status = format!("quantized {count} notes to {}", grid_name(grid_beats));
         self.finish_note_edit(track, block, status);
     }
@@ -419,21 +450,25 @@ mod tests {
     }
 
     #[test]
-    fn quantizing_snaps_starts_to_the_timeline_grid_and_keeps_lengths() {
+    fn quantizing_snaps_starts_and_lengths_and_trims_overlaps() {
         let mut app = headless_app();
         app.handle(Event::CreateBlock {
             track: 0,
             start_beats: 0.5,
             length_beats: 4.0,
         });
-        add(&mut app, 60, 0.2, 0.75, 100);
-        add(&mut app, 62, 1.9, 0.3, 100);
+        add(&mut app, 60, 0.2, 1.8, 100);
+        add(&mut app, 60, 1.4, 0.9, 100);
         add(&mut app, 64, 3.6, 0.4, 100);
         quantize(&mut app, 0, 1.0);
         let starts: Vec<f32> = notes(&app).iter().map(|n| n.start_beats).collect();
         assert_eq!(starts, vec![0.5, 1.5, 3.5], "absolute 1, 2 and 4");
         let lengths: Vec<f32> = notes(&app).iter().map(|n| n.length_beats).collect();
-        assert_eq!(lengths, vec![0.75, 0.3, 0.4]);
+        assert_eq!(
+            lengths,
+            vec![1.0, 1.0, 0.5],
+            "lengths snap to grid and overlapping same-pitch notes trim"
+        );
         assert_eq!(app.status, "quantized 3 notes to 1/4");
         app.handle(Event::Undo);
         assert_eq!(notes(&app)[0].start_beats, 0.2, "one undo step");

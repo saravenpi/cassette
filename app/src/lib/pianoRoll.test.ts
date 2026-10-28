@@ -21,6 +21,8 @@ import {
 	noteName,
 	pitchToY,
 	previewRange,
+	rollGridLabel,
+	rollGridStep,
 	rollZoomBy,
 	rollZoomByWheel,
 	snapToGrid,
@@ -243,6 +245,25 @@ describe('locateBlock', () => {
 	test('returns null once the block is gone or no longer MIDI', () => {
 		expect(locateBlock([block('a', 0)], 1, 'b', 4)).toBeNull();
 		expect(locateBlock([block('a', 0), block('b', 4, 'audio')], 1, 'b', 4)).toBeNull();
+	});
+
+	test('locates audio blocks when kind is audio', () => {
+		expect(locateBlock([block('a', 0, 'audio'), block('b', 4, 'audio')], 1, 'b', 4, 'audio')).toBe(
+			1
+		);
+	});
+});
+
+describe('adaptive piano roll grid', () => {
+	test('adapts grid step to zoom level and formats fraction label', () => {
+		expect(rollGridStep(40)).toBe(0.5);
+		expect(rollGridLabel(0.5)).toBe('1/8');
+		expect(rollGridStep(96)).toBe(0.25);
+		expect(rollGridLabel(0.25)).toBe('1/16');
+		expect(rollGridStep(256)).toBe(0.125);
+		expect(rollGridLabel(0.125)).toBe('1/32');
+		expect(rollGridStep(512)).toBe(0.0625);
+		expect(rollGridLabel(0.0625)).toBe('1/64');
 	});
 });
 

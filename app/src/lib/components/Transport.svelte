@@ -157,9 +157,9 @@
 		</button>
 		<button
 			class="rec icon-btn"
-			aria-label="Record notes"
-			title="Record the notes you play into the selected MIDI track (F9)"
-			aria-pressed={snapshot?.recording ?? false}
+			aria-label="Record"
+			title="Record into armed/selected audio track or selected MIDI track (F9)"
+			aria-pressed={(snapshot?.recording ?? false) || session.audioTake !== null}
 			disabled={session.exporting}
 			onclick={() => session.dispatch('toggleRecord')}
 		>

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { getAudioDevices } from '$lib/api';
 	import { session } from '$lib/session.svelte';
 	import { settingsStore, type SettingsTab } from '$lib/settings.svelte';
 	import { updaterStore } from '$lib/updater.svelte';
@@ -6,10 +7,34 @@
 	const TABS: { id: SettingsTab; label: string }[] = [
 		{ id: 'audio', label: 'Audio' },
 		{ id: 'updates', label: 'Updates' },
-		{ id: 'general', label: 'General' }
+		{ id: 'general', label: 'Shortcuts' }
 	];
 
+	let outputs = $state<string[]>([]);
+	let inputs = $state<string[]>([]);
+	let defaultOutput = $state<string | null>(null);
+	let defaultInput = $state<string | null>(null);
+	let loadingDevices = $state(false);
 	let inputMonitoring = $state(false);
+
+	async function refreshDevices(): Promise<void> {
+		loadingDevices = true;
+		try {
+			const list = await getAudioDevices();
+			outputs = list.outputs;
+			inputs = list.inputs;
+			defaultOutput = list.defaultOutput;
+			defaultInput = list.defaultInput;
+		} finally {
+			loadingDevices = false;
+		}
+	}
+
+	$effect(() => {
+		if (settingsStore.isOpen) {
+			void refreshDevices();
+		}
+	});
 
 	function onKeyDown(event: KeyboardEvent): void {
 		if (settingsStore.isOpen && event.key === 'Escape') {
@@ -32,27 +57,17 @@
 		class="overlay"
 		role="dialog"
 		aria-modal="true"
-		aria-labelledby="settings-title"
+		aria-label="Settings"
 		tabindex="-1"
 		onclick={onBackdropClick}
 		onkeydown={onKeyDown}
 	>
 		<div class="modal">
-			<header class="modal-header">
-				<h2 id="settings-title" class="title">Settings</h2>
-				<button
-					class="close-btn"
-					aria-label="Close settings"
-					onclick={() => settingsStore.close()}
-				>
-					✕
-				</button>
-			</header>
-
 			<div class="modal-body">
 				<nav class="sidebar" aria-label="Settings categories">
 					{#each TABS as tab (tab.id)}
 						<button
+							type="button"
 							class="tab-btn"
 							class:active={settingsStore.activeTab === tab.id}
 							onclick={() => (settingsStore.activeTab = tab.id)}
@@ -60,42 +75,84 @@
 							{tab.label}
 						</button>
 					{/each}
+					<button
+						type="button"
+						class="close-btn"
+						aria-label="Close settings"
+						onclick={() => settingsStore.close()}
+					>
+						Close [Esc]
+					</button>
 				</nav>
 
 				<main class="content">
 					{#if settingsStore.activeTab === 'audio'}
 						<section class="section">
-							<h3 class="section-title">Audio Engine</h3>
+							<div class="section-head">
+								<h3 class="section-title">Audio Devices</h3>
+								<button
+									type="button"
+									class="secondary-btn"
+									disabled={loadingDevices}
+									onclick={() => void refreshDevices()}
+								>
+									{loadingDevices ? 'Scanning...' : 'Refresh'}
+								</button>
+							</div>
+
+							<div class="device-grid">
+								<label class="device-card">
+									<span class="device-label">Output Device</span>
+									<span class="desc">Playback destination</span>
+									<select
+										class="select"
+										aria-label="Audio output device"
+										value={settingsStore.outputDevice}
+										onchange={(e) => settingsStore.setOutputDevice(e.currentTarget.value)}
+									>
+										<option value="default">
+											System Default{defaultOutput ? ` (${defaultOutput})` : ''}
+										</option>
+										{#each outputs as dev (dev)}
+											<option value={dev}>{dev}</option>
+										{/each}
+									</select>
+								</label>
+
+								<label class="device-card">
+									<span class="device-label">Input Device</span>
+									<span class="desc">Audio track recording source</span>
+									<select
+										class="select"
+										aria-label="Audio input device"
+										value={settingsStore.inputDevice}
+										onchange={(e) => settingsStore.setInputDevice(e.currentTarget.value)}
+									>
+										<option value="default">
+											System Default{defaultInput ? ` (${defaultInput})` : ''}
+										</option>
+										{#each inputs as dev (dev)}
+											<option value={dev}>{dev}</option>
+										{/each}
+									</select>
+								</label>
+							</div>
 
 							<div class="row">
 								<div class="label-group">
-									<span class="label">Backend</span>
-									<span class="desc">Active audio device driver</span>
+									<span class="label">Driver & Status</span>
+									<span class="desc">{session.snapshot?.backendNote || 'Active audio engine'}</span>
 								</div>
 								<div class="value-group">
-									<span class="status-dot"></span>
+									<span class="status-square"></span>
 									<span class="mono-value">{session.snapshot?.backend ?? 'cpal'}</span>
 								</div>
 							</div>
 
 							<div class="row">
 								<div class="label-group">
-									<span class="label">Output Device</span>
-									<span class="desc">System audio destination</span>
-								</div>
-								<div class="value-group">
-									<select class="select" aria-label="Audio output device">
-										<option value="default" selected>
-											{session.snapshot?.backendNote || 'System Default Device'}
-										</option>
-									</select>
-								</div>
-							</div>
-
-							<div class="row">
-								<div class="label-group">
 									<span class="label">Sample Rate</span>
-									<span class="desc">Audio engine processing rate</span>
+									<span class="desc">Engine processing rate</span>
 								</div>
 								<div class="value-group">
 									<span class="mono-value">{session.snapshot?.sampleRate ?? 44100} Hz</span>
@@ -104,28 +161,19 @@
 
 							<div class="row">
 								<div class="label-group">
-									<span class="label">Latency & Buffer</span>
-									<span class="desc">I/O buffer period</span>
-								</div>
-								<div class="value-group">
-									<span class="mono-value">256 samples (~5.8 ms)</span>
-								</div>
-							</div>
-
-							<div class="row">
-								<div class="label-group">
 									<span class="label">Input Monitoring</span>
-									<span class="desc">Pass active input signal through track channels</span>
+									<span class="desc">Pass input signal through armed audio tracks</span>
 								</div>
 								<div class="value-group">
-									<label class="switch">
-										<input
-											type="checkbox"
-											checked={inputMonitoring}
-											onchange={(e) => (inputMonitoring = e.currentTarget.checked)}
-										/>
-										<span class="slider"></span>
-									</label>
+									<button
+										type="button"
+										class="toggle-btn"
+										class:active={inputMonitoring}
+										aria-pressed={inputMonitoring}
+										onclick={() => (inputMonitoring = !inputMonitoring)}
+									>
+										{inputMonitoring ? 'ON' : 'OFF'}
+									</button>
 								</div>
 							</div>
 						</section>
@@ -149,14 +197,15 @@
 									<span class="desc">Check for new releases on startup</span>
 								</div>
 								<div class="value-group">
-									<label class="switch">
-										<input
-											type="checkbox"
-											checked={settingsStore.autoUpdate}
-											onchange={(e) => settingsStore.setAutoUpdate(e.currentTarget.checked)}
-										/>
-										<span class="slider"></span>
-									</label>
+									<button
+										type="button"
+										class="toggle-btn"
+										class:active={settingsStore.autoUpdate}
+										aria-pressed={settingsStore.autoUpdate}
+										onclick={() => settingsStore.setAutoUpdate(!settingsStore.autoUpdate)}
+									>
+										{settingsStore.autoUpdate ? 'ON' : 'OFF'}
+									</button>
 								</div>
 							</div>
 
@@ -196,6 +245,7 @@
 								<div class="button-row">
 									{#if updaterStore.state === 'available'}
 										<button
+											type="button"
 											class="primary-btn"
 											onclick={() => updaterStore.installNow()}
 										>
@@ -203,6 +253,7 @@
 										</button>
 									{:else if updaterStore.state === 'ready'}
 										<button
+											type="button"
 											class="primary-btn"
 											onclick={() => updaterStore.restartNow()}
 										>
@@ -210,8 +261,10 @@
 										</button>
 									{:else}
 										<button
+											type="button"
 											class="secondary-btn"
-											disabled={updaterStore.state === 'checking' || updaterStore.state === 'downloading'}
+											disabled={updaterStore.state === 'checking' ||
+												updaterStore.state === 'downloading'}
 											onclick={() => updaterStore.checkNow(false)}
 										>
 											{updaterStore.state === 'checking' ? 'Checking...' : 'Check for updates'}
@@ -232,7 +285,7 @@
 										target="_blank"
 										rel="noreferrer"
 									>
-										github.com/Saravenpi/cassette/releases ↗
+										github.com/Saravenpi/cassette/releases
 									</a>
 								</div>
 							</div>
@@ -255,8 +308,12 @@
 											<td>Play / Stop transport</td>
 										</tr>
 										<tr>
+											<td><kbd>F9</kbd></td>
+											<td>Record into armed/selected audio or MIDI track</td>
+										</tr>
+										<tr>
 											<td><kbd>P</kbd></td>
-											<td>Open Piano Roll</td>
+											<td>Open clip view</td>
 										</tr>
 										<tr>
 											<td><kbd>L</kbd></td>
@@ -264,7 +321,15 @@
 										</tr>
 										<tr>
 											<td><kbd>Tab</kbd></td>
-											<td>Toggle Mixer / Devices detail view</td>
+											<td>Toggle Timeline / Mixer view</td>
+										</tr>
+										<tr>
+											<td><kbd>Shift</kbd> + <kbd>Tab</kbd></td>
+											<td>Switch Clip / Devices detail view</td>
+										</tr>
+										<tr>
+											<td><kbd>Ctrl</kbd> + <kbd>U</kbd></td>
+											<td>Quantize notes to active grid</td>
 										</tr>
 										<tr>
 											<td><kbd>Ctrl</kbd> + <kbd>T</kbd></td>
@@ -284,19 +349,15 @@
 										</tr>
 										<tr>
 											<td><kbd>Enter</kbd> / <kbd>N</kbd></td>
-											<td>Add block to active track</td>
+											<td>Add MIDI block at playhead</td>
 										</tr>
 										<tr>
 											<td><kbd>Delete</kbd></td>
-											<td>Delete selected block</td>
+											<td>Delete selected block or notes</td>
 										</tr>
 										<tr>
-											<td><kbd>M</kbd></td>
-											<td>Toggle track mute</td>
-										</tr>
-										<tr>
-											<td><kbd>O</kbd></td>
-											<td>Toggle track solo</td>
+											<td><kbd>M</kbd> / <kbd>O</kbd></td>
+											<td>Toggle track mute / solo</td>
 										</tr>
 										<tr>
 											<td><kbd>Ctrl</kbd> + <kbd>Z</kbd></td>
@@ -307,28 +368,8 @@
 											<td>Save project (Shift for Save As)</td>
 										</tr>
 										<tr>
-											<td><kbd>Z</kbd> / <kbd>X</kbd></td>
-											<td>Octave transpose down / up</td>
-										</tr>
-										<tr>
-											<td><kbd>-</kbd> / <kbd>=</kbd></td>
-											<td>Master volume adjust</td>
-										</tr>
-										<tr>
-											<td><kbd>[</kbd> / <kbd>]</kbd></td>
-											<td>Track pan adjust</td>
-										</tr>
-										<tr>
-											<td><kbd>,</kbd> / <kbd>.</kbd></td>
-											<td>BPM tempo adjust</td>
-										</tr>
-										<tr>
-											<td><kbd>F9</kbd></td>
-											<td>Toggle recording</td>
-										</tr>
-										<tr>
 											<td><kbd>Esc</kbd></td>
-											<td>Close Piano Roll / Modal</td>
+											<td>Close Clip / Modal</td>
 										</tr>
 									</tbody>
 								</table>
@@ -363,8 +404,7 @@
 		position: fixed;
 		inset: 0;
 		z-index: 1000;
-		background: rgba(0, 0, 0, 0.72);
-		backdrop-filter: blur(4px);
+		background: rgba(0, 0, 0, 0.8);
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -374,50 +414,13 @@
 	.modal {
 		width: 680px;
 		max-width: 95vw;
-		height: 520px;
+		height: 480px;
 		max-height: 85vh;
-		background: #0e0e0e;
+		background: var(--bg);
 		border: 1px solid var(--border);
-		box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
 		display: flex;
 		flex-direction: column;
 		overflow: hidden;
-	}
-
-	.modal-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: 12px 18px;
-		border-bottom: 1px solid var(--border-subtle);
-		background: var(--bg);
-	}
-
-	.title {
-		margin: 0;
-		font-size: 13px;
-		font-weight: 600;
-		letter-spacing: 0.08em;
-		text-transform: uppercase;
-		color: var(--text);
-	}
-
-	.close-btn {
-		width: 28px;
-		height: 28px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		background: transparent;
-		border: none;
-		color: var(--text-subtle);
-		font-size: 14px;
-		cursor: pointer;
-		padding: 0;
-	}
-
-	.close-btn:hover {
-		color: var(--text);
 	}
 
 	.modal-body {
@@ -427,38 +430,58 @@
 	}
 
 	.sidebar {
-		width: 160px;
+		width: 148px;
 		flex: none;
-		background: #0a0a0a;
+		background: var(--surface);
 		border-right: 1px solid var(--border-subtle);
 		display: flex;
 		flex-direction: column;
-		padding: 8px 0;
 	}
 
 	.tab-btn {
 		width: 100%;
 		text-align: left;
-		padding: 10px 16px;
-		font-size: 12px;
+		padding: 12px 14px;
+		font-size: 11px;
+		letter-spacing: 0.12em;
+		text-transform: uppercase;
 		background: transparent;
 		border: none;
+		border-bottom: 1px solid var(--border-subtle);
 		border-left: 2px solid transparent;
 		color: var(--text-subtle);
 		cursor: pointer;
-		transition: color 0.1s, background 0.1s;
 	}
 
 	.tab-btn:hover {
 		color: var(--text);
-		background: rgba(255, 255, 255, 0.03);
+		background: var(--surface-hover);
 	}
 
 	.tab-btn.active {
 		color: var(--text);
-		background: rgba(255, 255, 255, 0.05);
+		background: var(--bg);
 		border-left-color: var(--green);
-		font-weight: 500;
+	}
+
+	.close-btn {
+		margin-top: auto;
+		width: 100%;
+		text-align: left;
+		padding: 12px 14px;
+		font-size: 10px;
+		letter-spacing: 0.12em;
+		text-transform: uppercase;
+		background: transparent;
+		border: none;
+		border-top: 1px solid var(--border-subtle);
+		color: var(--text-subtle);
+		cursor: pointer;
+	}
+
+	.close-btn:hover {
+		color: var(--text);
+		background: var(--surface-hover);
 	}
 
 	.content {
@@ -472,16 +495,44 @@
 	.section {
 		display: flex;
 		flex-direction: column;
-		gap: 16px;
+		gap: 14px;
+	}
+
+	.section-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
 	}
 
 	.section-title {
-		margin: 0 0 6px 0;
-		font-size: 12px;
-		font-weight: 600;
-		letter-spacing: 0.08em;
+		margin: 0;
+		font-size: 11px;
+		font-weight: normal;
+		letter-spacing: 0.14em;
 		text-transform: uppercase;
 		color: var(--text-subtle);
+	}
+
+	.device-grid {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 12px;
+	}
+
+	.device-card {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		padding: 12px;
+		background: var(--surface);
+		border: 1px solid var(--border-subtle);
+	}
+
+	.device-label {
+		font-size: 11px;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--text);
 	}
 
 	.row {
@@ -500,7 +551,6 @@
 
 	.label {
 		font-size: 12px;
-		font-weight: 500;
 		color: var(--text);
 	}
 
@@ -515,10 +565,9 @@
 		gap: 8px;
 	}
 
-	.status-dot {
+	.status-square {
 		width: 7px;
 		height: 7px;
-		border-radius: 50%;
 		background: var(--green);
 	}
 
@@ -529,62 +578,41 @@
 	}
 
 	.select {
-		background: #141414;
+		width: 100%;
+		height: 28px;
+		background: var(--bg);
 		border: 1px solid var(--border);
 		color: var(--text);
-		font-size: 12px;
-		padding: 5px 8px;
+		font-size: 11px;
+		padding: 0 8px;
 		outline: none;
 	}
 
-	.switch {
-		position: relative;
-		display: inline-block;
-		width: 34px;
-		height: 18px;
-	}
-
-	.switch input {
-		opacity: 0;
-		width: 0;
-		height: 0;
-	}
-
-	.slider {
-		position: absolute;
-		cursor: pointer;
-		inset: 0;
-		background-color: #222;
-		border: 1px solid var(--border);
-		border-radius: 18px;
-		transition: 0.2s;
-	}
-
-	.slider:before {
-		position: absolute;
-		content: "";
-		height: 12px;
-		width: 12px;
-		left: 2px;
-		bottom: 2px;
-		background-color: var(--text-subtle);
-		border-radius: 50%;
-		transition: 0.2s;
-	}
-
-	input:checked + .slider {
-		background-color: var(--green-soft);
+	.select:focus-visible {
 		border-color: var(--green);
 	}
 
-	input:checked + .slider:before {
-		transform: translateX(16px);
-		background-color: var(--green);
+	.toggle-btn {
+		min-width: 48px;
+		height: 24px;
+		padding: 0 10px;
+		font-size: 10px;
+		letter-spacing: 0.12em;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		color: var(--text-subtle);
+		cursor: pointer;
+	}
+
+	.toggle-btn.active {
+		background: var(--green);
+		border-color: var(--green);
+		color: var(--on-green);
 	}
 
 	.update-action-box {
 		padding: 14px;
-		background: #121212;
+		background: var(--surface);
 		border: 1px solid var(--border-subtle);
 		display: flex;
 		flex-direction: column;
@@ -599,11 +627,10 @@
 		display: inline-block;
 		font-size: 11px;
 		padding: 3px 8px;
-		border-radius: 2px;
 	}
 
 	.badge.checking {
-		background: rgba(255, 255, 255, 0.08);
+		background: var(--surface-hover);
 		color: var(--text-subtle);
 	}
 
@@ -612,11 +639,7 @@
 		color: var(--olive);
 	}
 
-	.badge.ready {
-		background: var(--green-soft);
-		color: var(--green);
-	}
-
+	.badge.ready,
 	.badge.uptodate {
 		background: var(--green-soft);
 		color: var(--green);
@@ -638,33 +661,29 @@
 
 	.primary-btn {
 		background: var(--green);
-		color: #000;
+		color: var(--on-green);
 		font-size: 11px;
-		font-weight: 600;
 		padding: 6px 14px;
-		border: none;
+		border: 1px solid var(--green);
 		cursor: pointer;
 		text-transform: uppercase;
-		letter-spacing: 0.06em;
-	}
-
-	.primary-btn:hover {
-		filter: brightness(1.1);
+		letter-spacing: 0.08em;
 	}
 
 	.secondary-btn {
-		background: #1a1a1a;
+		background: var(--surface);
 		color: var(--text);
 		border: 1px solid var(--border);
-		font-size: 11px;
-		padding: 6px 14px;
+		font-size: 10px;
+		padding: 5px 12px;
 		cursor: pointer;
 		text-transform: uppercase;
-		letter-spacing: 0.06em;
+		letter-spacing: 0.08em;
 	}
 
 	.secondary-btn:hover:not(:disabled) {
-		border-color: var(--text-subtle);
+		border-color: var(--green);
+		color: var(--text);
 	}
 
 	.secondary-btn:disabled {
@@ -681,14 +700,14 @@
 	.progress-bar-bg {
 		width: 100%;
 		height: 6px;
-		background: #222;
+		background: var(--bg);
+		border: 1px solid var(--border-subtle);
 		overflow: hidden;
 	}
 
 	.progress-bar-fill {
 		height: 100%;
 		background: var(--green);
-		transition: width 0.2s ease-out;
 	}
 
 	.progress-text {
@@ -707,7 +726,7 @@
 	}
 
 	.table-wrapper {
-		max-height: 280px;
+		max-height: 290px;
 		overflow-y: auto;
 		border: 1px solid var(--border-subtle);
 	}
@@ -726,11 +745,11 @@
 	}
 
 	.shortcuts-table th {
-		background: #141414;
+		background: var(--surface);
 		color: var(--text-subtle);
-		font-weight: 600;
+		font-weight: normal;
 		text-transform: uppercase;
-		letter-spacing: 0.06em;
+		letter-spacing: 0.08em;
 	}
 
 	.shortcuts-table td {
@@ -738,9 +757,8 @@
 	}
 
 	kbd {
-		background: #202020;
+		background: var(--surface);
 		border: 1px solid var(--border);
-		border-radius: 2px;
 		padding: 1px 5px;
 		font-size: 10px;
 		font-family: inherit;

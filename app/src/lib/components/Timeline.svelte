@@ -23,6 +23,7 @@
 		formatPrecise,
 		gridStep,
 		pruneHeights,
+		rangePercent,
 		snapBeats,
 		zoomByWheel
 	} from '$lib/geometry';
@@ -32,6 +33,7 @@
 	import { formatRangeLength, rangeLength } from '$lib/selection';
 	import { selection } from '$lib/selection.svelte';
 	import { session } from '$lib/session.svelte';
+	import { MASTER_TRACK } from '$lib/wire';
 	import Playhead from './Playhead.svelte';
 	import Ruler from './Ruler.svelte';
 	import TrackHeader from './TrackHeader.svelte';
@@ -49,12 +51,18 @@
 	let scroller = $state<HTMLDivElement | null>(null);
 	let trackHeights = $state<Record<number, number>>({});
 	let trackReorder = $state<TrackReorder | null>(null);
+	let draggedMasterVolume = $state<number | null>(null);
 	let cancelResize: (() => void) | null = null;
 	let pointer: { x: number; y: number; free: boolean } | null = null;
 	let lastGridDown: { time: number; track: number; x: number; y: number } | null = null;
 
 	const snapshot = $derived(session.snapshot);
 	const tracks = $derived(snapshot?.tracks ?? []);
+	const masterSelected = $derived(session.selectedTrack === MASTER_TRACK);
+	const masterVolume = $derived(draggedMasterVolume ?? (snapshot?.masterVolume ?? 0.85));
+	const masterLevel = $derived(
+		Math.round(Math.min(1, Math.max(0, snapshot?.masterLevel ?? 0)) * 100)
+	);
 	const beatsPerBar = $derived(snapshot?.beatsPerBar ?? 4);
 	const bars = $derived(barsFor(snapshot?.lengthBeats ?? 0, beatsPerBar, snapshot?.bars ?? 0));
 	const contentWidth = $derived(beatsToPx(bars * beatsPerBar, session.zoom));
@@ -491,6 +499,77 @@
 			</div>
 
 			<div
+				class="row master-row"
+				style="height: {ROW_HEIGHT}px"
+				role="group"
+				aria-label="Master track"
+			>
+				<!-- svelte-ignore a11y_click_events_have_key_events -->
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div
+					class="master-lane"
+					style="width: {contentWidth}px"
+					onclick={() => session.selectTrack(MASTER_TRACK)}
+				>
+					<div class="master-bus-line"></div>
+				</div>
+				<div class="slot" style="width: {HEADER_WIDTH}px">
+					<div
+						class="master-head"
+						class:selected={masterSelected}
+						style="width: {HEADER_WIDTH}px; height: {ROW_HEIGHT}px"
+					>
+						<div class="master-top">
+							<button
+								type="button"
+								class="master-pick"
+								aria-pressed={masterSelected}
+								onclick={() => session.selectTrack(MASTER_TRACK)}
+							>
+								<span class="master-chip"></span>
+								<span class="master-name">Master</span>
+								<span class="master-kind">Bus</span>
+							</button>
+						</div>
+						<div class="master-mix">
+							<input
+								class="master-fader"
+								type="range"
+								min="0"
+								max="1"
+								step="0.01"
+								value={masterVolume}
+								style="--filled: {rangePercent(masterVolume, 0, 1)}"
+								aria-label="Master volume"
+								onpointerdown={(event) => {
+									if (event.detail === 2) {
+										session.dispatch('checkpoint');
+										draggedMasterVolume = 0.85;
+										session.dispatch({ setMasterVolume: { volume: 0.85 } });
+									} else {
+										session.dispatch('checkpoint');
+									}
+								}}
+								ondblclick={() => {
+									session.dispatch('checkpoint');
+									draggedMasterVolume = 0.85;
+									session.dispatch({ setMasterVolume: { volume: 0.85 } });
+								}}
+								oninput={(event) => {
+									const val = Number(event.currentTarget.value);
+									draggedMasterVolume = val;
+									session.dispatch({ setMasterVolume: { volume: val } });
+								}}
+								onchange={() => (draggedMasterVolume = null)}
+								onblur={() => (draggedMasterVolume = null)}
+							/>
+							<span class="master-meter"><i style="width: {masterLevel}%"></i></span>
+						</div>
+					</div>
+				</div>
+			</div>
+
+			<div
 				class="empty-space"
 				style="width: {HEADER_WIDTH + contentWidth}px"
 				role="presentation"
@@ -709,6 +788,131 @@
 
 	.add-track-btn:disabled {
 		opacity: 0.3;
+	}
+
+	.master-row {
+		border-top: 1px solid var(--border);
+	}
+
+	.master-lane {
+		position: relative;
+		flex: none;
+		background: color-mix(in srgb, var(--surface) 45%, var(--bg));
+		border-bottom: 1px solid var(--border-subtle);
+		cursor: pointer;
+	}
+
+	.master-bus-line {
+		position: absolute;
+		left: 0;
+		right: 0;
+		top: 50%;
+		height: 1px;
+		background: var(--border-subtle);
+		pointer-events: none;
+	}
+
+	.master-head {
+		display: flex;
+		flex-direction: column;
+		justify-content: center;
+		gap: 8px;
+		flex: none;
+		overflow: hidden;
+		background: var(--surface);
+		border-left: 1px solid var(--border-subtle);
+		border-bottom: 1px solid var(--border-subtle);
+		padding: 6px 10px;
+	}
+
+	.master-head.selected {
+		background: var(--surface-hover);
+		border-left-color: var(--green);
+	}
+
+	.master-top {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		min-width: 0;
+	}
+
+	.master-pick {
+		display: flex;
+		align-items: center;
+		justify-content: flex-start;
+		gap: 8px;
+		flex: 1;
+		min-width: 0;
+		height: 22px;
+		padding: 0 4px 0 0;
+		text-align: left;
+		text-transform: none;
+		letter-spacing: 0.02em;
+		overflow: hidden;
+		background: transparent;
+		color: var(--text-subtle);
+	}
+
+	.master-pick:hover:not(:disabled),
+	.master-pick[aria-pressed='true'] {
+		filter: none;
+		background: transparent;
+		color: var(--text);
+	}
+
+	.master-chip {
+		flex: none;
+		width: 2px;
+		height: 14px;
+		background: var(--green);
+	}
+
+	.master-name {
+		font-size: 12px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.master-kind {
+		margin-left: auto;
+		flex: none;
+		font-size: 9px;
+		letter-spacing: 0.14em;
+		text-transform: uppercase;
+		color: var(--green);
+	}
+
+	.master-mix {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+
+	.master-fader {
+		flex: 1;
+		width: 0;
+	}
+
+	.master-meter {
+		flex: none;
+		width: 36px;
+		height: 4px;
+		background: var(--surface-hover);
+		overflow: hidden;
+	}
+
+	.master-meter i {
+		display: block;
+		height: 100%;
+		background: linear-gradient(
+			90deg,
+			var(--green) 0 60%,
+			var(--olive) 60% 85%,
+			var(--alert) 85% 100%
+		);
+		background-size: 36px 100%;
 	}
 
 	.empty-space {

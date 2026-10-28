@@ -23,6 +23,19 @@ const WARP_MIN_SECONDS: f64 = 2.0;
 
 /// Buckets [`peaks`] reduces a waveform to by default.
 pub const WAVEFORM_BUCKETS: usize = 256;
+/// Log-spaced frequency bins computed for an audio clip spectrum.
+pub const SPECTRUM_BINS: usize = 36;
+/// Time slices computed across an audio clip for live playhead spectrum lookup.
+pub const SPECTRUM_SLICES: usize = 48;
+
+/// Spectral profile of an audio sample: overall frequency distribution and time-sliced frames.
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClipSpectrum {
+    pub overall: Vec<f32>,
+    pub slices: Vec<Vec<f32>>,
+    pub duration_seconds: f32,
+}
 
 impl App {
     /// Load a WAV onto a track as an audio block.
@@ -230,6 +243,66 @@ pub fn peaks(frames: &[f32], buckets: usize) -> Vec<f32> {
                 .min(1.0)
         })
         .collect()
+}
+
+/// Compute a log-spaced frequency spectrum (`30 Hz..18 kHz`) and time slices for `frames`.
+pub fn clip_spectrum(frames: &[f32], sample_rate: u32) -> ClipSpectrum {
+    let sr = sample_rate.max(1) as f32;
+    let duration_seconds = frames.len() as f32 / sr;
+    if frames.is_empty() {
+        return ClipSpectrum {
+            overall: vec![0.0; SPECTRUM_BINS],
+            slices: Vec::new(),
+            duration_seconds: 0.0,
+        };
+    }
+    let window_len = 512usize.min(frames.len());
+    let mut coeffs = [0.0f32; SPECTRUM_BINS];
+    for (i, coeff) in coeffs.iter_mut().enumerate() {
+        let frac = i as f32 / (SPECTRUM_BINS.saturating_sub(1).max(1)) as f32;
+        let freq = (30.0 * (18_000.0f32 / 30.0).powf(frac)).min(sr * 0.48);
+        let omega = std::f32::consts::TAU * freq / sr;
+        *coeff = 2.0 * omega.cos();
+    }
+    let slice_count = SPECTRUM_SLICES.min(frames.len().max(1));
+    let mut slices = Vec::with_capacity(slice_count);
+    let mut overall_accum = vec![0.0f32; SPECTRUM_BINS];
+
+    for s in 0..slice_count {
+        let center = s * frames.len() / slice_count;
+        let start = center.saturating_sub(window_len / 2);
+        let end = (start + window_len).min(frames.len());
+        let win = &frames[start..end];
+        let n = win.len().max(1) as f32;
+        let mut bins = Vec::with_capacity(SPECTRUM_BINS);
+        for (b, &coeff) in coeffs.iter().enumerate() {
+            let mut s1 = 0.0f32;
+            let mut s2 = 0.0f32;
+            for (k, &sample) in win.iter().enumerate() {
+                let hann = 0.5 - 0.5 * (std::f32::consts::TAU * k as f32 / n).cos();
+                let s0 = sample * hann + coeff * s1 - s2;
+                s2 = s1;
+                s1 = s0;
+            }
+            let power = (s1 * s1 + s2 * s2 - coeff * s1 * s2).max(0.0);
+            let mag = (power.sqrt() / (n * 0.25)).max(1e-5);
+            let db_norm = ((20.0 * mag.log10() + 54.0) / 54.0).clamp(0.0, 1.0);
+            overall_accum[b] =
+                overall_accum[b].max(db_norm * 0.85) + db_norm * (0.35 / slice_count as f32);
+            bins.push(db_norm);
+        }
+        slices.push(bins);
+    }
+
+    for v in &mut overall_accum {
+        *v = v.clamp(0.0, 1.0);
+    }
+
+    ClipSpectrum {
+        overall: overall_accum,
+        slices,
+        duration_seconds,
+    }
 }
 
 #[cfg(test)]

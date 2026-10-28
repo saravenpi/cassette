@@ -47,6 +47,8 @@
 		isBlackKey,
 		noteName,
 		pitchToY,
+		rollGridLabel,
+		rollGridStep,
 		rollZoomBy,
 		rollZoomByWheel,
 		snapToGrid,
@@ -122,6 +124,8 @@
 	);
 	const blockBeats = $derived(block?.lengthBeats ?? 0);
 	const beatsPerBar = $derived(session.snapshot?.beatsPerBar ?? 4);
+	const activeGrid = $derived(rollGridStep(zoom));
+	const activeGridLabel = $derived(rollGridLabel(activeGrid));
 	const gridWidth = $derived(Math.max(1, beatsToPx(blockBeats, zoom)));
 	const gridHeight = PITCH_COUNT * ROW_PX;
 	const beats = $derived(Array.from({ length: Math.floor(blockBeats) + 1 }, (_, beat) => beat));
@@ -214,6 +218,8 @@
 			}
 			selection = filtered;
 		}
+		session.rollZoom = zoom;
+		session.selectedNotes = Array.from(selection).sort((a, b) => a - b);
 	});
 
 	function queueDragEdits(trackIndex: number, blockIndex: number, edits: NoteEdit[]): void {
@@ -791,7 +797,7 @@
 			event.stopPropagation();
 			if (roll !== null && selection.size > 0) {
 				if (!event.repeat) session.dispatch('checkpoint');
-				const step = event.altKey ? MIN_NOTE_BEATS : NOTE_GRID;
+				const step = event.altKey ? MIN_NOTE_BEATS : activeGrid;
 				const edits = event.shiftKey
 					? arrowResize(notes, selection, -step, blockBeats)
 					: arrowNudge(notes, selection, -step, blockBeats);
@@ -805,7 +811,7 @@
 			event.stopPropagation();
 			if (roll !== null && selection.size > 0) {
 				if (!event.repeat) session.dispatch('checkpoint');
-				const step = event.altKey ? MIN_NOTE_BEATS : NOTE_GRID;
+				const step = event.altKey ? MIN_NOTE_BEATS : activeGrid;
 				const edits = event.shiftKey
 					? arrowResize(notes, selection, step, blockBeats)
 					: arrowNudge(notes, selection, step, blockBeats);
@@ -816,17 +822,18 @@
 	}
 
 	function onQuantize(): void {
-		if (roll === null) return;
-		const selectedList = selection.size > 0 ? Array.from(selection).sort((a, b) => a - b) : [];
-		session.dispatch({
-			quantizeBlock: {
-				track: roll.track,
-				block: roll.block,
-				gridBeats: NOTE_GRID,
-				notes: selectedList
-			}
-		});
-		grid?.focus();
+		if (roll !== null) {
+			const selectedList = selection.size > 0 ? Array.from(selection).sort((a, b) => a - b) : [];
+			session.dispatch({
+				quantizeBlock: {
+					track: roll.track,
+					block: roll.block,
+					gridBeats: activeGrid,
+					notes: selectedList
+				}
+			});
+			grid?.focus();
+		}
 	}
 
 	function audition(event: PointerEvent, pitch: number): void {
@@ -879,10 +886,10 @@
 		</button>
 		<button
 			class="quantize"
-			title="Snap note starts to the sixteenth-note grid (Ctrl+U)"
+			title="Snap note starts and lengths to the {activeGridLabel} grid (Ctrl+U)"
 			onclick={onQuantize}
 		>
-			Quantize
+			Quantize {activeGridLabel}
 		</button>
 		<button
 			class="icon"

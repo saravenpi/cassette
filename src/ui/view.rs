@@ -39,6 +39,10 @@ pub struct BlockView {
     pub offset_seconds: f32,
     /// Playback speed of an audio block's material.
     pub rate: f32,
+    #[serde(default)]
+    pub fade_in_beats: f32,
+    #[serde(default)]
+    pub fade_out_beats: f32,
 }
 
 /// One effect in a track's chain.
@@ -253,6 +257,8 @@ mod tests {
             notes: Vec::new(),
             offset_seconds: 0.0,
             rate: 1.0,
+            fade_in_beats: 0.0,
+            fade_out_beats: 0.0,
         }
     }
 

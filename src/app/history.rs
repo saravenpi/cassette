@@ -30,6 +30,7 @@ enum Gesture {
     ResizeBlock,
     TrimBlockStart,
     StretchBlock,
+    BlockFades(usize, usize),
     MoveNote(usize),
     ResizeNote(usize),
     NoteVelocity(usize),
@@ -142,6 +143,9 @@ fn kind(event: &Event, cursor_track: usize, recording: bool) -> Kind {
         Event::ResizeBlock { .. } => Kind::Stream(Gesture::ResizeBlock),
         Event::TrimBlockStart { .. } => Kind::Stream(Gesture::TrimBlockStart),
         Event::StretchBlock { .. } => Kind::Stream(Gesture::StretchBlock),
+        Event::SetBlockFades { track, block, .. } => {
+            Kind::Stream(Gesture::BlockFades(*track, *block))
+        }
         Event::MoveNote { note, .. } => Kind::Stream(Gesture::MoveNote(*note)),
         Event::ResizeNote { note, .. } => Kind::Stream(Gesture::ResizeNote(*note)),
         Event::SetNoteVelocity { note, .. } => Kind::Stream(Gesture::NoteVelocity(*note)),

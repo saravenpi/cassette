@@ -87,6 +87,21 @@
 			? ''
 			: waveformPoints(wave.peaks, WAVE_HEIGHT, visible, width)
 	);
+	const fadeInBeats = $derived(
+		editing === 'fade-in' && session.drag.state !== null
+			? session.drag.state.fadeInBeats
+			: (block.fadeInBeats ?? 0)
+	);
+	const fadeOutBeats = $derived(
+		editing === 'fade-out' && session.drag.state !== null
+			? session.drag.state.fadeOutBeats
+			: (block.fadeOutBeats ?? 0)
+	);
+	const fadeInPx = $derived(Math.min(width, Math.max(0, beatsToPx(fadeInBeats, session.zoom))));
+	const fadeOutPx = $derived(
+		Math.min(Math.max(0, width - fadeInPx), Math.max(0, beatsToPx(fadeOutBeats, session.zoom)))
+	);
+	const hasFades = $derived(block.kind === 'audio' && (fadeInPx > 0.5 || fadeOutPx > 0.5));
 
 	$effect(() => {
 		const source = block.kind === 'audio' ? block.source : '';
@@ -126,17 +141,49 @@
 		element.setPointerCapture(event.pointerId);
 		session.dispatch({ selectBlock: { track, block: index } });
 		selection.clear();
-		if (block.kind === 'midi') {
-			const open = session.roll;
-			if (open === null || open.track !== track || open.block !== index) {
-				session.openRoll(track, index);
-			} else {
-				detail.showClip();
-			}
+		const open = session.roll;
+		if (open === null || open.track !== track || open.block !== index) {
+			session.openRoll(track, index);
 		} else {
-			detail.followTrack();
+			detail.showClip();
 		}
 		session.drag.beginMove(track, index, block, grab);
+	}
+
+	function onFadeInPointerDown(event: PointerEvent): void {
+		if (event.button !== 0) return;
+		event.stopPropagation();
+		const element = event.currentTarget;
+		if (element instanceof HTMLElement) element.setPointerCapture(event.pointerId);
+		session.dispatch({ selectBlock: { track, block: index } });
+		selection.clear();
+		session.drag.beginFadeIn(track, index, block);
+	}
+
+	function onFadeOutPointerDown(event: PointerEvent): void {
+		if (event.button !== 0) return;
+		event.stopPropagation();
+		const element = event.currentTarget;
+		if (element instanceof HTMLElement) element.setPointerCapture(event.pointerId);
+		session.dispatch({ selectBlock: { track, block: index } });
+		selection.clear();
+		session.drag.beginFadeOut(track, index, block);
+	}
+
+	function resetFadeIn(event: MouseEvent): void {
+		event.stopPropagation();
+		session.dispatch('checkpoint');
+		session.dispatch({
+			setBlockFades: { track, block: index, fadeInBeats: 0, fadeOutBeats }
+		});
+	}
+
+	function resetFadeOut(event: MouseEvent): void {
+		event.stopPropagation();
+		session.dispatch('checkpoint');
+		session.dispatch({
+			setBlockFades: { track, block: index, fadeInBeats, fadeOutBeats: 0 }
+		});
 	}
 
 	function onResizePointerDown(event: PointerEvent): void {
@@ -162,7 +209,7 @@
 	function onDoubleClick(): void {
 		session.selectTrack(track);
 		session.dispatch({ selectBlock: { track, block: index } });
-		if (block.kind === 'midi') session.openRoll(track, index);
+		session.openRoll(track, index);
 	}
 
 	function onContextMenu(event: MouseEvent): void {
@@ -199,6 +246,39 @@
 			aria-hidden="true"
 		>
 			<polygon points={wavePoints} fill={fillColor} stroke={fillColor} />
+		</svg>
+	{/if}
+
+	{#if hasFades}
+		{@const outStart = width - fadeOutPx}
+		{@const inMid = fadeInPx * 0.5}
+		{@const outMid = outStart + fadeOutPx * 0.5}
+		<svg
+			class="fade-overlay"
+			viewBox="0 0 {width} 40"
+			preserveAspectRatio="none"
+			aria-hidden="true"
+		>
+			{#if fadeInPx > 0.5}
+				<path
+					class="fade-shade"
+					d="M 0 0 L {fadeInPx.toFixed(1)} 0 C {inMid.toFixed(1)} 0, {inMid.toFixed(1)} 40, 0 40 Z"
+				/>
+				<path
+					class="fade-curve"
+					d="M 0 40 C {inMid.toFixed(1)} 40, {inMid.toFixed(1)} 0, {fadeInPx.toFixed(1)} 0"
+				/>
+			{/if}
+			{#if fadeOutPx > 0.5}
+				<path
+					class="fade-shade"
+					d="M {outStart.toFixed(1)} 0 L {width.toFixed(1)} 0 L {width.toFixed(1)} 40 C {outMid.toFixed(1)} 40, {outMid.toFixed(1)} 0, {outStart.toFixed(1)} 0 Z"
+				/>
+				<path
+					class="fade-curve"
+					d="M {outStart.toFixed(1)} 0 C {outMid.toFixed(1)} 0, {outMid.toFixed(1)} 40, {width.toFixed(1)} 40"
+				/>
+			{/if}
 		</svg>
 	{/if}
 
@@ -246,6 +326,29 @@
 		aria-label="Resize {block.name}, shift to stretch"
 		onpointerdown={onResizePointerDown}
 	></button>
+
+	{#if block.kind === 'audio'}
+		<button
+			type="button"
+			class="fade-handle fade-in"
+			class:active={fadeInBeats > 0.001 || editing === 'fade-in'}
+			style="left: {Math.min(Math.max(0, fadeInPx - 4), Math.max(0, width - 10))}px"
+			title="Drag to adjust fade-in ({fadeInBeats.toFixed(2)} beats), double-click to reset"
+			aria-label="Fade in {block.name}"
+			onpointerdown={onFadeInPointerDown}
+			ondblclick={resetFadeIn}
+		></button>
+		<button
+			type="button"
+			class="fade-handle fade-out"
+			class:active={fadeOutBeats > 0.001 || editing === 'fade-out'}
+			style="right: {Math.min(Math.max(0, fadeOutPx - 4), Math.max(0, width - 10))}px"
+			title="Drag to adjust fade-out ({fadeOutBeats.toFixed(2)} beats), double-click to reset"
+			aria-label="Fade out {block.name}"
+			onpointerdown={onFadeOutPointerDown}
+			ondblclick={resetFadeOut}
+		></button>
+	{/if}
 </div>
 
 <style>
@@ -362,5 +465,50 @@
 		letter-spacing: 0.04em;
 		font-variant-numeric: tabular-nums;
 		color: var(--text-subtle);
+	}
+
+	.fade-overlay {
+		position: absolute;
+		inset: 0;
+		width: 100%;
+		height: 100%;
+		pointer-events: none;
+		z-index: 1;
+	}
+
+	.fade-shade {
+		fill: rgba(0, 0, 0, 0.42);
+	}
+
+	.fade-curve {
+		fill: none;
+		stroke: var(--text);
+		stroke-width: 1.25px;
+		vector-effect: non-scaling-stroke;
+		opacity: 0.85;
+	}
+
+	.fade-handle {
+		position: absolute;
+		top: 0;
+		width: 7px;
+		height: 7px;
+		padding: 0;
+		border: 1px solid var(--text);
+		background: var(--bg);
+		cursor: ew-resize;
+		opacity: 0;
+		z-index: 3;
+	}
+
+	.block:hover .fade-handle,
+	.block.selected .fade-handle,
+	.fade-handle.active {
+		opacity: 1;
+	}
+
+	.fade-handle:hover,
+	.fade-handle.active {
+		background: var(--text);
 	}
 </style>

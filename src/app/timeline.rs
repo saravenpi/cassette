@@ -167,6 +167,26 @@ impl App {
         self.status = format!("block length {length:.2} beats at {rate:.2}x");
     }
 
+    /// Set the fade-in and fade-out durations on an audio block.
+    pub(crate) fn set_block_fades(
+        &mut self,
+        track: usize,
+        block: usize,
+        fade_in_beats: f32,
+        fade_out_beats: f32,
+    ) {
+        let Some(track_index) = self.editable_block(track, block, "fade") else {
+            return;
+        };
+        let target = &mut self.song.tracks[track_index].blocks[block];
+        target.fade_in_beats = fade_in_beats;
+        target.fade_out_beats = fade_out_beats;
+        target.clamp_fades();
+        let (fi, fo) = (target.fade_in_beats, target.fade_out_beats);
+        self.push_mirror(track_index);
+        self.status = format!("fades in {fi:.2}b / out {fo:.2}b");
+    }
+
     /// Remove one block from one track, wherever the cursor is.
     pub(crate) fn delete_block_at(&mut self, track: usize, block: usize) {
         let Some(track_index) = self.clamp_track(track) else {
@@ -219,6 +239,8 @@ impl App {
                         offset_seconds: 0.0,
                         rate: 1.0,
                         source_bpm: 0.0,
+                        fade_in_beats: 0.0,
+                        fade_out_beats: 0.0,
                     };
                 }
                 MirroredBlock {
@@ -229,6 +251,8 @@ impl App {
                     offset_seconds: block.offset_seconds,
                     rate: block.rate,
                     source_bpm: block.source_bpm,
+                    fade_in_beats: block.fade_in_beats,
+                    fade_out_beats: block.fade_out_beats,
                 }
             })
             .collect()

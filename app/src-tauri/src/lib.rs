@@ -18,7 +18,8 @@ use std::time::{Duration, UNIX_EPOCH};
 use crossbeam::channel::{Receiver, RecvTimeoutError, Sender, unbounded};
 use tauri::State;
 
-use cassette::app::{App, WAVEFORM_BUCKETS, peaks};
+use cassette::app::{App, ClipSpectrum, WAVEFORM_BUCKETS, clip_spectrum, peaks};
+use cassette::core::audio::{AudioDeviceList, AudioInputRecorder, list_audio_devices};
 use cassette::core::wav::MAX_DECODED_FRAMES;
 use cassette::events::Event;
 use cassette::ui::view::UiState;
@@ -32,6 +33,8 @@ const MAX_ENTRIES: usize = 2_000;
 type Snapshot = Arc<Mutex<Option<UiState>>>;
 /// Intent from the webview, drained by the engine thread.
 type Commands = Sender<Event>;
+/// Active native audio input recorder state.
+type RecorderState = Arc<Mutex<Option<AudioInputRecorder>>>;
 
 /// The current snapshot, or `None` in the moment before the engine first publishes.
 ///
@@ -236,6 +239,87 @@ fn save_recorded_sample(name: String, bytes: Vec<u8>) -> Result<String, String> 
     Ok(canonical.to_string_lossy().into_owned())
 }
 
+/// List available audio output and input devices on the host.
+#[tauri::command]
+fn get_audio_devices() -> AudioDeviceList {
+    list_audio_devices()
+}
+
+/// Start native audio input recording from the chosen input device.
+#[tauri::command]
+fn start_audio_recording(
+    device: Option<String>,
+    recorder: State<'_, RecorderState>,
+) -> Result<(), String> {
+    let mut slot = recorder
+        .lock()
+        .map_err(|error| format!("cassette: {error}"))?;
+    if let Some(existing) = slot.take() {
+        let _ = existing.stop();
+    }
+    let active = AudioInputRecorder::start(device.as_deref())
+        .map_err(|error| format!("cassette: {error:#}"))?;
+    *slot = Some(active);
+    Ok(())
+}
+
+/// Stop native audio input recording, write the captured WAV, and return its path.
+#[tauri::command]
+fn stop_audio_recording(
+    name: String,
+    recorder: State<'_, RecorderState>,
+) -> Result<String, String> {
+    let active = {
+        let mut slot = recorder
+            .lock()
+            .map_err(|error| format!("cassette: {error}"))?;
+        slot.take()
+            .ok_or_else(|| "cassette: no active audio recording".to_string())?
+    };
+    let (samples, sample_rate) = active.stop();
+    if samples.is_empty() {
+        return Err("cassette: recorded audio is empty".into());
+    }
+    let rate = sample_rate.max(1);
+    let data_len = (samples.len() * 2) as u32;
+    let mut wav = Vec::with_capacity(44 + data_len as usize);
+    wav.extend_from_slice(b"RIFF");
+    wav.extend_from_slice(&(36u32.saturating_add(data_len)).to_le_bytes());
+    wav.extend_from_slice(b"WAVEfmt ");
+    wav.extend_from_slice(&16u32.to_le_bytes());
+    wav.extend_from_slice(&1u16.to_le_bytes());
+    wav.extend_from_slice(&1u16.to_le_bytes());
+    wav.extend_from_slice(&rate.to_le_bytes());
+    wav.extend_from_slice(&(rate.saturating_mul(2)).to_le_bytes());
+    wav.extend_from_slice(&2u16.to_le_bytes());
+    wav.extend_from_slice(&16u16.to_le_bytes());
+    wav.extend_from_slice(b"data");
+    wav.extend_from_slice(&data_len.to_le_bytes());
+    for &sample in &samples {
+        let pcm = (sample.clamp(-1.0, 1.0) * 32_767.0) as i16;
+        wav.extend_from_slice(&pcm.to_le_bytes());
+    }
+    save_recorded_sample(name, wav)
+}
+
+/// Compute frequency spectrum and time slices for an audio file.
+#[tauri::command]
+async fn read_spectrum(path: String) -> Result<ClipSpectrum, String> {
+    tauri::async_runtime::spawn_blocking(move || spectrum_of(&path))
+        .await
+        .map_err(|error| format!("cassette: {error}"))?
+}
+
+fn spectrum_of(path: &str) -> Result<ClipSpectrum, String> {
+    let target = resolve(path)?;
+    if !is_audio(Path::new(path)) && !is_audio(&target) {
+        return Err(format!("cassette: {path} is not a supported audio file"));
+    }
+    let sample = cassette::core::wav::decode(&target, MAX_DECODED_FRAMES)
+        .map_err(|error| format!("cassette: cannot read {path}: {error:#}"))?;
+    Ok(clip_spectrum(&sample.frames, sample.sample_rate))
+}
+
 /// The blocking body of [`read_waveform`].
 fn waveform_of(path: &str) -> Result<Waveform, String> {
     let target = resolve(path)?;
@@ -398,6 +482,7 @@ pub fn run() {
     }
 
     let snapshot: Snapshot = Arc::new(Mutex::new(None));
+    let recorder: RecorderState = Arc::new(Mutex::new(None));
     let (commands, receiver) = unbounded::<Event>();
     let published = snapshot.clone();
 
@@ -407,6 +492,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .manage(snapshot)
         .manage(commands)
+        .manage(recorder)
         .setup(move |_app| {
             std::thread::Builder::new()
                 .name("engine".into())
@@ -421,8 +507,12 @@ pub fn run() {
             home_dir,
             parent_of,
             read_waveform,
+            read_spectrum,
             read_sample_wav,
-            save_recorded_sample
+            save_recorded_sample,
+            get_audio_devices,
+            start_audio_recording,
+            stop_audio_recording
         ])
         .run(tauri::generate_context!())
         .expect("cassette: the tauri runtime failed");

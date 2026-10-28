@@ -31,6 +31,8 @@
 	const volume = $derived(draggedVolume ?? track.volume);
 	const pan = $derived(draggedPan ?? track.pan);
 	const level = $derived(Math.round(Math.min(1, Math.max(0, track.level)) * 100));
+	const isArmed = $derived(session.armedAudioTrack === index);
+	const isRecordingAudio = $derived(session.audioTake?.track === index);
 
 	const isPrimary = $derived(selected && session.snapshot?.cursor.track === index);
 
@@ -284,6 +286,23 @@
 	</button>
 
 	<footer class="footer">
+		{#if track.kind === 'audio'}
+			<button
+				type="button"
+				class="btn arm"
+				class:on={isArmed || isRecordingAudio}
+				aria-pressed={isArmed || isRecordingAudio}
+				title={isArmed
+					? 'Disarm audio recording'
+					: 'Arm audio track for recording (F9 to record)'}
+				onclick={(e) => {
+					e.stopPropagation();
+					session.toggleArmAudioTrack(index);
+				}}
+			>
+				●
+			</button>
+		{/if}
 		<button
 			type="button"
 			class="btn mute"
@@ -675,5 +694,11 @@
 		background: var(--blue);
 		color: #000000;
 		border-color: var(--blue);
+	}
+
+	.btn.arm.on {
+		background: var(--alert);
+		color: #000000;
+		border-color: var(--alert);
 	}
 </style>

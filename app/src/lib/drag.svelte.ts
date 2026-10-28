@@ -17,7 +17,7 @@ import {
 import type { BlockView, EngineEvent, UiState } from './wire';
 
 /** Which part of a block a drag moves. */
-export type DragKind = 'move' | 'resize' | 'trim' | 'stretch';
+export type DragKind = 'move' | 'resize' | 'trim' | 'stretch' | 'fade-in' | 'fade-out';
 
 /** A block being dragged, with the geometry drawn until the engine confirms. */
 export interface Drag {
@@ -29,6 +29,8 @@ export interface Drag {
 	targetTrack: number;
 	startBeats: number;
 	lengthBeats: number;
+	fadeInBeats: number;
+	fadeOutBeats: number;
 	grab: number;
 	floorBeats: number;
 	released: boolean;
@@ -128,6 +130,16 @@ export class DragController {
 		this.begin('trim', track, index, view, 0);
 	}
 
+	/** Start dragging an audio block's fade-in handle. */
+	beginFadeIn(track: number, index: number, view: BlockView): void {
+		this.begin('fade-in', track, index, view, 0);
+	}
+
+	/** Start dragging an audio block's fade-out handle. */
+	beginFadeOut(track: number, index: number, view: BlockView): void {
+		this.begin('fade-out', track, index, view, 0);
+	}
+
 	/** Abort any active drag immediately without sending pending moves. */
 	cancel(): void {
 		this.state = null;
@@ -163,7 +175,9 @@ export class DragController {
 			current !== undefined &&
 			current.name === drag.name &&
 			Math.abs(current.startBeats - drag.startBeats) < SETTLE_EPSILON &&
-			Math.abs(current.lengthBeats - drag.lengthBeats) < SETTLE_EPSILON;
+			Math.abs(current.lengthBeats - drag.lengthBeats) < SETTLE_EPSILON &&
+			Math.abs((current.fadeInBeats ?? 0) - drag.fadeInBeats) < SETTLE_EPSILON &&
+			Math.abs((current.fadeOutBeats ?? 0) - drag.fadeOutBeats) < SETTLE_EPSILON;
 		if (confirmed || performance.now() - drag.releasedAt > SETTLE_TIMEOUT_MS) this.state = null;
 	}
 
@@ -178,6 +192,8 @@ export class DragController {
 			targetTrack: track,
 			startBeats: view.startBeats,
 			lengthBeats: view.lengthBeats,
+			fadeInBeats: view.fadeInBeats ?? 0,
+			fadeOutBeats: view.fadeOutBeats ?? 0,
 			grab,
 			floorBeats: this.floor(view),
 			released: false,
@@ -197,7 +213,16 @@ export class DragController {
 			this.release();
 			return;
 		}
-		const lane = laneUnder(event.clientX, event.clientY, this.context.zoom());
+		let lane = laneUnder(event.clientX, event.clientY, this.context.zoom());
+		if (lane === null && drag.kind !== 'move' && typeof document !== 'undefined') {
+			const el = document.querySelector(`[data-lane-track="${drag.track}"]`);
+			if (el && typeof el.getBoundingClientRect === 'function') {
+				lane = {
+					track: drag.track,
+					beats: pxToBeats(event.clientX - el.getBoundingClientRect().left, this.context.zoom())
+				};
+			}
+		}
 		if (lane === null) return;
 		if (drag.kind === 'move') {
 			const startBeats = snapBeats(lane.beats - drag.grab, gridStep(this.context.zoom()), event.altKey);
@@ -220,6 +245,21 @@ export class DragController {
 			if (span.startBeats === drag.startBeats) return;
 			drag.startBeats = span.startBeats;
 			drag.lengthBeats = span.lengthBeats;
+		} else if (drag.kind === 'fade-in') {
+			const maxIn = Math.max(0, drag.lengthBeats - drag.fadeOutBeats);
+			const raw = Math.max(0, Math.min(maxIn, lane.beats - drag.startBeats));
+			const step = Math.min(0.25, gridStep(this.context.zoom()));
+			const next = event.altKey ? raw : Math.max(0, Math.min(maxIn, Math.round(raw / step) * step));
+			if (Math.abs(next - drag.fadeInBeats) < 1e-4) return;
+			drag.fadeInBeats = next;
+		} else if (drag.kind === 'fade-out') {
+			const maxOut = Math.max(0, drag.lengthBeats - drag.fadeInBeats);
+			const endBeats = drag.startBeats + drag.lengthBeats;
+			const raw = Math.max(0, Math.min(maxOut, endBeats - lane.beats));
+			const step = Math.min(0.25, gridStep(this.context.zoom()));
+			const next = event.altKey ? raw : Math.max(0, Math.min(maxOut, Math.round(raw / step) * step));
+			if (Math.abs(next - drag.fadeOutBeats) < 1e-4) return;
+			drag.fadeOutBeats = next;
 		} else {
 			const end = snapBeats(lane.beats, gridStep(this.context.zoom()), event.altKey);
 			const wanted = Math.max(MIN_LENGTH_BEATS, end - drag.startBeats);
@@ -310,6 +350,15 @@ function request(drag: Drag): EngineEvent {
 			return { trimBlockStart: { ...at, startBeats: drag.startBeats } };
 		case 'stretch':
 			return { stretchBlock: { ...at, lengthBeats: drag.lengthBeats } };
+		case 'fade-in':
+		case 'fade-out':
+			return {
+				setBlockFades: {
+					...at,
+					fadeInBeats: drag.fadeInBeats,
+					fadeOutBeats: drag.fadeOutBeats
+				}
+			};
 		default:
 			return { resizeBlock: { ...at, lengthBeats: drag.lengthBeats } };
 	}

@@ -5,7 +5,7 @@
 	 * finds this element by its `data-lane-track` attribute.
 	 */
 
-	import { ROW_HEIGHT, gridStep, pxToBeats } from '$lib/geometry';
+	import { ROW_HEIGHT, beatsToPx, gridStep, pxToBeats } from '$lib/geometry';
 	import { laneMenu } from '$lib/menu';
 	import { menu } from '$lib/menu.svelte';
 	import { session } from '$lib/session.svelte';
@@ -26,6 +26,15 @@
 	const stepWidth = $derived(gridStep(session.zoom) * session.zoom);
 	const showBeats = $derived(beatWidth >= 12 && beatWidth < barWidth);
 	const showSteps = $derived(stepWidth < beatWidth);
+	const activeTake = $derived(session.audioTake?.track === index ? session.audioTake : null);
+	const takeLengthBeats = $derived(
+		activeTake === null
+			? 0
+			: Math.max(
+					0.25,
+					(session.snapshot?.transportPositionBeats ?? activeTake.startBeats) - activeTake.startBeats
+				)
+	);
 
 	interface LaneItem {
 		key: string;
@@ -126,6 +135,16 @@
 			colorIndex={track.colorIndex}
 		/>
 	{/each}
+	{#if activeTake !== null}
+		<div
+			class="recording-take"
+			style="left: {beatsToPx(activeTake.startBeats, session.zoom)}px; width: {beatsToPx(takeLengthBeats, session.zoom)}px"
+			aria-label="Recording audio take"
+		>
+			<span class="rec-dot"></span>
+			<span class="rec-label">REC</span>
+		</div>
+	{/if}
 </div>
 
 <style>
@@ -140,5 +159,32 @@
 		position: absolute;
 		inset: 0;
 		pointer-events: none;
+	}
+
+	.recording-take {
+		position: absolute;
+		top: 2px;
+		bottom: 2px;
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		padding: 0 8px;
+		background: color-mix(in srgb, var(--alert) 24%, var(--bg));
+		border: 1px solid var(--alert);
+		color: var(--text);
+		font-size: 10px;
+		letter-spacing: 0.12em;
+		pointer-events: none;
+		z-index: 3;
+	}
+
+	.rec-dot {
+		width: 6px;
+		height: 6px;
+		background: var(--alert);
+	}
+
+	.rec-label {
+		color: var(--alert);
 	}
 </style>

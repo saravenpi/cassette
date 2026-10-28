@@ -35,6 +35,8 @@
 	const color = $derived(trackColor(track.colorIndex));
 	const selected = $derived(session.snapshot?.cursor.track === index);
 	const isSelected = $derived(selected || trackSelection.isSelected(index));
+	const isArmed = $derived(session.armedAudioTrack === index);
+	const isRecordingAudio = $derived(session.audioTake?.track === index);
 	const level = $derived(Math.round(Math.min(1, Math.max(0, track.level)) * 100));
 	const volume = $derived(draggedVolume ?? track.volume);
 	const pan = $derived(draggedPan ?? track.pan);
@@ -272,6 +274,21 @@
 			</button>
 		{/if}
 		<div class="buttons">
+			{#if track.kind === 'audio'}
+				<button
+					type="button"
+					class="toggle arm"
+					class:on={isArmed || isRecordingAudio}
+					aria-pressed={isArmed || isRecordingAudio}
+					aria-label="Arm {track.name} for audio recording"
+					title={isArmed
+						? 'Disarm audio recording'
+						: 'Arm audio track for recording (F9 to record)'}
+					onclick={() => session.toggleArmAudioTrack(index)}
+				>
+					●
+				</button>
+			{/if}
 			<button
 				class="toggle"
 				class:on={track.muted}
@@ -505,6 +522,11 @@
 
 	.toggle.on[aria-label^='Solo'] {
 		background: var(--green);
+	}
+
+	.toggle.arm.on {
+		background: var(--alert);
+		color: #000000;
 	}
 
 	.rename-input {
