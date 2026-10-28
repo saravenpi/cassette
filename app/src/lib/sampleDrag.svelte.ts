@@ -4,14 +4,14 @@
  * and exposes the ghost chip's position for the browser to draw.
  */
 
-import { laneUnder } from './drag.svelte';
+import { trackDropUnder } from './drag.svelte';
 import { gridStep, snapBeats } from './geometry';
 import type { SampleEntry } from './wire';
 
 /** What the gesture needs from the browser that owns it. */
 interface SampleDropContext {
 	zoom(): number;
-	drop(entry: SampleEntry, track: number, startBeats: number): void;
+	drop(entry: SampleEntry, track: number, startBeats: number | null): void;
 }
 
 /** Tracks the sample being dragged, and the point the ghost chip follows. */
@@ -20,6 +20,7 @@ export class SampleDrag {
 	ghost = $state<{ x: number; y: number } | null>(null);
 
 	private context: SampleDropContext;
+	private startPos = { x: 0, y: 0 };
 
 	constructor(context: SampleDropContext) {
 		this.context = context;
@@ -29,7 +30,8 @@ export class SampleDrag {
 	begin(event: PointerEvent, entry: SampleEntry): void {
 		if (event.button !== 0) return;
 		this.entry = entry;
-		this.ghost = { x: event.clientX, y: event.clientY };
+		this.startPos = { x: event.clientX, y: event.clientY };
+		this.ghost = null;
 		window.addEventListener('pointermove', this.onMove);
 		window.addEventListener('pointerup', this.onEnd);
 		window.addEventListener('pointercancel', this.onEnd);
@@ -41,16 +43,32 @@ export class SampleDrag {
 			this.stop();
 			return;
 		}
+		if (
+			this.ghost === null &&
+			Math.abs(event.clientX - this.startPos.x) < 4 &&
+			Math.abs(event.clientY - this.startPos.y) < 4
+		) {
+			return;
+		}
+		event.preventDefault();
 		this.ghost = { x: event.clientX, y: event.clientY };
 	};
 
 	private onEnd = (event: PointerEvent): void => {
 		const entry = this.entry;
-		const lane = laneUnder(event.clientX, event.clientY, this.context.zoom());
+		const dragged = this.ghost !== null;
+		const target = dragged
+			? trackDropUnder(event.clientX, event.clientY, this.context.zoom())
+			: null;
 		this.stop();
-		if (entry === null || lane === null || event.type === 'pointercancel') return;
-		const startBeats = lane.beats < 2.0 ? 0 : snapBeats(lane.beats, gridStep(this.context.zoom()));
-		this.context.drop(entry, lane.track, startBeats);
+		if (entry === null || !dragged || target === null || event.type === 'pointercancel') return;
+		const startBeats =
+			target.beats === null
+				? null
+				: target.beats < 2.0
+					? 0
+					: snapBeats(target.beats, gridStep(this.context.zoom()));
+		this.context.drop(entry, target.track, startBeats);
 	};
 
 	/** Drop the window listeners when the owner goes away mid-drag. */

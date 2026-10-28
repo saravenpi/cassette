@@ -82,8 +82,13 @@
 		const lane = event.currentTarget;
 		if (!(lane instanceof HTMLElement)) return;
 		const beats = pxToBeats(event.clientX - lane.getBoundingClientRect().left, session.zoom);
-		session.dispatch({ selectTrack: { track: index } });
-		session.dispatch({ seek: { beats: Math.max(0, snapBeats(beats, gridStep(session.zoom))) } });
+		const start = Math.max(0, snapBeats(beats, gridStep(session.zoom), event.altKey));
+		session.selectTrack(index);
+		if (track.kind === 'midi') {
+			session.createMidiBlockAt(index, start);
+		} else {
+			session.dispatch({ seek: { beats: start } });
+		}
 	}
 
 	function onContextMenu(event: MouseEvent): void {

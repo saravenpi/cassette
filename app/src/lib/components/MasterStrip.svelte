@@ -101,7 +101,12 @@
 	<div class="fader-meter-area">
 		<div class="meter-col">
 			<div class="v-meter">
-				<div class="v-meter-fill" style="height: {masterLevel}%"></div>
+				<div
+					class="v-meter-fill"
+					class:warm={masterLevel >= 80 && masterLevel < 92}
+					class:hot={masterLevel >= 92}
+					style="height: {masterLevel}%"
+				></div>
 				<div class="meter-scale">
 					<span>0</span>
 					<span>-6</span>
@@ -303,8 +308,15 @@
 	.v-meter-fill {
 		width: 100%;
 		border-radius: 0;
-		background: linear-gradient(to top, var(--green) 0%, var(--green) 75%, #eab308 85%, var(--alert) 100%);
-		transition: height 0.05s ease;
+		background: var(--green);
+	}
+
+	.v-meter-fill.warm {
+		background: linear-gradient(to top, var(--green) 0%, var(--green) 70%, #eab308 100%);
+	}
+
+	.v-meter-fill.hot {
+		background: linear-gradient(to top, var(--green) 0%, var(--green) 60%, #eab308 75%, var(--alert) 100%);
 	}
 
 	.meter-scale {
@@ -335,14 +347,24 @@
 		height: 100%;
 		background: transparent;
 		cursor: pointer;
+		accent-color: var(--green);
 	}
 
 	.v-fader::-webkit-slider-thumb {
+		-webkit-appearance: none;
+		appearance: none;
+		width: 18px;
+		height: 8px;
 		border-radius: 0;
+		background: var(--green);
 	}
 
 	.v-fader::-moz-range-thumb {
+		width: 18px;
+		height: 8px;
 		border-radius: 0;
+		border: none;
+		background: var(--green);
 	}
 
 	.db-readout {

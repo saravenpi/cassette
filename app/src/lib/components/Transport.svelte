@@ -6,12 +6,16 @@
 	 * count-in runs, the readout shows the beats left as `-N` in the alert colour.
 	 */
 
+	import Icon, { addCollection } from '@iconify/svelte';
+	import pixelarticons from '@iconify-json/pixelarticons/icons.json';
 	import { formatCountIn, formatPosition } from '$lib/geometry';
 	import { metronomeMenu, type MenuEntry } from '$lib/menu';
 	import { menu } from '$lib/menu.svelte';
 	import { formatExportPercent, projectStem } from '$lib/project';
 	import { session } from '$lib/session.svelte';
 	import { settingsStore } from '$lib/settings.svelte';
+
+	addCollection(pixelarticons);
 
 	interface Props {
 		activeView?: 'timeline' | 'mixer';
@@ -57,23 +61,36 @@
 <header data-tauri-drag-region class:mac={isMac}>
 	<div class="group" role="group" aria-label="Transport">
 		<button
-			class="wide"
+			class="icon-btn"
+			aria-label="Play"
+			title="Play (Space)"
 			aria-pressed={snapshot?.playing ?? false}
 			disabled={session.exporting}
 			onclick={() => session.dispatch('togglePlay')}
 		>
-			Play
+			<Icon icon="pixelarticons:play" width="16" height="16" />
 		</button>
-		<button disabled={session.exporting} onclick={() => session.dispatch('stop')}>Stop</button>
 		<button
+			class="icon-btn"
+			aria-label="Stop"
+			title="Stop"
+			disabled={session.exporting}
+			onclick={() => session.dispatch('stop')}
+		>
+			<Icon icon="pixelarticons:stop" width="16" height="16" />
+		</button>
+		<button
+			class="icon-btn"
+			aria-label="Loop"
+			title="Loop"
 			aria-pressed={snapshot?.looping ?? false}
 			disabled={session.exporting}
 			onclick={() => session.dispatch('toggleLoop')}
 		>
-			Loop
+			<Icon icon="pixelarticons:repeat-sharp" width="16" height="16" />
 		</button>
 		<button
-			class="rec"
+			class="rec icon-btn"
 			aria-label="Record notes"
 			title="Record the notes you play into the selected MIDI track (F9)"
 			aria-pressed={snapshot?.recording ?? false}
@@ -81,7 +98,6 @@
 			onclick={() => session.dispatch('toggleRecord')}
 		>
 			<span class="dot" aria-hidden="true"></span>
-			Rec
 		</button>
 	</div>
 
@@ -106,35 +122,39 @@
 
 	<div class="group" role="group" aria-label="History">
 		<button
+			class="icon-btn"
 			aria-label="Undo"
 			title="Undo (Ctrl+Z)"
 			disabled={!(snapshot?.canUndo ?? false)}
 			onclick={() => session.dispatch('undo')}
 		>
-			Undo
+			<Icon icon="pixelarticons:undo-sharp" width="16" height="16" />
 		</button>
 		<button
+			class="icon-btn"
 			aria-label="Redo"
 			title="Redo (Ctrl+Shift+Z)"
 			disabled={!(snapshot?.canRedo ?? false)}
 			onclick={() => session.dispatch('redo')}
 		>
-			Redo
+			<Icon icon="pixelarticons:redo-sharp" width="16" height="16" />
 		</button>
 	</div>
 
 	<div class="group" role="group" aria-label="Project">
 		<button
-			class="export-btn"
+			class="export-btn icon-btn"
 			class:loading={session.exporting}
+			aria-label="Export"
+			title="Export audio"
 			disabled={session.exporting}
 			onclick={() => session.exportAudio()}
 		>
 			{#if session.exporting}
 				<span class="spinner" aria-hidden="true"></span>
-				Exporting…{#if exportPercent !== null} {exportPercent}%{/if}
+				{#if exportPercent !== null}{exportPercent}%{/if}
 			{:else}
-				Export
+				<Icon icon="pixelarticons:upload-sharp" width="16" height="16" />
 			{/if}
 			{#if session.exporting && exportPercent !== null}
 				<span class="progress-bar" style="width: {exportPercent}%"></span>
@@ -142,15 +162,17 @@
 		</button>
 		<div class="save-pair">
 			<button
+				class="icon-btn"
 				class:loading={session.saving}
+				aria-label="Save"
+				title="Save project (Ctrl+S)"
 				disabled={session.saving}
 				onclick={() => session.saveProject()}
 			>
 				{#if session.saving}
 					<span class="spinner" aria-hidden="true"></span>
-					Saving…
 				{:else}
-					Save
+					<Icon icon="pixelarticons:save-sharp" width="16" height="16" />
 				{/if}
 			</button>
 			<button
@@ -164,7 +186,14 @@
 				&#9662;
 			</button>
 		</div>
-		<button onclick={() => session.loadProjectFromDialog()}>Open</button>
+		<button
+			class="icon-btn"
+			aria-label="Open"
+			title="Open project (Ctrl+O)"
+			onclick={() => session.loadProjectFromDialog()}
+		>
+			<Icon icon="pixelarticons:folder-sharp" width="16" height="16" />
+		</button>
 		<span class="project-name" title={snapshot?.projectPath ?? 'Untitled'}>
 			{stem}{#if snapshot?.projectDirty}<span class="dirty" aria-hidden="true">&bull;</span>{/if}
 		</span>
@@ -202,22 +231,24 @@
 
 	<div class="group view-group" role="group" aria-label="View">
 		<button
-			class="view-btn"
+			class="view-btn icon-btn"
 			class:active={activeView === 'timeline'}
+			aria-label="Timeline"
 			aria-pressed={activeView === 'timeline'}
 			title="Timeline view (Tab)"
 			onclick={() => (activeView = 'timeline')}
 		>
-			Timeline
+			<Icon icon="pixelarticons:align-end-vertical-sharp" width="16" height="16" />
 		</button>
 		<button
-			class="view-btn"
+			class="view-btn icon-btn"
 			class:active={activeView === 'mixer'}
+			aria-label="Mixer"
 			aria-pressed={activeView === 'mixer'}
 			title="Mixer view (Tab)"
 			onclick={() => (activeView = 'mixer')}
 		>
-			Mixer
+			<Icon icon="pixelarticons:sliders-vertical" width="16" height="16" />
 		</button>
 	</div>
 
@@ -228,12 +259,13 @@
 
 	<div class="group settings-group" role="group" aria-label="Settings">
 		<button
-			class="step settings-btn"
+			class="icon-btn settings-btn"
 			aria-label="Settings"
+			aria-pressed={settingsStore.isOpen}
 			title="Settings"
 			onclick={() => settingsStore.toggle()}
 		>
-			⚙
+			<Icon icon="pixelarticons:settings-cog" width="16" height="16" />
 		</button>
 	</div>
 </header>
@@ -272,8 +304,20 @@
 		border-left: 0;
 	}
 
-	.wide {
-		min-width: 64px;
+	.settings-group {
+		padding-left: 8px;
+		padding-right: 0;
+		border-left: 0;
+	}
+
+	.icon-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-width: 28px;
+		height: 24px;
+		padding: 0 6px;
+		gap: 4px;
 	}
 
 	.export-btn {
@@ -420,29 +464,8 @@
 		white-space: nowrap;
 	}
 
-	.view-btn {
-		font-size: 11px;
-		padding: 0 10px;
-		height: 24px;
-		letter-spacing: 0.04em;
-	}
-
 	.view-btn.active {
-		background: var(--surface-hover);
-		color: var(--text);
-		border-color: var(--border);
-	}
-
-	.settings-btn {
-		font-size: 14px;
-		line-height: 1;
-		color: var(--text-subtle);
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.settings-btn:hover {
-		color: var(--text);
+		background: var(--green);
+		color: var(--on-green);
 	}
 </style>

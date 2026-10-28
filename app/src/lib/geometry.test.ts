@@ -25,6 +25,7 @@ import {
 	trimSpan,
 	waveWindow,
 	waveformPoints,
+	windowedWaveformPoints,
 	zoomBy,
 	zoomByWheel
 } from './geometry';
@@ -251,6 +252,24 @@ describe('waveformPoints', () => {
 
 	test('clamps a peak the engine should never send', () => {
 		expect(waveformPoints([-1, 2], 40)).toBe('0,20 1,0 1,40 0,20');
+	});
+
+	test('windows peaks to the visible slice', () => {
+		const peaks = [0.1, 0.4, 0.8, 0.2, 0.05];
+		const result = waveformPoints(peaks, 40, { x: 1, width: 2 });
+		expect(result).toBe('1,12 2,4 3,16 3,24 2,36 1,28');
+	});
+
+	test('returns empty when window is completely outside peaks', () => {
+		expect(waveformPoints([1, 1], 40, { x: 10, width: 5 })).toBe('');
+		expect(waveformPoints([1, 1], 40, { x: -10, width: 2 })).toBe('');
+	});
+
+	test('decimates large visible window smoothly', () => {
+		const peaks = Array.from({ length: 1000 }, (_, i) => (i % 2 === 0 ? 0.8 : 0.2));
+		const result = windowedWaveformPoints(peaks, { x: 0, width: 1000 }, 40, 50);
+		const points = result.split(' ');
+		expect(points.length).toBe(200);
 	});
 });
 

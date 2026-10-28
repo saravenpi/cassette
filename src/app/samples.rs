@@ -56,8 +56,12 @@ impl App {
             .and_then(|stem| stem.to_str())
             .unwrap_or("Sample")
             .to_string();
-        let flipped = self.song.tracks[track_index].kind != TrackKind::Audio;
+        let old_kind = self.song.tracks[track_index].kind;
+        let flipped = old_kind != TrackKind::Audio;
         self.song.tracks[track_index].kind = TrackKind::Audio;
+        if flipped {
+            self.sync_default_track_name(track_index, old_kind);
+        }
         let index = self.song.tracks[track_index].insert_block(Block::new(
             name.clone(),
             TrackKind::Audio,

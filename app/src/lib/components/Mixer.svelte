@@ -11,32 +11,51 @@
 
 	const snapshot = $derived(session.snapshot);
 	const tracks = $derived(snapshot?.tracks ?? []);
-	const cursorTrack = $derived(snapshot?.cursor.track ?? 0);
+	const selectedTrack = $derived(session.selectedTrack);
+	const isMaster = $derived(selectedTrack === 999);
 
-	let selectedMaster = $state(false);
+	let stripsContainer = $state<HTMLDivElement | null>(null);
 
 	function onTrackSelect(index: number, event: MouseEvent): void {
-		selectedMaster = false;
 		session.selectTrack(index);
 	}
 
 	function onMasterSelect(): void {
-		selectedMaster = true;
 		session.selectTrack(999);
 	}
 
 	function addTrack(kind: 'midi' | 'audio'): void {
 		session.addTrack(kind);
 	}
+
+	$effect(() => {
+		if (selectedTrack !== 999 && stripsContainer) {
+			const strip = stripsContainer.querySelector<HTMLElement>(`[data-strip-index="${selectedTrack}"]`);
+			if (strip) {
+				if (typeof strip.scrollIntoView === 'function') {
+					strip.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+				}
+				const stripLeft = strip.offsetLeft;
+				const stripRight = stripLeft + strip.offsetWidth;
+				const viewLeft = stripsContainer.scrollLeft;
+				const viewRight = viewLeft + stripsContainer.clientWidth;
+				if (stripLeft < viewLeft) {
+					stripsContainer.scrollLeft = stripLeft;
+				} else if (stripRight > viewRight) {
+					stripsContainer.scrollLeft = stripRight - stripsContainer.clientWidth;
+				}
+			}
+		}
+	});
 </script>
 
 <div class="mixer-view" role="region" aria-label="Mixer">
-	<div class="channel-strips">
+	<div class="channel-strips" bind:this={stripsContainer}>
 		{#each tracks as track, index (index)}
 			<ChannelStrip
 				{track}
 				{index}
-				selected={!selectedMaster && cursorTrack === index}
+				selected={!isMaster && selectedTrack === index}
 				onselect={(e) => onTrackSelect(index, e)}
 			/>
 		{/each}
@@ -64,7 +83,7 @@
 	</div>
 
 	<MasterStrip
-		selected={selectedMaster || cursorTrack === 999}
+		selected={isMaster}
 		onselect={onMasterSelect}
 	/>
 </div>

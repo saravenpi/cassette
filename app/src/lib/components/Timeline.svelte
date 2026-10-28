@@ -51,6 +51,7 @@
 	let trackReorder = $state<TrackReorder | null>(null);
 	let cancelResize: (() => void) | null = null;
 	let pointer: { x: number; y: number; free: boolean } | null = null;
+	let lastGridDown: { time: number; track: number; x: number; y: number } | null = null;
 
 	const snapshot = $derived(session.snapshot);
 	const tracks = $derived(snapshot?.tracks ?? []);
@@ -110,6 +111,28 @@
 
 		const step = gridStep(session.zoom);
 		const snappedBeats = snapBeats(lane.beats, step, event.altKey);
+
+		const now = performance.now();
+		const isDouble =
+			event.detail >= 2 ||
+			(lastGridDown !== null &&
+				now - lastGridDown.time < 320 &&
+				lastGridDown.track === lane.track &&
+				Math.abs(event.clientX - lastGridDown.x) < 8 &&
+				Math.abs(event.clientY - lastGridDown.y) < 8);
+		if (isDouble && !event.shiftKey) {
+			lastGridDown = null;
+			selection.clear();
+			const start = Math.max(0, snappedBeats);
+			session.selectTrack(lane.track);
+			if (tracks[lane.track]?.kind === 'midi') {
+				session.createMidiBlockAt(lane.track, start);
+			} else {
+				session.dispatch({ seek: { beats: start } });
+			}
+			return;
+		}
+		lastGridDown = { time: now, track: lane.track, x: event.clientX, y: event.clientY };
 
 		if (event.shiftKey) {
 			selection.extend(lane.track, snappedBeats);

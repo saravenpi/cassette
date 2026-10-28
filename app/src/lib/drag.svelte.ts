@@ -71,6 +71,38 @@ export function laneUnder(
 	return null;
 }
 
+/**
+ * The track drop target under a viewport point: a timeline lane (with its beat),
+ * a track header, or a mixer channel strip.
+ */
+export function trackDropUnder(
+	clientX: number,
+	clientY: number,
+	zoom: number
+): { track: number; beats: number | null } | null {
+	const lane = laneUnder(clientX, clientY, zoom);
+	if (lane !== null) return lane;
+	const elements =
+		typeof document !== 'undefined' && document.elementsFromPoint
+			? document.elementsFromPoint(clientX, clientY)
+			: [];
+	for (const hit of elements) {
+		const header =
+			typeof Element !== 'undefined' && hit instanceof Element
+				? hit.closest('[data-track-header], [data-strip-index]')
+				: (hit as any)?.closest?.('[data-track-header], [data-strip-index]');
+		if (header && typeof header === 'object' && 'dataset' in header) {
+			const ds = (header as any).dataset;
+			const raw = ds?.trackHeader ?? ds?.stripIndex;
+			const track = Number(raw);
+			if (raw !== undefined && Number.isInteger(track) && track >= 0) {
+				return { track, beats: null };
+			}
+		}
+	}
+	return null;
+}
+
 /** Tracks the block drags, and holds the one that is running. */
 export class DragController {
 	state = $state<Drag | null>(null);
@@ -94,6 +126,14 @@ export class DragController {
 	/** Start dragging a block's left edge, keeping its end where it is. */
 	beginTrim(track: number, index: number, view: BlockView): void {
 		this.begin('trim', track, index, view, 0);
+	}
+
+	/** Abort any active drag immediately without sending pending moves. */
+	cancel(): void {
+		this.state = null;
+		window.removeEventListener('pointermove', this.onPointerMove);
+		window.removeEventListener('pointerup', this.onPointerUp);
+		window.removeEventListener('pointercancel', this.onPointerUp);
 	}
 
 	/**

@@ -187,6 +187,42 @@ async fn read_waveform(path: String) -> Result<Waveform, String> {
         .map_err(|error| format!("cassette: {error}"))?
 }
 
+#[tauri::command]
+async fn read_sample_wav(path: String) -> Result<Vec<u8>, String> {
+    tauri::async_runtime::spawn_blocking(move || sample_wav_of(&path))
+        .await
+        .map_err(|error| format!("cassette: {error}"))?
+}
+
+fn sample_wav_of(path: &str) -> Result<Vec<u8>, String> {
+    let target = resolve(path)?;
+    if !is_audio(&target) {
+        return Err(format!("cassette: {path} is not a supported audio file"));
+    }
+    let sample = cassette::core::wav::decode(&target, MAX_DECODED_FRAMES)
+        .map_err(|error| format!("cassette: cannot read {path}: {error:#}"))?;
+    let rate = sample.sample_rate.max(1);
+    let data_len = (sample.frames.len() * 2) as u32;
+    let mut wav = Vec::with_capacity(44 + data_len as usize);
+    wav.extend_from_slice(b"RIFF");
+    wav.extend_from_slice(&(36u32.saturating_add(data_len)).to_le_bytes());
+    wav.extend_from_slice(b"WAVEfmt ");
+    wav.extend_from_slice(&16u32.to_le_bytes());
+    wav.extend_from_slice(&1u16.to_le_bytes());
+    wav.extend_from_slice(&1u16.to_le_bytes());
+    wav.extend_from_slice(&rate.to_le_bytes());
+    wav.extend_from_slice(&(rate.saturating_mul(2)).to_le_bytes());
+    wav.extend_from_slice(&2u16.to_le_bytes());
+    wav.extend_from_slice(&16u16.to_le_bytes());
+    wav.extend_from_slice(b"data");
+    wav.extend_from_slice(&data_len.to_le_bytes());
+    for &frame in &sample.frames {
+        let pcm = (frame.clamp(-1.0, 1.0) * 32_767.0) as i16;
+        wav.extend_from_slice(&pcm.to_le_bytes());
+    }
+    Ok(wav)
+}
+
 /// Write recorded audio bytes to a WAV file in the temporary directory.
 #[tauri::command]
 fn save_recorded_sample(name: String, bytes: Vec<u8>) -> Result<String, String> {
@@ -203,14 +239,23 @@ fn save_recorded_sample(name: String, bytes: Vec<u8>) -> Result<String, String> 
 /// The blocking body of [`read_waveform`].
 fn waveform_of(path: &str) -> Result<Waveform, String> {
     let target = resolve(path)?;
-    if !is_audio(&target) {
+    if !is_audio(Path::new(path)) && !is_audio(&target) {
         return Err(format!("cassette: {path} is not a supported audio file"));
     }
     let sample = cassette::core::wav::decode(&target, MAX_DECODED_FRAMES)
         .map_err(|error| format!("cassette: cannot read {path}: {error:#}"))?;
+    let seconds = sample.frames.len() as f32 / sample.sample_rate.max(1) as f32;
+    let buckets = ((seconds * 100.0).round() as usize).clamp(WAVEFORM_BUCKETS, 8_192);
+    let mut raw_peaks = peaks(&sample.frames, buckets);
+    let max_peak = raw_peaks.iter().copied().fold(0.0f32, f32::max);
+    if max_peak > 1e-4 && max_peak < 1.0 {
+        for peak in &mut raw_peaks {
+            *peak = (*peak / max_peak).clamp(0.0, 1.0);
+        }
+    }
     Ok(Waveform {
-        peaks: peaks(&sample.frames, WAVEFORM_BUCKETS),
-        seconds: sample.frames.len() as f32 / sample.sample_rate.max(1) as f32,
+        peaks: raw_peaks,
+        seconds,
     })
 }
 
@@ -376,6 +421,7 @@ pub fn run() {
             home_dir,
             parent_of,
             read_waveform,
+            read_sample_wav,
             save_recorded_sample
         ])
         .run(tauri::generate_context!())
@@ -519,6 +565,37 @@ mod tests {
         let waveform = waveform.expect("should read");
         assert_eq!(waveform.peaks.len(), WAVEFORM_BUCKETS);
         assert!(waveform.seconds > 0.0);
+    }
+
+    #[test]
+    fn a_long_waveform_scales_peak_density_with_duration() {
+        let dir = std::env::temp_dir();
+        let path = dir.join("cassette-test-long-waveform.wav");
+        let frames = 44_100 * 5;
+        let mut data = Vec::with_capacity(frames * 2);
+        for _ in 0..frames {
+            data.extend_from_slice(&0i16.to_le_bytes());
+        }
+        let mut wav = Vec::new();
+        wav.extend_from_slice(b"RIFF");
+        wav.extend_from_slice(&(36u32 + data.len() as u32).to_le_bytes());
+        wav.extend_from_slice(b"WAVEfmt ");
+        wav.extend_from_slice(&16u32.to_le_bytes());
+        wav.extend_from_slice(&1u16.to_le_bytes());
+        wav.extend_from_slice(&1u16.to_le_bytes());
+        wav.extend_from_slice(&44_100u32.to_le_bytes());
+        wav.extend_from_slice(&88_200u32.to_le_bytes());
+        wav.extend_from_slice(&2u16.to_le_bytes());
+        wav.extend_from_slice(&16u16.to_le_bytes());
+        wav.extend_from_slice(b"data");
+        wav.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        wav.extend_from_slice(&data);
+        std::fs::write(&path, wav).expect("write");
+        let waveform = waveform_of(&path.to_string_lossy());
+        let _ = std::fs::remove_file(&path);
+        let waveform = waveform.expect("should read");
+        assert_eq!(waveform.peaks.len(), 500);
+        assert!((waveform.seconds - 5.0).abs() < 0.01);
     }
 
     #[test]

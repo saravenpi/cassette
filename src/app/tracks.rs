@@ -28,11 +28,7 @@ pub(crate) struct VoiceEdit {
 }
 
 impl App {
-    pub(crate) fn add_track(&mut self, kind: TrackKind) {
-        if self.song.tracks.len() >= MAX_TRACKS {
-            self.status = format!("the song already holds {MAX_TRACKS} tracks");
-            return;
-        }
+    pub(crate) fn next_default_track_name(&self, kind: TrackKind) -> String {
         let prefix = match kind {
             TrackKind::Midi => "MIDI",
             TrackKind::Audio => "Audio",
@@ -46,11 +42,32 @@ impl App {
                 .iter()
                 .any(|t| t.name.eq_ignore_ascii_case(&candidate))
             {
-                break;
+                return candidate;
             }
             n += 1;
         }
-        let name = format!("{prefix} {n}");
+    }
+
+    pub(crate) fn sync_default_track_name(&mut self, track_index: usize, old_kind: TrackKind) {
+        let Some(track) = self.song.tracks.get(track_index) else {
+            return;
+        };
+        let new_kind = track.kind;
+        if old_kind == new_kind {
+            return;
+        }
+        if is_default_track_name(&track.name, old_kind) {
+            let new_name = self.next_default_track_name(new_kind);
+            self.song.tracks[track_index].name = new_name;
+        }
+    }
+
+    pub(crate) fn add_track(&mut self, kind: TrackKind) {
+        if self.song.tracks.len() >= MAX_TRACKS {
+            self.status = format!("the song already holds {MAX_TRACKS} tracks");
+            return;
+        }
+        let name = self.next_default_track_name(kind);
         let color_index = (self.song.tracks.len() % 8) as u8;
         let new_track =
             Track::new(name.clone(), kind, kind.default_preset()).with_color(color_index);
@@ -277,6 +294,7 @@ impl App {
         let Some(track) = self.song.tracks.get_mut(track_index) else {
             return;
         };
+        let old_kind = track.kind;
         track.kind = track.kind.flipped();
         track.instrument = track.kind.default_preset();
         let (kind, instrument, volume, pan, muted, solo) = (
@@ -287,6 +305,7 @@ impl App {
             track.muted,
             track.solo,
         );
+        self.sync_default_track_name(track_index, old_kind);
         self.send(RtCommand::SetTrackInstrument {
             track: track_index as u8,
             instrument,
@@ -412,6 +431,17 @@ impl App {
         self.push_mirror(track);
         self.status = format!("track {} voice edited", track + 1);
     }
+}
+
+fn is_default_track_name(name: &str, kind: TrackKind) -> bool {
+    let prefix = match kind {
+        TrackKind::Midi => "midi ",
+        TrackKind::Audio => "audio ",
+    };
+    let lower = name.trim().to_ascii_lowercase();
+    lower
+        .strip_prefix(prefix)
+        .is_some_and(|rest| !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit()))
 }
 
 #[cfg(test)]

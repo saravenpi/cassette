@@ -12,6 +12,8 @@
     "tauri": "tauri"
   },
   "devDependencies": {
+    "@iconify-json/pixelarticons": "^1.2.10",
+    "@iconify/svelte": "^5.2.3",
     "@sveltejs/adapter-static": "^3.0.10",
     "@sveltejs/kit": "^2.70.3",
     "@sveltejs/vite-plugin-svelte": "^7.3.1",

@@ -32,7 +32,7 @@
 	const pan = $derived(draggedPan ?? track.pan);
 	const level = $derived(Math.round(Math.min(1, Math.max(0, track.level)) * 100));
 
-	const isPrimary = $derived(session.snapshot?.cursor.track === index);
+	const isPrimary = $derived(selected && session.snapshot?.cursor.track === index);
 
 	const volumeDb = $derived.by(() => {
 		if (volume <= 0.001) return '-inf';
@@ -135,6 +135,7 @@
 	class="strip"
 	class:selected
 	class:primary={isPrimary}
+	data-strip-index={index}
 	role="group"
 	aria-label="{track.name} mixer channel"
 	onclick={(e) => onselect ? onselect(e) : session.selectTrack(index)}
@@ -207,7 +208,12 @@
 	<div class="fader-meter-area">
 		<div class="meter-col">
 			<div class="v-meter">
-				<div class="v-meter-fill" style="height: {level}%"></div>
+				<div
+					class="v-meter-fill"
+					class:warm={level >= 80 && level < 92}
+					class:hot={level >= 92}
+					style="height: {level}%"
+				></div>
 				<div class="meter-scale">
 					<span>0</span>
 					<span>-6</span>
@@ -446,6 +452,7 @@
 		outline: none;
 		cursor: pointer;
 		width: 100%;
+		accent-color: var(--green);
 	}
 
 	.pan-slider::-webkit-slider-thumb {
@@ -454,7 +461,7 @@
 		width: 10px;
 		height: 10px;
 		border-radius: 0;
-		background: var(--silver);
+		background: var(--green);
 		cursor: pointer;
 	}
 
@@ -463,7 +470,7 @@
 		height: 10px;
 		border-radius: 0;
 		border: none;
-		background: var(--silver);
+		background: var(--green);
 		cursor: pointer;
 	}
 
@@ -502,8 +509,15 @@
 	.v-meter-fill {
 		width: 100%;
 		border-radius: 0;
-		background: linear-gradient(to top, var(--green) 0%, var(--green) 75%, #eab308 85%, var(--alert) 100%);
-		transition: height 0.05s ease;
+		background: var(--green);
+	}
+
+	.v-meter-fill.warm {
+		background: linear-gradient(to top, var(--green) 0%, var(--green) 70%, #eab308 100%);
+	}
+
+	.v-meter-fill.hot {
+		background: linear-gradient(to top, var(--green) 0%, var(--green) 60%, #eab308 75%, var(--alert) 100%);
 	}
 
 	.meter-scale {
@@ -534,14 +548,24 @@
 		height: 100%;
 		background: transparent;
 		cursor: pointer;
+		accent-color: var(--green);
 	}
 
 	.v-fader::-webkit-slider-thumb {
+		-webkit-appearance: none;
+		appearance: none;
+		width: 18px;
+		height: 8px;
 		border-radius: 0;
+		background: var(--green);
 	}
 
 	.v-fader::-moz-range-thumb {
+		width: 18px;
+		height: 8px;
 		border-radius: 0;
+		border: none;
+		background: var(--green);
 	}
 
 	.db-readout {

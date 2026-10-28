@@ -28,6 +28,7 @@
 		setModuleClipboard,
 		toggleNote
 	} from '$lib/noteSelection';
+	import { trackColor } from '$lib/palette';
 	import {
 		DEFAULT_NOTE_BEATS,
 		DEFAULT_VELOCITY,
@@ -114,6 +115,7 @@
 	const track = $derived(
 		roll === null ? null : (session.snapshot?.tracks[roll.track] ?? null)
 	);
+	const noteFill = $derived(track !== null ? trackColor(track.colorIndex) : 'var(--green)');
 	const block = $derived(
 		roll === null || track === null ? null : (track.blocks[roll.block] ?? null)
 	);
@@ -832,7 +834,7 @@
 	}
 </script>
 
-<section class="roll" aria-label="Piano roll">
+<section class="roll" aria-label="Piano roll" style="--note-color: {noteFill}">
 	<header class="bar">
 		<span class="info" aria-live="polite">
 			{#if selection.size > 1}
@@ -1193,27 +1195,27 @@
 
 	.note {
 		position: absolute;
-		background: var(--green);
-		box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--green) 55%, var(--bg));
+		background: var(--note-color, var(--green));
+		box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--note-color, var(--green)) 55%, var(--bg));
 		pointer-events: none;
 	}
 
 	.note.selected {
-		background: color-mix(in srgb, var(--green) 85%, var(--text));
+		background: color-mix(in srgb, var(--note-color, var(--green)) 85%, var(--text));
 		box-shadow: inset 0 0 0 1px var(--bg);
 		outline: 1px solid var(--text);
 	}
 
 	.note.preview {
-		background: var(--green);
+		background: var(--note-color, var(--green));
 		opacity: 0.6;
 		outline: 1px dashed var(--text);
 	}
 
 	.marquee-box {
 		position: absolute;
-		background: color-mix(in srgb, var(--green) 18%, transparent);
-		border: 1px solid var(--green);
+		background: color-mix(in srgb, var(--note-color, var(--green)) 18%, transparent);
+		border: 1px solid var(--note-color, var(--green));
 		pointer-events: none;
 		z-index: 3;
 	}

@@ -17,7 +17,7 @@ import {
 import { paramKey } from './chain';
 import { detail } from './detail.svelte';
 import { DragController } from './drag.svelte';
-import { ZOOM_DEFAULT, clampZoom, gridStep, snapBeats, zoomBy } from './geometry';
+import { DEFAULT_LENGTH_BEATS, ZOOM_DEFAULT, clampZoom, gridStep, snapBeats, zoomBy } from './geometry';
 import { attachKeyboard } from './keyboard';
 import { NoteCache } from './noteCache';
 import { NOTE_GRID, locateBlock } from './pianoRoll';
@@ -88,6 +88,8 @@ class Session {
 	saving = $state(false);
 	selectedEffectIndex = $state<number | null>(null);
 	effectClipboard = $state<EffectClipboard | null>(null);
+	activeView = $state<'timeline' | 'mixer'>('timeline');
+	selectedTrack = $state(0);
 	drag: DragController;
 
 	private errorFrom: 'poll' | 'send' | null = null;
@@ -105,6 +107,7 @@ class Session {
 	private notes = new NoteCache();
 	private backoff = 0;
 	private resumeAt = 0;
+	private lastCreatedBlock: { track: number; startBeats: number; at: number } | null = null;
 
 	constructor() {
 		this.drag = new DragController({
@@ -152,6 +155,9 @@ class Session {
 	/** Apply one intent. */
 	dispatch(event: EngineEvent): void {
 		if (this.exporting && (event === 'togglePlay' || event === 'toggleRecord')) return;
+		if (typeof event === 'object' && 'selectTrack' in event) {
+			this.selectedTrack = event.selectTrack.track;
+		}
 		if (typeof event === 'object' && 'reorderTrack' in event) {
 			trackSelection.reorderTrack(event.reorderTrack.from, event.reorderTrack.to);
 		}
@@ -220,21 +226,45 @@ class Session {
 
 	/** Select a track from its header, and show its devices if the detail pane is open. */
 	selectTrack(track: number, options?: SelectTrackOptions): void {
-		if (this.snapshot?.cursor.track !== track) {
-			this.selectedEffectIndex = null;
-		}
-		if (options) {
-			trackSelection.selectTrack(track, {
-				...options,
-				totalTracks: this.snapshot?.tracks.length ?? 1
-			});
-		} else if (!trackSelection.isSelected(track)) {
-			trackSelection.selectTrack(track, {
-				totalTracks: this.snapshot?.tracks.length ?? 1
-			});
+		this.selectedTrack = track;
+		if (track !== 999) {
+			if (this.snapshot?.cursor.track !== track) {
+				this.selectedEffectIndex = null;
+			}
+			if (options) {
+				trackSelection.selectTrack(track, {
+					...options,
+					totalTracks: this.snapshot?.tracks.length ?? 1
+				});
+			} else if (!trackSelection.isSelected(track)) {
+				trackSelection.selectTrack(track, {
+					totalTracks: this.snapshot?.tracks.length ?? 1
+				});
+			}
 		}
 		this.dispatch({ selectTrack: { track } });
 		detail.followTrack();
+	}
+
+	selectNextTrack(): void {
+		const total = this.snapshot?.tracks.length ?? 0;
+		if (total === 0) return;
+		if (this.selectedTrack === 999) return;
+		if (this.selectedTrack >= total - 1) {
+			this.selectTrack(999);
+		} else {
+			this.selectTrack(this.selectedTrack + 1);
+		}
+	}
+
+	selectPreviousTrack(): void {
+		const total = this.snapshot?.tracks.length ?? 0;
+		if (total === 0) return;
+		if (this.selectedTrack === 999) {
+			this.selectTrack(total - 1);
+		} else if (this.selectedTrack > 0) {
+			this.selectTrack(Math.max(0, this.selectedTrack - 1));
+		}
 	}
 
 	selectAllTracks(): void {
@@ -372,6 +402,27 @@ class Session {
 	openSelectedRoll(): void {
 		const cursor = this.snapshot?.cursor;
 		if (cursor !== undefined) this.openRoll(cursor.track, cursor.block);
+	}
+
+	/** Create a MIDI block on `track` at `startBeats`, deduplicating rapid double-clicks. */
+	createMidiBlockAt(track: number, startBeats: number, lengthBeats = DEFAULT_LENGTH_BEATS): void {
+		const now = performance.now();
+		if (
+			this.lastCreatedBlock !== null &&
+			this.lastCreatedBlock.track === track &&
+			Math.abs(this.lastCreatedBlock.startBeats - startBeats) < 0.01 &&
+			now - this.lastCreatedBlock.at < 400
+		) {
+			return;
+		}
+		this.lastCreatedBlock = { track, startBeats, at: now };
+		this.dispatch({
+			createBlock: {
+				track,
+				startBeats,
+				lengthBeats
+			}
+		});
 	}
 
 	/** Cut the block under the cursor in two at the playhead. */
@@ -827,6 +878,15 @@ class Session {
 					trackSelection.clear(target);
 				} else if (changed) {
 					trackSelection.selectedTracks = valid;
+				}
+				if (this.selectedTrack === 999) {
+					if (this.activeView === 'timeline') {
+						this.selectedTrack = Math.max(0, Math.min(this.snapshot.cursor.track, count - 1));
+					}
+				} else if (this.selectedTrack >= count) {
+					this.selectedTrack = Math.max(0, count - 1);
+				} else if (this.activeView === 'timeline' && this.selectedTrack !== this.snapshot.cursor.track) {
+					this.selectedTrack = this.snapshot.cursor.track;
 				}
 			}
 			if (this.snapshot?.exportProgress !== undefined && this.snapshot?.exportProgress !== null) {

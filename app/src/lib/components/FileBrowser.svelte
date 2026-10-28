@@ -34,7 +34,11 @@
 	const drag = new SampleDrag({
 		zoom: () => session.zoom,
 		drop: (entry, track, startBeats) => {
-			session.dispatch({ importSample: { track, path: entry.path, startBeats } });
+			const blocks = session.snapshot?.tracks[track]?.blocks ?? [];
+			const resolvedBeats =
+				startBeats ?? snapBeats(freeStart(blocks), gridStep(session.zoom));
+			session.selectTrack(track);
+			session.dispatch({ importSample: { track, path: entry.path, startBeats: resolvedBeats } });
 		}
 	});
 
@@ -82,7 +86,15 @@
 
 	function importToSelected(entry: SampleEntry): void {
 		const snapshot = session.snapshot;
-		const track = snapshot?.cursor.track ?? 0;
+		let track = snapshot?.cursor.track ?? 0;
+		const current = snapshot?.tracks[track];
+		if (current && current.kind !== 'audio') {
+			const audioIdx = snapshot?.tracks.findIndex((t) => t.kind === 'audio') ?? -1;
+			if (audioIdx >= 0) {
+				track = audioIdx;
+				session.selectTrack(track);
+			}
+		}
 		const blocks = snapshot?.tracks[track]?.blocks ?? [];
 		session.dispatch({
 			importSample: { track, path: entry.path, startBeats: snapBeats(freeStart(blocks), gridStep(session.zoom)) }
@@ -115,6 +127,7 @@
 							class="row wav"
 							class:picked={selected?.path === entry.path}
 							title="Drag onto a track, or press Enter or double-click to import into the selected track"
+							ondragstart={(event) => event.preventDefault()}
 							onpointerdown={(event) => drag.begin(event, entry)}
 							onclick={() => (selected = entry)}
 							ondblclick={() => importToSelected(entry)}
@@ -209,6 +222,8 @@
 
 	.row.wav {
 		cursor: grab;
+		user-select: none;
+		touch-action: none;
 	}
 
 	.row.picked,

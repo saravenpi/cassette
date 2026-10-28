@@ -39,6 +39,8 @@
 	let { block, track, index, startBeats, lengthBeats, dragging, colorIndex }: Props = $props();
 
 	let wave = $state<Waveform | null>(null);
+	let lastDownAt = 0;
+	const fillColor = $derived(trackColor(colorIndex));
 
 	const left = $derived(beatsToPx(startBeats, session.zoom));
 	const width = $derived(Math.max(beatsToPx(lengthBeats, session.zoom), MIN_BLOCK_PX));
@@ -79,6 +81,11 @@
 			? null
 			: waveWindow(offsetSeconds, lengthBeats, bpm, rate, wave.seconds, wave.peaks.length)
 	);
+	const wavePoints = $derived(
+		wave === null || visible === null
+			? ''
+			: waveformPoints(wave.peaks, WAVE_HEIGHT, visible, width)
+	);
 
 	$effect(() => {
 		const source = block.kind === 'audio' ? block.source : '';
@@ -101,12 +108,16 @@
 
 	function onPointerDown(event: PointerEvent): void {
 		if (event.button !== 0) return;
-		if (event.detail === 2) {
+		const now = performance.now();
+		if (event.detail >= 2 || now - lastDownAt < 320) {
+			lastDownAt = 0;
 			event.stopPropagation();
 			event.preventDefault();
+			session.drag.cancel();
 			onDoubleClick();
 			return;
 		}
+		lastDownAt = now;
 		event.stopPropagation();
 		const element = event.currentTarget;
 		if (!(element instanceof HTMLElement)) return;
@@ -164,19 +175,19 @@
 	aria-label={invalidNotice}
 	data-block={index}
 	data-block-track={track}
-	style="left: {left}px; width: {width}px; --fill: {trackColor(colorIndex)}"
+	style="left: {left}px; width: {width}px; --fill: {fillColor}"
 	onpointerdown={onPointerDown}
 	ondblclick={onDoubleClick}
 	oncontextmenu={onContextMenu}
 >
-	{#if block.kind === 'audio' && wave !== null && visible !== null}
+	{#if block.kind === 'audio' && wave !== null && visible !== null && wavePoints !== ''}
 		<svg
 			class="wave"
 			viewBox="{visible.x} 0 {visible.width} {WAVE_HEIGHT}"
 			preserveAspectRatio="none"
 			aria-hidden="true"
 		>
-			<polygon points={waveformPoints(wave.peaks, WAVE_HEIGHT)} />
+			<polygon points={wavePoints} fill={fillColor} stroke={fillColor} />
 		</svg>
 	{/if}
 
@@ -194,6 +205,7 @@
 					y={range.top - note.pitch}
 					width={note.lengthBeats}
 					height="1"
+					fill={fillColor}
 					opacity={velocityOpacity(note.velocity)}
 				/>
 			{/each}
@@ -242,7 +254,6 @@
 		cursor: grab;
 		user-select: none;
 		z-index: 1;
-		isolation: isolate;
 	}
 
 	.block.selected {
@@ -271,10 +282,15 @@
 		inset: 14px 0 2px;
 		width: 100%;
 		height: calc(100% - 16px);
+		pointer-events: none;
 	}
 
 	.wave polygon {
-		fill: color-mix(in srgb, var(--fill) 75%, transparent);
+		fill: var(--fill);
+		fill-opacity: 0.85;
+		stroke: var(--fill);
+		stroke-width: 1px;
+		vector-effect: non-scaling-stroke;
 	}
 
 	.wave .bar {
@@ -289,6 +305,7 @@
 		white-space: nowrap;
 		color: var(--text);
 		letter-spacing: 0.04em;
+		pointer-events: none;
 	}
 
 	.rename {

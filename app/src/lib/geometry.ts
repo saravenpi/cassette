@@ -211,10 +211,95 @@ export function freeStart(blocks: readonly { startBeats: number; lengthBeats: nu
 }
 
 /**
+ * Downsample a peak list into at most `maxBuckets` buckets by keeping the
+ * maximum amplitude in each bucket.
+ */
+export function downsamplePeaks(peaks: readonly number[], maxBuckets: number): number[] {
+	if (maxBuckets <= 0 || peaks.length === 0) return [];
+	if (peaks.length <= maxBuckets) return [...peaks];
+	const out: number[] = [];
+	for (let b = 0; b < maxBuckets; b++) {
+		const start = Math.floor((b * peaks.length) / maxBuckets);
+		const end = Math.min(
+			peaks.length,
+			Math.max(start + 1, Math.floor(((b + 1) * peaks.length) / maxBuckets))
+		);
+		let maxPeak = 0;
+		for (let i = start; i < end; i++) {
+			const val = Math.abs(peaks[i]);
+			if (val > maxPeak) maxPeak = val;
+		}
+		out.push(Math.min(1, maxPeak));
+	}
+	return out;
+}
+
+/**
+ * An SVG polygon of a visible peak window, mirrored around a centre line.
+ */
+export function windowedWaveformPoints(
+	peaks: readonly number[],
+	window: { x: number; width: number },
+	height: number,
+	pixelWidth?: number
+): string {
+	if (peaks.length === 0 || height <= 0 || window.width <= 0) return '';
+	const start = Math.max(0, Math.floor(window.x));
+	const end = Math.min(peaks.length, Math.ceil(window.x + window.width) + 1);
+	if (start >= end) return '';
+	const count = end - start;
+	const middle = height / 2;
+	if (count === 1) {
+		const amplitude = Math.min(1, Math.max(0, peaks[start])) * middle;
+		const x0 = window.x;
+		const x1 = window.x + window.width;
+		return `${x0},${middle - amplitude} ${x1},${middle - amplitude} ${x1},${middle + amplitude} ${x0},${middle + amplitude}`;
+	}
+	const maxPoints =
+		pixelWidth !== undefined && pixelWidth > 0 ? Math.max(Math.ceil(pixelWidth * 2), 64) : 2048;
+	const rising: string[] = [];
+	const falling: string[] = [];
+	if (count <= maxPoints) {
+		for (let i = start; i < end; i++) {
+			const amplitude = Math.min(1, Math.max(0, peaks[i])) * middle;
+			rising.push(`${i},${middle - amplitude}`);
+			falling.push(`${i},${middle + amplitude}`);
+		}
+	} else {
+		const target = maxPoints;
+		for (let b = 0; b < target; b++) {
+			const bStart = Math.floor(start + (b * count) / target);
+			const bEnd = Math.min(
+				peaks.length,
+				Math.max(bStart + 1, Math.floor(start + ((b + 1) * count) / target))
+			);
+			let maxPeak = 0;
+			for (let i = bStart; i < bEnd; i++) {
+				const val = Math.abs(peaks[i]);
+				if (val > maxPeak) maxPeak = val;
+			}
+			const x = Number((start + (b / (target - 1)) * (end - 1 - start)).toFixed(2));
+			const amplitude = Number((Math.min(1, Math.max(0, maxPeak)) * middle).toFixed(2));
+			rising.push(`${x},${Number((middle - amplitude).toFixed(2))}`);
+			falling.push(`${x},${Number((middle + amplitude).toFixed(2))}`);
+		}
+	}
+	return [...rising, ...falling.reverse()].join(' ');
+}
+
+/**
  * An SVG polygon of a peak list, mirrored around a centre line. The caller sizes
  * it with `viewBox="0 0 {peaks.length - 1} {height}"` and stretches it.
  */
-export function waveformPoints(peaks: readonly number[], height: number): string {
+export function waveformPoints(
+	peaks: readonly number[],
+	height: number,
+	window?: { x: number; width: number },
+	pixelWidth?: number
+): string {
+	if (window !== undefined) {
+		return windowedWaveformPoints(peaks, window, height, pixelWidth);
+	}
 	if (peaks.length === 0) return '';
 	const middle = height / 2;
 	const rising: string[] = [];

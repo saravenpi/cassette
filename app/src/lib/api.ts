@@ -46,6 +46,10 @@ export function readWaveform(path: string): Promise<Waveform> {
 	return invoke<Waveform>('read_waveform', { path });
 }
 
+export function readSampleWav(path: string): Promise<number[]> {
+	return invoke<number[]>('read_sample_wav', { path });
+}
+
 const waveforms = new Map<string, Promise<Waveform>>();
 
 /** Peaks for a file, cached so a block does not re-read it on every frame. */

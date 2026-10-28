@@ -19,13 +19,11 @@
 	import { AUDIO_EXTS } from '$lib/audio';
 	import { runDropQueue } from '$lib/dropQueue';
 	import type { BlockView } from '$lib/wire';
-	import { laneUnder } from '$lib/drag.svelte';
+	import { trackDropUnder } from '$lib/drag.svelte';
 	import { freeStart, gridStep, snapBeats } from '$lib/geometry';
 	import { projectTitle } from '$lib/project';
 	import { session } from '$lib/session.svelte';
 	import { settingsStore } from '$lib/settings.svelte';
-
-	let activeView = $state<'timeline' | 'mixer'>('timeline');
 
 	function onWindowKeyDown(event: KeyboardEvent): void {
 		if (
@@ -48,7 +46,7 @@
 				return;
 			}
 			event.preventDefault();
-			activeView = activeView === 'timeline' ? 'mixer' : 'timeline';
+			session.activeView = session.activeView === 'timeline' ? 'mixer' : 'timeline';
 		}
 	}
 
@@ -78,14 +76,21 @@
 			if (event.payload.type !== 'drop') return;
 			const { paths, position } = event.payload;
 			const dpr = window.devicePixelRatio || 1;
-			const clientX = position.x / dpr;
-			const clientY = position.y / dpr;
-			const lane = laneUnder(clientX, clientY, session.zoom);
-			const targetTrack = lane?.track ?? session.snapshot?.cursor.track ?? 0;
+			const dropTarget =
+				trackDropUnder(position.x / dpr, position.y / dpr, session.zoom) ??
+				trackDropUnder(position.x, position.y, session.zoom);
+			let targetTrack = dropTarget?.track ?? session.snapshot?.cursor.track ?? 0;
+			if (dropTarget === null && session.snapshot?.tracks[targetTrack]?.kind !== 'audio') {
+				const audioIdx = session.snapshot?.tracks.findIndex((t) => t.kind === 'audio') ?? -1;
+				if (audioIdx >= 0) targetTrack = audioIdx;
+			}
 			const blocks = session.snapshot?.tracks[targetTrack]?.blocks ?? [];
-			const startBeats = lane
-				? (lane.beats < 2.0 ? 0 : snapBeats(lane.beats, gridStep(session.zoom)))
-				: snapBeats(freeStart(blocks), gridStep(session.zoom));
+			const startBeats =
+				dropTarget !== null && dropTarget.beats !== null
+					? dropTarget.beats < 2.0
+						? 0
+						: snapBeats(dropTarget.beats, gridStep(session.zoom))
+					: snapBeats(freeStart(blocks), gridStep(session.zoom));
 			const audio = paths.filter((path) => AUDIO_EXTS.test(path));
 			for (const path of paths) {
 				if (path.endsWith('.cassette') || path.endsWith('.json')) {
@@ -123,12 +128,12 @@
 <svelte:window onkeydown={onWindowKeyDown} />
 
 <div class="app">
-	<Transport bind:activeView />
+	<Transport bind:activeView={session.activeView} />
 	<div class="body">
 		<Sidebar />
 		<div class="main">
 			<div class="lanes">
-				{#if activeView === 'timeline'}
+				{#if session.activeView === 'timeline'}
 					<Timeline />
 				{:else}
 					<Mixer />

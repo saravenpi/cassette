@@ -486,6 +486,8 @@ pub struct SynthEngine {
     master: f32,
     master_effects: TrackEffects,
     master_meter: LevelMeter,
+    master_peak: f32,
+    meter_frames: usize,
     rng: u32,
     pool: SamplePool,
     sample_consumer: Option<Consumer<SampleMsg>>,
@@ -510,6 +512,8 @@ impl SynthEngine {
             master: 0.85,
             master_effects: TrackEffects::new(sr),
             master_meter: LevelMeter::default(),
+            master_peak: 0.0,
+            meter_frames: 0,
             rng: 0x1234_5678,
             pool: SamplePool::new(),
             sample_consumer: None,
@@ -1050,6 +1054,19 @@ impl SynthEngine {
     /// Rendering continues past the last voice while any chain still rings.
     pub fn process_frame(&mut self, peaks: &mut [f32; MAX_TRACKS]) -> (f32, f32) {
         if self.active_voices == 0 && !self.is_ringing() {
+            if self.master_meter.level() > 1e-4 || self.master_peak > 0.0 {
+                self.meter_frames += 1;
+                let chunk_frames = ((self.sample_rate / 60.0) as usize).max(1);
+                if self.meter_frames >= chunk_frames {
+                    self.meter_frames = 0;
+                    self.master_meter.update(self.master_peak);
+                    self.master_peak = 0.0;
+                }
+            } else {
+                self.master_meter = LevelMeter::default();
+                self.master_peak = 0.0;
+                self.meter_frames = 0;
+            }
             return (0.0, 0.0);
         }
 
@@ -1061,6 +1078,8 @@ impl SynthEngine {
             master,
             master_effects,
             master_meter,
+            master_peak,
+            meter_frames,
             rng,
             active_voices,
             pool,
@@ -1156,7 +1175,22 @@ impl SynthEngine {
         let out_l = m_l * master;
         let out_r = m_r * master;
         let peak = out_l.abs().max(out_r.abs());
-        master_meter.update(peak);
+        if peak > *master_peak {
+            *master_peak = peak;
+        }
+        *meter_frames += 1;
+        let chunk_frames = ((*sample_rate / 60.0) as usize).max(1);
+        if *meter_frames >= chunk_frames {
+            *meter_frames = 0;
+            if *master_peak == 0.0 && master_meter.level() < 1e-4 {
+                *master_meter = LevelMeter::default();
+            } else {
+                master_meter.update(*master_peak);
+            }
+            *master_peak = 0.0;
+        } else if master_meter.level() == 0.0 && *master_peak > 0.0 {
+            master_meter.update(*master_peak);
+        }
         (out_l.clamp(-1.0, 1.0), out_r.clamp(-1.0, 1.0))
     }
 }

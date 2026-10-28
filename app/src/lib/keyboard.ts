@@ -12,6 +12,9 @@ interface KeyboardHost {
 	readonly renaming: boolean;
 	readonly octave: number;
 	readonly exporting?: boolean;
+	readonly activeView?: 'timeline' | 'mixer';
+	selectNextTrack?(): void;
+	selectPreviousTrack?(): void;
 	dispatch(event: EngineEvent): void;
 	sendNow(event: EngineEvent): void;
 	setZoom(direction: number): void;
@@ -158,6 +161,19 @@ export function attachKeyboard(host: KeyboardHost): () => void {
 				if (!event.repeat) host.loopSelection();
 			} else if (local === 'recolorTrack') {
 				if (!event.repeat) host.openTrackRecolor?.();
+			}
+
+			if (host.activeView === 'mixer' && !inTextInputOrGrid) {
+				if (event.key === 'ArrowLeft') {
+					host.selectPreviousTrack?.();
+					event.preventDefault();
+					return;
+				}
+				if (event.key === 'ArrowRight') {
+					host.selectNextTrack?.();
+					event.preventDefault();
+					return;
+				}
 			}
 
 			if (!inInputOrGrid && (event.key === 'ArrowUp' || event.key === 'ArrowDown' || event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
