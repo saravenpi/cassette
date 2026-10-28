@@ -5,6 +5,9 @@
 
 export type TrackKind = 'midi' | 'audio';
 
+/** The oscillator shapes the engine knows, as it serializes them. */
+export type OscillatorShape = 'sine' | 'square' | 'saw' | 'triangle' | 'pulse' | 'noise';
+
 /** Sentinel track index representing the master bus. */
 export const MASTER_TRACK = 999;
 
@@ -309,6 +312,7 @@ export type EngineEvent =
 	| { setEffectSidechain: { track: number; index: number; source: number | null } }
 	| { setInstrumentEnabled: { track: number; enabled: boolean } }
 	| { setInstrumentTone: { track: number; cutoff: number; resonance: number; detune: number; sub: number } }
+	| { setInstrumentWaveform: { track: number; waveform: OscillatorShape } }
 	| { addEffect: { track: number; kind: EffectKind; index: number | null } }
 	| {
 			pasteEffect: {

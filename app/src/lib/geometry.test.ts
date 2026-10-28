@@ -3,6 +3,8 @@ import {
 	MIN_LABEL_PX,
 	ZOOM_DEFAULT,
 	ZOOM_MAX,
+	meterClips,
+	meterPercent,
 	ZOOM_MIN,
 	anchoredScroll,
 	barsFor,
@@ -417,5 +419,22 @@ describe('rangePercent', () => {
 		expect(rangePercent(5, 0, 1)).toBe('100%');
 		expect(rangePercent(-5, 0, 1)).toBe('0%');
 		expect(rangePercent(1, 1, 1)).toBe('0%');
+	});
+});
+
+describe('meterPercent', () => {
+	test('puts full scale at the top and -60 dB at the bottom', () => {
+		expect(meterPercent(1)).toBe(100);
+		expect(meterPercent(0)).toBe(0);
+		expect(meterPercent(0.001)).toBe(0);
+	});
+
+	test('reads -6 dB near 90 percent', () => {
+		expect(Math.round(meterPercent(0.5))).toBe(90);
+	});
+
+	test('clips only at full scale', () => {
+		expect(meterClips(0.9)).toBe(false);
+		expect(meterClips(1)).toBe(true);
 	});
 });

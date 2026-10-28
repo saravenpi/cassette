@@ -6,7 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::models::{EffectKind, Note, TrackKind};
+use crate::models::{EffectKind, Note, TrackKind, Waveform};
 
 /// A rectangle of the arrangement: a run of tracks and a span of beats.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -341,6 +341,11 @@ pub enum Event {
         resonance: f32,
         detune: f32,
         sub: f32,
+    },
+    /// Pick the oscillator shape of a track's instrument.
+    SetInstrumentWaveform {
+        track: usize,
+        waveform: Waveform,
     },
     /// Insert an effect into a track's chain at `index`, or at the end.
     AddEffect {

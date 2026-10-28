@@ -8,7 +8,7 @@ use crate::app::effects::TrackShift;
 use crate::core::MAX_TRACKS;
 use crate::core::meter::MeterBank;
 use crate::core::render::RtCommand;
-use crate::models::{Instrument, Track, TrackKind};
+use crate::models::{Instrument, Track, TrackKind, Waveform};
 
 /// The voice fields a `SetInstrument` intent carries.
 #[derive(Clone, Copy, Debug)]
@@ -262,6 +262,20 @@ impl App {
         );
     }
 
+    pub(crate) fn set_instrument_waveform(&mut self, track: usize, waveform: Waveform) {
+        let Some(target) = self.song.tracks.get_mut(track) else {
+            self.status = "no track there to edit".into();
+            return;
+        };
+        target.instrument.waveform = waveform;
+        let instrument = target.instrument;
+        self.send(RtCommand::SetTrackInstrument {
+            track: track as u8,
+            instrument,
+        });
+        self.status = format!("track {} oscillator {}", track + 1, waveform.name());
+    }
+
     /// Move the track cursor by `delta`, clamped to the song.
     pub(crate) fn move_track(&mut self, delta: i32) {
         let tracks = self.song.tracks.len().max(1) as i32;
@@ -413,16 +427,14 @@ impl App {
         let Some(target) = self.song.tracks.get_mut(track) else {
             return;
         };
-        let waveform = target.instrument.waveform;
-        target.instrument = Instrument::new(
-            waveform,
-            edit.attack,
-            edit.decay,
-            edit.sustain,
-            edit.release,
-            edit.gain,
-            edit.octave,
-        );
+        let finite = |value: f32, fallback: f32| if value.is_finite() { value } else { fallback };
+        let current = &mut target.instrument;
+        current.attack = finite(edit.attack, current.attack).clamp(0.0, 10.0);
+        current.decay = finite(edit.decay, current.decay).clamp(0.0, 10.0);
+        current.sustain = finite(edit.sustain, current.sustain).clamp(0.0, 1.0);
+        current.release = finite(edit.release, current.release).clamp(0.0, 10.0);
+        current.gain = finite(edit.gain, current.gain).clamp(0.0, 1.0);
+        current.octave = edit.octave.clamp(-4, 4);
         let instrument = target.instrument;
         self.send(RtCommand::SetTrackInstrument {
             track: track as u8,
@@ -448,7 +460,7 @@ fn is_default_track_name(name: &str, kind: TrackKind) -> bool {
 mod tests {
     use super::*;
     use crate::events::Event;
-    use crate::models::{TrackKind, Waveform};
+    use crate::models::TrackKind;
     use crate::ui::view::Cursor;
 
     fn headless_app() -> App {
@@ -577,6 +589,32 @@ mod tests {
         assert_eq!(instrument.octave, -2);
         assert_eq!(instrument.release, 0.3);
         assert_eq!(app.ui_state().tracks[0].preset, "Custom");
+    }
+
+    #[test]
+    fn an_envelope_edit_keeps_the_tone_and_a_waveform_pick_sticks() {
+        let mut app = headless_app();
+        app.handle(Event::SetPreset {
+            track: 0,
+            preset: "Supersaw".into(),
+        });
+        app.handle(Event::SetInstrument {
+            track: 0,
+            gain: 0.3,
+            octave: 0,
+            attack: 0.02,
+            decay: 0.3,
+            sustain: 0.7,
+            release: 0.3,
+        });
+        let instrument = app.song.tracks[0].instrument;
+        assert_eq!(instrument.unison, 7);
+        assert_eq!(instrument.detune, 25.0);
+        app.handle(Event::SetInstrumentWaveform {
+            track: 0,
+            waveform: Waveform::Pulse,
+        });
+        assert_eq!(app.song.tracks[0].instrument.waveform, Waveform::Pulse);
     }
 
     #[test]

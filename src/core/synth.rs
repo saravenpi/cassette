@@ -619,6 +619,13 @@ fn waveform(shape: Waveform, phase: f32, rng: &mut u32) -> f32 {
                 3.0 - 4.0 * phase
             }
         }
+        Waveform::Pulse => {
+            if phase < 0.25 {
+                1.0
+            } else {
+                -1.0
+            }
+        }
         Waveform::Noise => next_noise(rng),
     }
 }
@@ -1365,7 +1372,7 @@ impl SynthEngine {
                 *track_count,
             );
             self.current_frame_outputs[ti] = (l, r);
-            let magnitude = l.abs().max(r.abs()) * track.volume;
+            let magnitude = l.abs().max(r.abs()) * track.volume * instrument.gain;
             if magnitude > peaks[ti] {
                 peaks[ti] = magnitude;
             }
@@ -1418,10 +1425,17 @@ mod tests {
     /// Pitch the timeline triggers sample voices at, as `render.rs` does.
     const EVENT: u8 = 255;
 
+    fn unity_lead() -> Instrument {
+        Instrument {
+            gain: 1.0,
+            ..Instrument::preset("Lead")
+        }
+    }
+
     fn engine() -> SynthEngine {
         let mut e = SynthEngine::new(44_100);
         e.set_track_count(1);
-        e.configure_track(0, Instrument::preset("Lead"), 1.0, 0.0, false, false);
+        e.configure_track(0, unity_lead(), 1.0, 0.0, false, false);
         e
     }
 
@@ -1429,7 +1443,7 @@ mod tests {
         let mut e = SynthEngine::new(44_100);
         e.set_track_count(count);
         for track in 0..count {
-            e.configure_track(track, Instrument::preset("Lead"), 1.0, 0.0, false, false);
+            e.configure_track(track, unity_lead(), 1.0, 0.0, false, false);
         }
         e
     }
@@ -1861,7 +1875,7 @@ mod tests {
         for _ in 0..256 {
             assert_eq!(e.process_frame(&mut peaks), (expected_l, expected_r));
         }
-        assert!((peaks[0] - 0.35).abs() < 1e-6);
+        assert!((peaks[0] - 0.35 * Instrument::preset("Lead").gain).abs() < 1e-6);
     }
 
     #[test]
@@ -1874,7 +1888,7 @@ mod tests {
         constant(&mut e, 0, 4_096, 0.5);
         assert!(e.play_sample(0, EVENT, 0, SampleCue::START, 1.0, 0));
         let peaks = run(&mut e, 2_048);
-        assert!(peaks[0] > 0.02 && peaks[0] < 0.03, "{}", peaks[0]);
+        assert!(peaks[0] > 0.009 && peaks[0] < 0.014, "{}", peaks[0]);
     }
 
     #[test]
@@ -1883,8 +1897,7 @@ mod tests {
         e.set_master_volume(0.5);
         constant(&mut e, 0, 4_096, 1.0);
         assert!(e.play_sample(0, EVENT, 0, SampleCue::START, 1.0, 0));
-        let gain = Instrument::preset("Lead").gain;
-        let expected = 1.0 * gain * 0.5 * 0.5;
+        let expected = 1.0 * 0.5 * 0.5;
         let mut peaks = [0.0; MAX_TRACKS];
         let (l, r) = e.process_frame(&mut peaks);
         assert!((l - expected).abs() < 1e-4);

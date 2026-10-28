@@ -7,11 +7,11 @@
 /** Pixels per beat at rest, and the range the zoom keys move through. */
 export const ZOOM_DEFAULT = 32;
 export const ZOOM_MIN = 8;
-export const ZOOM_MAX = 256;
+export const ZOOM_MAX = 1024;
 const ZOOM_STEP = 1.25;
 
 /** Grid steps the snap picks from, coarsest first, in beats. */
-const GRID_STEPS = [2, 1, 1 / 2, 1 / 4, 1 / 8, 1 / 16];
+const GRID_STEPS = [2, 1, 1 / 2, 1 / 4, 1 / 8, 1 / 16, 1 / 32, 1 / 64];
 /** Narrowest a grid step may be on screen before the snap picks a coarser one. */
 const MIN_GRID_PX = 12;
 /** Shortest block a resize can leave behind: one sixteenth note. */
@@ -105,6 +105,23 @@ export function waveWindow(
 	const perSecond = (buckets - 1) / seconds;
 	const played = ((lengthBeats * 60) / bpm) * rate;
 	return { x: offsetSeconds * perSecond, width: Math.max(played * perSecond, 0.001) };
+}
+
+/** Bars of empty room the ruler keeps after the last clip. */
+export const TAIL_BARS = 8;
+/** Quietest level a meter draws, in dB. */
+const METER_FLOOR_DB = -60;
+
+/** Meter height in 0..100 for a linear level, on a dB scale so 0 dBFS is the top. */
+export function meterPercent(level: number): number {
+	if (!(level > 0)) return 0;
+	const db = 20 * Math.log10(level);
+	return Math.min(100, Math.max(0, ((db - METER_FLOOR_DB) / -METER_FLOOR_DB) * 100));
+}
+
+/** Whether a linear level has reached full scale and clips. */
+export function meterClips(level: number): boolean {
+	return level >= 0.99;
 }
 
 /** Where `value` sits between `min` and `max`, as a CSS percentage for a slider's fill. */

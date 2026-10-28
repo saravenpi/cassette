@@ -10,7 +10,7 @@
 	import { envelopePoints, rangePercent } from '$lib/geometry';
 	import { session } from '$lib/session.svelte';
 	import type { Voice } from '$lib/session.svelte';
-	import type { ParamSpecView, TrackView } from '$lib/wire';
+	import type { OscillatorShape, ParamSpecView, TrackView } from '$lib/wire';
 	import Knob from './Knob.svelte';
 
 	const CUTOFF_SPEC: ParamSpecView = {
@@ -36,7 +36,7 @@
 	const DETUNE_SPEC: ParamSpecView = {
 		name: 'Detune',
 		min: 0,
-		max: 1,
+		max: 100,
 		default: 0,
 		unit: 'percent',
 		log: false,
@@ -52,6 +52,8 @@
 		log: false,
 		choices: []
 	};
+
+	const SHAPES: OscillatorShape[] = ['sine', 'square', 'saw', 'triangle', 'pulse', 'noise'];
 
 	const WIDTH = 240;
 	const HEIGHT = 52;
@@ -164,6 +166,11 @@
 		onSlider(id, String(next));
 	}
 
+	function pickShape(waveform: OscillatorShape): void {
+		session.dispatch('checkpoint');
+		session.dispatch({ setInstrumentWaveform: { track: index, waveform } });
+	}
+
 	function onToneChange(which: 'cutoff' | 'resonance' | 'detune' | 'sub', value: number): void {
 		const cutoff = which === 'cutoff' ? value : track.cutoff;
 		const resonance = which === 'resonance' ? value : track.resonance;
@@ -178,6 +185,18 @@
 		<p class="preset">
 			<span class="strong">{track.preset}</span> on a {track.waveform.toLowerCase()} oscillator
 		</p>
+		<div class="shapes" role="group" aria-label="Oscillator of {track.name}">
+			{#each SHAPES as shape (shape)}
+				<button
+					type="button"
+					class="shape-btn"
+					aria-pressed={track.waveform.toLowerCase() === shape}
+					onclick={() => pickShape(shape)}
+				>
+					{shape}
+				</button>
+			{/each}
+		</div>
 		<h3 class="eyebrow">Envelope</h3>
 		<svg
 			class="envelope"
@@ -269,6 +288,26 @@
 		grid-template-columns: 180px 240px auto;
 		gap: 16px;
 		align-items: start;
+	}
+
+	.shapes {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 2px;
+		margin-bottom: 8px;
+	}
+
+	.shape-btn {
+		padding: 2px 6px;
+		font-size: 9px;
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+		color: var(--text-subtle);
+	}
+
+	.shape-btn[aria-pressed='true'] {
+		color: var(--on-green);
+		background: var(--green);
 	}
 
 	.tone-section {

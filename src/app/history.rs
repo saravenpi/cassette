@@ -132,6 +132,7 @@ fn kind(event: &Event, cursor_track: usize, recording: bool) -> Kind {
         | Event::DeleteRange { .. }
         | Event::PasteRange { .. }
         | Event::DuplicateRange { .. }
+        | Event::SetInstrumentWaveform { .. }
         | Event::SetInstrumentEnabled { .. } => Kind::Edit,
         Event::SetEffectParam {
             track,

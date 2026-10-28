@@ -402,6 +402,15 @@ impl Track {
             instrument.sustain,
             instrument.release,
             instrument.gain,
+            instrument.detune,
+            instrument.sub,
+            instrument.cutoff,
+            instrument.resonance,
+            instrument.filter_env,
+            instrument.pitch_env,
+            instrument.pitch_decay,
+            instrument.fm_ratio,
+            instrument.fm_index,
         ];
         if numbers.iter().any(|n| !n.is_finite()) {
             return Err(format!("track {:?} holds a non-finite number", self.name));
@@ -430,6 +439,16 @@ impl Track {
         instrument.decay = instrument.decay.clamp(0.0, 10.0);
         instrument.release = instrument.release.clamp(0.0, 10.0);
         instrument.octave = instrument.octave.clamp(-4, 4);
+        instrument.unison = instrument.unison.clamp(1, 7);
+        instrument.detune = instrument.detune.clamp(0.0, 100.0);
+        instrument.sub = instrument.sub.clamp(0.0, 1.0);
+        instrument.cutoff = instrument.cutoff.clamp(20.0, 20_000.0);
+        instrument.resonance = instrument.resonance.clamp(0.0, 1.0);
+        instrument.filter_env = instrument.filter_env.clamp(0.0, 8.0);
+        instrument.pitch_env = instrument.pitch_env.clamp(0.0, 48.0);
+        instrument.pitch_decay = instrument.pitch_decay.clamp(0.001, 10.0);
+        instrument.fm_ratio = instrument.fm_ratio.clamp(0.01, 32.0);
+        instrument.fm_index = instrument.fm_index.clamp(0.0, 10.0);
         if let Some(color) = self.color_index {
             self.color_index = Some(color % 8);
         }

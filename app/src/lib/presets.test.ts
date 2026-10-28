@@ -29,7 +29,13 @@ const STUBBED_SNAPSHOT_PRESETS = [
 	'808',
 	'Tom',
 	'Clap',
-	'Rim'
+	'Rim',
+	'Pulse Lead',
+	'Reese',
+	'EPiano',
+	'Clav',
+	'Marimba',
+	'Choir'
 ];
 
 describe('roleForPreset', () => {
@@ -58,7 +64,7 @@ describe('groupPresets', () => {
 	});
 
 	test('omits groups that contain no presets', () => {
-		const groups = groupPresets(['Lead', 'Acid']);
-		expect(groups).toEqual([{ role: 'Synth', presets: ['Lead', 'Acid'] }]);
+		const groups = groupPresets(['Lead', 'Brass']);
+		expect(groups).toEqual([{ role: 'Synth', presets: ['Lead', 'Brass'] }]);
 	});
 });

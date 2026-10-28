@@ -17,6 +17,7 @@
 		MIN_ROW_HEIGHT,
 		ROW_HEIGHT,
 		RULER_HEIGHT,
+		TAIL_BARS,
 		barsFor,
 		beatsToPx,
 		clampRowHeight,
@@ -64,7 +65,9 @@
 		Math.round(Math.min(1, Math.max(0, snapshot?.masterLevel ?? 0)) * 100)
 	);
 	const beatsPerBar = $derived(snapshot?.beatsPerBar ?? 4);
-	const bars = $derived(barsFor(snapshot?.lengthBeats ?? 0, beatsPerBar, snapshot?.bars ?? 0));
+	const bars = $derived(
+		barsFor(snapshot?.lengthBeats ?? 0, beatsPerBar, snapshot?.bars ?? 0) + TAIL_BARS
+	);
 	const contentWidth = $derived(beatsToPx(bars * beatsPerBar, session.zoom));
 	const barWidth = $derived(beatsToPx(beatsPerBar, session.zoom));
 	const gridLabel = $derived.by(() => {

@@ -5,6 +5,7 @@
 	 * Selecting this strip opens the Master devices in DetailPane.
 	 */
 
+	import { meterClips, meterPercent } from '$lib/geometry';
 	import { session } from '$lib/session.svelte';
 	import { MASTER_TRACK } from '$lib/wire';
 
@@ -19,7 +20,8 @@
 
 	const snapshot = $derived(session.snapshot);
 	const masterVolume = $derived(draggedVolume ?? snapshot?.masterVolume ?? 0.85);
-	const masterLevel = $derived(Math.round(Math.min(1, Math.max(0, snapshot?.masterLevel ?? 0)) * 100));
+	const masterRaw = $derived(snapshot?.masterLevel ?? 0);
+	const masterLevel = $derived(Math.round(meterPercent(masterRaw)));
 	const masterEffects = $derived(snapshot?.masterEffects ?? []);
 
 	const volumeDb = $derived.by(() => {
@@ -118,8 +120,8 @@
 			<div class="v-meter">
 				<div
 					class="v-meter-fill"
-					class:warm={masterLevel >= 80 && masterLevel < 92}
-					class:hot={masterLevel >= 92}
+					class:warm={masterRaw >= 0.5 && !meterClips(masterRaw)}
+					class:hot={meterClips(masterRaw)}
 					style="height: {masterLevel}%"
 				></div>
 				<div class="meter-scale">

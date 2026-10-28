@@ -10,16 +10,18 @@ pub enum Waveform {
     Square,
     Saw,
     Triangle,
+    Pulse,
     Noise,
 }
 
 impl Waveform {
     /// Every waveform, in menu order.
-    pub const ALL: [Waveform; 5] = [
+    pub const ALL: [Waveform; 6] = [
         Waveform::Sine,
         Waveform::Square,
         Waveform::Saw,
         Waveform::Triangle,
+        Waveform::Pulse,
         Waveform::Noise,
     ];
 
@@ -30,6 +32,7 @@ impl Waveform {
             Waveform::Square => "Square",
             Waveform::Saw => "Saw",
             Waveform::Triangle => "Triangle",
+            Waveform::Pulse => "Pulse",
             Waveform::Noise => "Noise",
         }
     }
@@ -119,13 +122,36 @@ impl Instrument {
     }
 
     /// Named instrument presets, in menu order.
-    pub const PRESETS: [&'static str; 19] = [
-        "Lead", "Bass", "Pad", "Pluck", "Kick", "Snare", "Hat", "Supersaw", "Sub Bass", "Acid",
-        "Keys", "Bell", "Organ", "Strings", "Brass", "808", "Tom", "Clap", "Rim",
+    pub const PRESETS: [&'static str; 25] = [
+        "Lead",
+        "Bass",
+        "Pad",
+        "Pluck",
+        "Kick",
+        "Snare",
+        "Hat",
+        "Supersaw",
+        "Sub Bass",
+        "Acid",
+        "Keys",
+        "Bell",
+        "Organ",
+        "Strings",
+        "Brass",
+        "808",
+        "Tom",
+        "Clap",
+        "Rim",
+        "Pulse Lead",
+        "Reese",
+        "EPiano",
+        "Clav",
+        "Marimba",
+        "Choir",
     ];
 
     /// Presets mapped to their instrument group.
-    pub const PRESET_GROUPS: [(&'static str, &'static str); 19] = [
+    pub const PRESET_GROUPS: [(&'static str, &'static str); 25] = [
         ("Lead", "Synth"),
         ("Bass", "Bass"),
         ("Pad", "Pad"),
@@ -145,15 +171,21 @@ impl Instrument {
         ("Tom", "Drums"),
         ("Clap", "Drums"),
         ("Rim", "Drums"),
+        ("Pulse Lead", "Synth"),
+        ("Reese", "Bass"),
+        ("EPiano", "Keys"),
+        ("Clav", "Keys"),
+        ("Marimba", "Keys"),
+        ("Choir", "Pad"),
     ];
 
     /// Instrument category for a preset name.
     pub const fn group(name: &str) -> &'static str {
         match name.as_bytes() {
-            b"Lead" | b"Pluck" | b"Supersaw" | b"Brass" => "Synth",
-            b"Keys" | b"Bell" | b"Organ" => "Keys",
-            b"Bass" | b"Sub Bass" | b"Acid" => "Bass",
-            b"Pad" | b"Strings" => "Pad",
+            b"Lead" | b"Pluck" | b"Supersaw" | b"Brass" | b"Pulse Lead" => "Synth",
+            b"Keys" | b"Bell" | b"Organ" | b"EPiano" | b"Clav" | b"Marimba" => "Keys",
+            b"Bass" | b"Sub Bass" | b"Acid" | b"Reese" => "Bass",
+            b"Pad" | b"Strings" | b"Choir" => "Pad",
             b"Kick" | b"Snare" | b"Hat" | b"808" | b"Tom" | b"Clap" | b"Rim" => "Drums",
             _ => "Synth",
         }
@@ -185,8 +217,17 @@ impl Instrument {
                 fm_index: 0.45,
                 enabled: true,
             },
-            "Snare" => Self::new(Waveform::Noise, 0.001, 0.16, 0.0, 0.09, 0.55, 0),
-            "Hat" => Self::new(Waveform::Noise, 0.001, 0.05, 0.0, 0.03, 0.35, 2),
+            "Snare" => Self {
+                cutoff: 5_000.0,
+                resonance: 0.2,
+                filter_env: 1.0,
+                ..Self::new(Waveform::Noise, 0.001, 0.16, 0.0, 0.09, 0.55, 0)
+            },
+            "Hat" => Self {
+                cutoff: 14_000.0,
+                resonance: 0.1,
+                ..Self::new(Waveform::Noise, 0.001, 0.05, 0.0, 0.03, 0.35, 2)
+            },
             "Supersaw" => Self {
                 waveform: Waveform::Saw,
                 attack: 0.01,
@@ -426,6 +467,52 @@ impl Instrument {
                 fm_ratio: 1.0,
                 fm_index: 0.0,
                 enabled: true,
+            },
+            "Pulse Lead" => Self {
+                unison: 2,
+                detune: 8.0,
+                cutoff: 2_400.0,
+                resonance: 0.25,
+                filter_env: 2.0,
+                ..Self::new(Waveform::Pulse, 0.005, 0.20, 0.60, 0.15, 0.45, 0)
+            },
+            "Reese" => Self {
+                unison: 5,
+                detune: 32.0,
+                sub: 0.6,
+                cutoff: 450.0,
+                resonance: 0.25,
+                filter_env: 1.0,
+                ..Self::new(Waveform::Saw, 0.01, 0.30, 0.80, 0.20, 0.40, -1)
+            },
+            "EPiano" => Self {
+                cutoff: 6_000.0,
+                resonance: 0.1,
+                filter_env: 0.8,
+                fm_ratio: 2.0,
+                fm_index: 1.2,
+                ..Self::new(Waveform::Sine, 0.004, 1.40, 0.15, 0.40, 0.50, 0)
+            },
+            "Clav" => Self {
+                cutoff: 1_800.0,
+                resonance: 0.35,
+                filter_env: 3.0,
+                ..Self::new(Waveform::Pulse, 0.001, 0.18, 0.0, 0.08, 0.50, 0)
+            },
+            "Marimba" => Self {
+                cutoff: 5_000.0,
+                filter_env: 1.0,
+                fm_ratio: 4.0,
+                fm_index: 0.8,
+                ..Self::new(Waveform::Sine, 0.001, 0.22, 0.0, 0.15, 0.55, 0)
+            },
+            "Choir" => Self {
+                unison: 5,
+                detune: 16.0,
+                cutoff: 1_100.0,
+                resonance: 0.45,
+                filter_env: 0.6,
+                ..Self::new(Waveform::Pulse, 0.40, 0.50, 0.80, 0.70, 0.35, 0)
             },
             _ => Self::new(Waveform::Square, 0.010, 0.12, 0.60, 0.15, 0.45, 0),
         }

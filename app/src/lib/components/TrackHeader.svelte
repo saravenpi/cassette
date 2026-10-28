@@ -5,7 +5,7 @@
 	 * frame by the session, so a drag never floods the engine.
 	 */
 
-	import { HEADER_WIDTH, ROW_HEIGHT, rangePercent } from '$lib/geometry';
+	import { HEADER_WIDTH, ROW_HEIGHT, meterPercent, rangePercent } from '$lib/geometry';
 	import { trackMenu } from '$lib/menu';
 	import { menu } from '$lib/menu.svelte';
 	import { trackColor } from '$lib/palette';
@@ -37,7 +37,7 @@
 	const isSelected = $derived(selected || trackSelection.isSelected(index));
 	const isArmed = $derived(session.armedAudioTrack === index);
 	const isRecordingAudio = $derived(session.audioTake?.track === index);
-	const level = $derived(Math.round(Math.min(1, Math.max(0, track.level)) * 100));
+	const level = $derived(Math.round(meterPercent(track.level)));
 	const volume = $derived(draggedVolume ?? track.volume);
 	const pan = $derived(draggedPan ?? track.pan);
 
@@ -495,9 +495,9 @@
 		height: 100%;
 		background: linear-gradient(
 			90deg,
-			var(--green) 0 60%,
-			var(--olive) 60% 85%,
-			var(--alert) 85% 100%
+			var(--green) 0 83%,
+			var(--olive) 83% 99%,
+			var(--alert) 99% 100%
 		);
 		background-size: 36px 100%;
 	}

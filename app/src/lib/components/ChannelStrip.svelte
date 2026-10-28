@@ -5,6 +5,7 @@
 	 * vertical level meter, and mute/solo/arm buttons.
 	 */
 
+	import { meterClips, meterPercent } from '$lib/geometry';
 	import { trackColor } from '$lib/palette';
 	import { session } from '$lib/session.svelte';
 	import type { TrackView } from '$lib/wire';
@@ -30,7 +31,8 @@
 	const color = $derived(trackColor(track.colorIndex));
 	const volume = $derived(draggedVolume ?? track.volume);
 	const pan = $derived(draggedPan ?? track.pan);
-	const level = $derived(Math.round(Math.min(1, Math.max(0, track.level)) * 100));
+	const level = $derived(Math.round(meterPercent(track.level)));
+	const clipping = $derived(meterClips(track.level));
 	const isArmed = $derived(session.armedAudioTrack === index);
 	const isRecordingAudio = $derived(session.audioTake?.track === index);
 
@@ -228,8 +230,8 @@
 			<div class="v-meter">
 				<div
 					class="v-meter-fill"
-					class:warm={level >= 80 && level < 92}
-					class:hot={level >= 92}
+					class:warm={track.level >= 0.5 && !clipping}
+					class:hot={clipping}
 					style="height: {level}%"
 				></div>
 				<div class="meter-scale">

@@ -374,6 +374,9 @@ impl App {
                 detune,
                 sub,
             } => self.set_instrument_tone(track, cutoff, resonance, detune, sub),
+            Event::SetInstrumentWaveform { track, waveform } => {
+                self.set_instrument_waveform(track, waveform)
+            }
             Event::AddEffect { track, kind, index } => self.add_effect(track, kind, index),
             Event::PasteEffect {
                 track,

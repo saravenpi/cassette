@@ -594,3 +594,24 @@ Loop points, frame-accurate note starts, and a review pass over v0.9.0.
 - Smarter quantize (`Ctrl+U` and Piano Roll Quantize button): adapts to the active Piano Roll zoom grid (`1/4` through `1/64`), snaps both note starts and note lengths, and trims overlapping notes on the same pitch.
 - Settings modal UI: removed top header bar, removed all rounded corners, shadows, blurs, and gradients, and simplified output/input audio device selection.
 - Cleaned and updated `README.md`.
+
+## [0.21.0] - 2026-10-28
+
+### Added
+
+- A `Pulse` oscillator (25% duty cycle) and an oscillator picker in the voice editor.
+- Six presets: Pulse Lead, Reese, EPiano, Clav, Marimba and Choir.
+- The timeline keeps eight bars of room after the last clip, and zooms in to 1024 px per beat with 1/32 and 1/64 grid steps.
+
+### Changed
+
+- Track and header meters use a dB scale and turn red only at full scale. Track meters now read after the instrument gain, so they match what reaches the master.
+- Audio block waveforms are drawn from up to 1000 peaks per second, so zooming in shows detail.
+- Snare and Hat presets are filtered instead of raw white noise.
+- Preset groups agree between the engine and the app (Acid is Bass, Brass is Synth, 808 is Drums).
+
+### Fixed
+
+- Editing gain, octave or the envelope no longer resets filter, unison, sub, pitch sweep and FM.
+- The Detune knob spans 0 to 100 cents instead of 0 to 1.
+- Loading a project clamps every instrument field and rejects non-finite ones.

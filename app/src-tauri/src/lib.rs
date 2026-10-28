@@ -329,7 +329,8 @@ fn waveform_of(path: &str) -> Result<Waveform, String> {
     let sample = cassette::core::wav::decode(&target, MAX_DECODED_FRAMES)
         .map_err(|error| format!("cassette: cannot read {path}: {error:#}"))?;
     let seconds = sample.frames.len() as f32 / sample.sample_rate.max(1) as f32;
-    let buckets = ((seconds * 100.0).round() as usize).clamp(WAVEFORM_BUCKETS, 8_192);
+    let floor = sample.frames.len().clamp(WAVEFORM_BUCKETS, 2_048);
+    let buckets = ((seconds * 1_000.0).round() as usize).clamp(floor, 32_768);
     let mut raw_peaks = peaks(&sample.frames, buckets);
     let max_peak = raw_peaks.iter().copied().fold(0.0f32, f32::max);
     if max_peak > 1e-4 && max_peak < 1.0 {
@@ -684,7 +685,7 @@ mod tests {
         let waveform = waveform_of(&path.to_string_lossy());
         let _ = std::fs::remove_file(&path);
         let waveform = waveform.expect("should read");
-        assert_eq!(waveform.peaks.len(), 500);
+        assert_eq!(waveform.peaks.len(), 5_000);
         assert!((waveform.seconds - 5.0).abs() < 0.01);
     }
 
