@@ -516,3 +516,25 @@ Loop points, frame-accurate note starts, and a review pass over v0.9.0.
 
 - Tauri updater ACL permissions: grant updater and process permissions in desktop capability configuration to allow update checks, downloads, and app restarts.
 - Mixer view retro geometry: remove border rounding from pan slider knobs, vertical level meters, and channel strip chips to match the square Kono theme.
+
+## [0.17.2] - 2026-10-28
+
+### Added
+
+- Audition playback in the sample browser preview: click the play/stop button or the filled waveform thumbnail in the bottom-left preview to listen to any selected audio sample.
+- Mixer keyboard navigation: `ArrowLeft` and `ArrowRight` move track selection across mixer channel strips and the Master bus strip.
+- Double-click on empty MIDI track lanes creates a new 1-bar MIDI block at the snapped beat.
+- Pixel-art transport icons: replaced transport, history, file, view switcher, and settings labels with `@iconify-json/pixelarticons`.
+
+### Changed
+
+- MIDI editor note color: piano roll notes, drag previews, and selection marquees now use the track color instead of fixed green.
+- Mixer fader and meter styling: mixer volume and pan slider handles are rectangular and colored with primary green (`--green`), and level meters remain solid green at normal levels, turning yellow above 80% and red only when clipping (>= 92%).
+- Adaptive audio waveform resolution: `read_waveform` scales peak density with file duration (up to 8,192 buckets) and normalizes peak amplitudes with viewport-aware window decimation.
+
+### Fixed
+
+- Audio block waveform visibility: explicit SVG track-color fill and non-scaling stroke on audio blocks ensure long and quiet samples always render visibly in WebKitGTK.
+- Double-click on MIDI blocks reliably opens the clip editor (`PianoRoll`) under WebKitGTK pointer capture.
+- Track kind and default name synchronization: importing or dropping a sample onto a default-named MIDI track renames `"Midi N"` to the next `"Audio N"` and supports dropping onto track headers and mixer strips.
+- Smooth mixer meter decay: buffer-size-aware exponential decay in the audio engine and removal of lagging CSS height transitions on meter fills.

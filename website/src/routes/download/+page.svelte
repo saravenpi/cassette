@@ -94,7 +94,7 @@
       : platforms
   );
 
-  const version = $derived<string>(data.version || "0.17.1");
+  const version = $derived<string>(data.version || "0.17.2");
   const notesUrl = $derived<string>(data.url ?? releasesUrl);
 </script>
 
