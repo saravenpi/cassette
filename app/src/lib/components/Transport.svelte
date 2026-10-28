@@ -29,6 +29,14 @@
 	const position = $derived(
 		formatPosition(snapshot?.transportPositionBeats ?? 0, snapshot?.beatsPerBar ?? 4)
 	);
+	const metronomeOn = $derived(snapshot?.metronome ?? false);
+	const metronomeIcon = $derived(
+		!metronomeOn
+			? 'pixelarticons:speed-medium'
+			: Math.floor(snapshot?.transportPositionBeats ?? 0) % 2 === 0
+				? 'pixelarticons:speed-slow'
+				: 'pixelarticons:speed-fast'
+	);
 	const countIn = $derived(formatCountIn(snapshot?.countInBeatsLeft ?? 0));
 	const isMac = typeof navigator !== 'undefined' && /Macintosh|Mac OS X/.test(navigator.userAgent);
 	const exportProgress = $derived(session.snapshot?.exportProgress ?? session.exportProgress);
@@ -162,10 +170,12 @@
 	<div class="group" role="group" aria-label="Metronome">
 		<button
 			aria-pressed={snapshot?.metronome ?? false}
+			aria-label="Metronome"
+			class="icon-btn"
 			title="Metronome click"
 			onclick={() => session.dispatch('toggleMetronome')}
 		>
-			Metro
+			<Icon icon={metronomeIcon} width="16" height="16" />
 		</button>
 		<button
 			class="step"

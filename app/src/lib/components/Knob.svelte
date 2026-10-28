@@ -35,6 +35,7 @@
 	let dragging = $state(false);
 	let anchor = { y: 0, value: 0, fine: false };
 	let settle: ReturnType<typeof setTimeout> | null = null;
+	let lastWheelAt = 0;
 
 	const shown = $derived(local ?? clampParam(value, spec));
 	const position = $derived(toNormal(shown, spec));
@@ -98,6 +99,11 @@
 	function onWheel(event: WheelEvent): void {
 		if (disabled || event.deltaY === 0) return;
 		event.preventDefault();
+		const now = performance.now();
+		if (now - lastWheelAt > 300) {
+			onbegin();
+		}
+		lastWheelAt = now;
 		set(stepParam(shown, spec, -event.deltaY, event.shiftKey ? 'fine' : 'normal'));
 	}
 

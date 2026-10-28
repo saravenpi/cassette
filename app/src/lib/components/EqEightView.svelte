@@ -37,6 +37,7 @@
 	let selectedBand = $state(2);
 	let dragging = $state<{ band: number; startX: number; startY: number; startQ: number } | null>(null);
 	let svgElem = $state<SVGSVGElement | null>(null);
+	let lastWheelAt = 0;
 
 	const catalog = $derived(session.snapshot?.effectCatalog ?? []);
 	const spec = $derived(specFor(catalog, effect.kind));
@@ -178,6 +179,11 @@
 		event.stopPropagation();
 		const band = bands[b];
 		if (!band) return;
+		const now = performance.now();
+		if (now - lastWheelAt > 300) {
+			session.dispatch('checkpoint');
+		}
+		lastWheelAt = now;
 		const factor = event.deltaY > 0 ? 0.9 : 1.1;
 		const nextQ = Math.max(0.1, Math.min(10.0, +(band.q * factor).toFixed(2)));
 		session.queueEffectParam(index, at, b * 4 + 2, nextQ);

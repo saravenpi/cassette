@@ -18,6 +18,7 @@ import { paramKey } from './chain';
 import { detail } from './detail.svelte';
 import { DragController } from './drag.svelte';
 import { DEFAULT_LENGTH_BEATS, ZOOM_DEFAULT, clampZoom, gridStep, snapBeats, zoomBy } from './geometry';
+import { SvelteSet } from 'svelte/reactivity';
 import { attachKeyboard } from './keyboard';
 import { NoteCache } from './noteCache';
 import { NOTE_GRID, locateBlock } from './pianoRoll';
@@ -82,6 +83,9 @@ class Session {
 	zoom = $state(ZOOM_DEFAULT);
 	scrollRequest = $state(0);
 	roll = $state<OpenBlock | null>(null);
+
+	/** Pitches currently sounding from the keyboard or the audition keys. */
+	readonly heldPitches = new SvelteSet<number>();
 	hover = $state<Hover | null>(null);
 	exporting = $state(false);
 	exportProgress = $state<number | null>(null);
@@ -155,17 +159,21 @@ class Session {
 	/** Apply one intent. */
 	dispatch(event: EngineEvent): void {
 		if (this.exporting && (event === 'togglePlay' || event === 'toggleRecord')) return;
+		if (event === 'stop') {
+			this.heldPitches.clear();
+		}
 		if (event === 'addBlock' && this.snapshot !== null) {
 			this.addBlockAtPlayhead(this.snapshot);
 			return;
 		}
 		if (typeof event === 'object' && 'selectTrack' in event) {
 			this.selectedTrack = event.selectTrack.track;
+			detail.followTrack();
 		}
 		if (typeof event === 'object' && 'reorderTrack' in event) {
 			trackSelection.reorderTrack(event.reorderTrack.from, event.reorderTrack.to);
 		}
-		void this.send(event);
+		void this.flushAndSend(event);
 	}
 
 	/** Insert a MIDI block on the cursor's track at the snapped playhead, as Ableton does at its insert marker. */
@@ -201,7 +209,7 @@ class Session {
 		if (typeof event === 'object' && 'reorderTrack' in event) {
 			trackSelection.reorderTrack(event.reorderTrack.from, event.reorderTrack.to);
 		}
-		return this.send(event);
+		return this.flushAndSend(event);
 	}
 
 	/** Show a failure in the status bar until the next successful send. */
@@ -211,6 +219,11 @@ class Session {
 
 	/** Apply one intent without waiting, for note-on and note-off. */
 	sendNow(event: EngineEvent): void {
+		if (typeof event === 'object' && 'noteOn' in event) {
+			this.heldPitches.add(event.noteOn.pitch);
+		} else if (typeof event === 'object' && 'noteOff' in event) {
+			this.heldPitches.delete(event.noteOff.pitch);
+		}
 		sendWithoutWaiting(event);
 	}
 
@@ -925,8 +938,8 @@ class Session {
 		}
 	}
 
-	private async flushQueued(): Promise<void> {
-		const queued = [
+	private drainQueued(): EngineEvent[] {
+		return [
 			...this.mix.drain(),
 			...this.voice.drain(),
 			...this.noteDrag.drain(),
@@ -934,7 +947,17 @@ class Session {
 			...this.effectParam.drain(),
 			...this.instrumentTone.drain()
 		];
+	}
+
+	private async flushQueued(): Promise<void> {
+		const queued = this.drainQueued();
 		for (const event of queued) await this.send(event);
+	}
+
+	private async flushAndSend(event: EngineEvent): Promise<boolean> {
+		const queued = this.drainQueued();
+		for (const item of queued) await this.send(item);
+		return this.send(event);
 	}
 
 	/**

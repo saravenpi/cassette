@@ -104,8 +104,10 @@ const CHORDS: Record<string, LocalIntent> = {
 
 /** Chords that carry an engine intent: undo, redo, and add track. */
 function chordIntent(event: KeyboardEvent): EngineEvent | null {
-	if (event.code === 'KeyZ') return event.shiftKey ? 'redo' : 'undo';
-	if (event.code === 'KeyY') return 'redo';
+	if (event.code === 'KeyZ' || event.key === 'z' || event.key === 'Z') {
+		return event.shiftKey ? 'redo' : 'undo';
+	}
+	if (event.code === 'KeyY' || event.key === 'y' || event.key === 'Y') return 'redo';
 	if (event.code === 'KeyT') return { addTrack: { kind: event.shiftKey ? 'midi' : 'audio' } };
 	return null;
 }

@@ -66,6 +66,11 @@
 		session.queueMix(index, nextVolume, nextPan, muted, solo);
 	}
 
+	function releaseFaders(): void {
+		draggedVolume = null;
+		draggedPan = null;
+	}
+
 	function onVolumeInput(event: Event): void {
 		const input = event.currentTarget;
 		if (!(input instanceof HTMLInputElement)) return;
@@ -200,8 +205,19 @@
 			step="0.02"
 			value={pan}
 			aria-label="Pan of {track.name}"
+			onclick={(e) => e.stopPropagation()}
+			onpointerdown={(event) => {
+				event.stopPropagation();
+				if (event.detail === 2) {
+					resetFader('pan');
+				} else {
+					session.dispatch('checkpoint');
+				}
+			}}
 			ondblclick={() => resetFader('pan')}
 			oninput={onPanInput}
+			onchange={releaseFaders}
+			onblur={releaseFaders}
 		/>
 	</div>
 
@@ -225,6 +241,13 @@
 		</div>
 
 		<div class="fader-col">
+			<div class="v-fader-track" aria-hidden="true">
+				<div class="v-fader-fill" style="height: {Math.round(volume * 100)}%"></div>
+				<div
+					class="v-fader-thumb"
+					style="bottom: calc({Math.round(volume * 1000) / 10}% - 4px)"
+				></div>
+			</div>
 			<input
 				class="v-fader"
 				type="range"
@@ -233,8 +256,19 @@
 				step="0.01"
 				value={volume}
 				aria-label="Volume of {track.name}"
+				onclick={(e) => e.stopPropagation()}
+				onpointerdown={(event) => {
+					event.stopPropagation();
+					if (event.detail === 2) {
+						resetFader('volume');
+					} else {
+						session.dispatch('checkpoint');
+					}
+				}}
 				ondblclick={() => resetFader('volume')}
 				oninput={onVolumeInput}
+				onchange={releaseFaders}
+				onblur={releaseFaders}
 			/>
 		</div>
 	</div>
@@ -243,6 +277,7 @@
 		type="button"
 		class="db-readout"
 		aria-label="Reset volume to default"
+		onclick={(e) => e.stopPropagation()}
 		ondblclick={() => resetFader('volume')}
 	>
 		{volumeDb} dB
@@ -257,6 +292,7 @@
 			title="Mute {track.name}"
 			onclick={(e) => {
 				e.stopPropagation();
+				session.dispatch('checkpoint');
 				mix(volume, pan, !track.muted, track.solo);
 			}}
 		>
@@ -270,6 +306,7 @@
 			title="Solo {track.name}"
 			onclick={(e) => {
 				e.stopPropagation();
+				session.dispatch('checkpoint');
 				mix(volume, pan, track.muted, !track.solo);
 			}}
 		>
@@ -460,18 +497,30 @@
 		appearance: none;
 		width: 10px;
 		height: 10px;
-		border-radius: 0;
+		border-radius: 0 !important;
 		background: var(--green);
 		cursor: pointer;
+	}
+
+	.pan-slider:hover::-webkit-slider-thumb,
+	.pan-slider:active::-webkit-slider-thumb {
+		background: var(--green);
+		border-radius: 0 !important;
 	}
 
 	.pan-slider::-moz-range-thumb {
 		width: 10px;
 		height: 10px;
-		border-radius: 0;
+		border-radius: 0 !important;
 		border: none;
 		background: var(--green);
 		cursor: pointer;
+	}
+
+	.pan-slider:hover::-moz-range-thumb,
+	.pan-slider:active::-moz-range-thumb {
+		background: var(--green);
+		border-radius: 0 !important;
 	}
 
 	.fader-meter-area {
@@ -534,6 +583,7 @@
 	}
 
 	.fader-col {
+		position: relative;
 		flex: 1;
 		height: 100%;
 		display: flex;
@@ -541,31 +591,47 @@
 		justify-content: center;
 	}
 
+	.v-fader-track {
+		position: relative;
+		width: 4px;
+		height: calc(100% - 8px);
+		background: var(--bg);
+		border: 1px solid var(--border-subtle);
+		border-radius: 0;
+		pointer-events: none;
+		box-sizing: border-box;
+	}
+
+	.v-fader-fill {
+		position: absolute;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: var(--green-soft);
+	}
+
+	.v-fader-thumb {
+		position: absolute;
+		left: 50%;
+		transform: translateX(-50%);
+		width: 20px;
+		height: 8px;
+		background: var(--green);
+		border-radius: 0;
+	}
+
 	.v-fader {
+		position: absolute;
+		inset: 0;
+		width: 100%;
+		height: 100%;
+		margin: 0;
+		opacity: 0;
 		-webkit-appearance: slider-vertical;
 		appearance: slider-vertical;
-		width: 24px;
-		height: 100%;
-		background: transparent;
+		writing-mode: vertical-lr;
+		direction: rtl;
 		cursor: pointer;
-		accent-color: var(--green);
-	}
-
-	.v-fader::-webkit-slider-thumb {
-		-webkit-appearance: none;
-		appearance: none;
-		width: 18px;
-		height: 8px;
-		border-radius: 0;
-		background: var(--green);
-	}
-
-	.v-fader::-moz-range-thumb {
-		width: 18px;
-		height: 8px;
-		border-radius: 0;
-		border: none;
-		background: var(--green);
 	}
 
 	.db-readout {

@@ -116,6 +116,7 @@
 	}
 
 	function toggleMute(): void {
+		session.dispatch('checkpoint');
 		const nextMuted = !track.muted;
 		if (isSelected && trackSelection.selectedTracks.size > 1) {
 			for (const t of trackSelection.selectedTracks) {
@@ -130,6 +131,7 @@
 	}
 
 	function toggleSolo(): void {
+		session.dispatch('checkpoint');
 		const nextSolo = !track.solo;
 		if (isSelected && trackSelection.selectedTracks.size > 1) {
 			for (const t of trackSelection.selectedTracks) {

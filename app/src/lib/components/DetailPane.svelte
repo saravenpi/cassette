@@ -1,10 +1,10 @@
 <script lang="ts">
 	/**
-	 * The detail pane under the timeline, after Ableton's Detail View. Its header
-	 * holds the Clip and Devices selectors, the track name (and the block name in
-	 * Clip view) and a hide button; Shift+Tab switches the view. Clip hosts the
-	 * piano roll on the open MIDI block, and Devices shows the selected track's
-	 * chain. The top edge drags to resize the pane, or takes the arrow keys while
+	 * The detail pane under the timeline, after Ableton's Detail View. It has no
+	 * tabs: selecting a track shows that track's devices, and selecting a MIDI
+	 * clip shows the piano roll on it. The header names what is shown, with the
+	 * track name (and the block name for a clip) and a hide button; Shift+Tab
+	 * still switches the view. The top edge drags to resize the pane, or takes the arrow keys while
 	 * focused, between 160 px and 60% of the window. The detail store keeps the
 	 * height and the open state across sessions. Enter on a button in the pane
 	 * stays with the button, so it never also adds a block.
@@ -12,16 +12,11 @@
 
 	import { onDestroy } from 'svelte';
 
-	import { RESIZE_BIG_STEP, RESIZE_STEP, MIN_HEIGHT, MAX_SHARE, clampHeight, type DetailView } from '$lib/detail';
+	import { RESIZE_BIG_STEP, RESIZE_STEP, MIN_HEIGHT, MAX_SHARE, clampHeight } from '$lib/detail';
 	import { detail } from '$lib/detail.svelte';
 	import { session } from '$lib/session.svelte';
 	import DeviceChain from './DeviceChain.svelte';
 	import PianoRoll from './PianoRoll.svelte';
-
-	const VIEWS: { id: DetailView; label: string }[] = [
-		{ id: 'clip', label: 'Clip' },
-		{ id: 'devices', label: 'Devices' }
-	];
 
 	let windowHeight = $state(typeof window === 'undefined' ? 800 : window.innerHeight);
 	let resize: { y: number; height: number } | null = null;
@@ -71,15 +66,6 @@
 		detail.setHeight(clampHeight(next, windowHeight));
 	}
 
-	function onTabKey(event: KeyboardEvent): void {
-		if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
-		event.preventDefault();
-		event.stopPropagation();
-		const next: DetailView = detail.view === 'clip' ? 'devices' : 'clip';
-		detail.show(next);
-		document.getElementById(`detail-tab-${next}`)?.focus();
-	}
-
 	/**
 	 * Attach a listener outside the template. A focusable separator is an
 	 * interactive widget in WAI-ARIA, but the template linter only counts the
@@ -124,24 +110,7 @@
 	{/if}
 
 	<header class="bar">
-		<div class="tabs" role="tablist" aria-label="Detail view">
-			{#each VIEWS as view (view.id)}
-				<button
-					type="button"
-					class="tab"
-					role="tab"
-					id="detail-tab-{view.id}"
-					aria-selected={detail.open && detail.view === view.id}
-					aria-controls="detail-body"
-					tabindex={detail.view === view.id ? 0 : -1}
-					title="{view.label} (Shift+Tab switches)"
-					onclick={() => detail.show(view.id)}
-					onkeydown={onTabKey}
-				>
-					{view.label}
-				</button>
-			{/each}
-		</div>
+		<span class="kind">{detail.view === 'clip' && rollBlock !== null ? 'Clip' : 'Devices'}</span>
 		<span class="eyebrow">{shownTrack?.name ?? ''}</span>
 		{#if detail.view === 'clip' && rollBlock !== null}
 			<span class="title">{rollBlock.name}</span>
@@ -160,14 +129,14 @@
 	</header>
 
 	{#if detail.open}
-		<div class="body" id="detail-body" role="tabpanel" aria-labelledby="detail-tab-{detail.view}" style="height: {height}px">
+		<div class="body" id="detail-body" role="region" aria-label="{detail.view === 'clip' ? 'Clip' : 'Devices'}" style="height: {height}px">
 			{#if detail.view === 'clip'}
 				{#if roll !== null}
 					{#key roll.serial}
 						<PianoRoll />
 					{/key}
 				{:else}
-					<p class="empty">Double-click a MIDI block or press P to edit its notes</p>
+					<p class="empty">Click a MIDI clip to edit its notes</p>
 				{/if}
 			{:else if track === null}
 				<p class="empty">connecting…</p>
@@ -217,33 +186,12 @@
 		background: var(--surface);
 	}
 
-	.tabs {
-		display: flex;
-		height: 100%;
-	}
-
-	.tab {
-		height: 100%;
-		padding: 0 10px;
+	.kind {
+		padding: 0 10px 0 0;
 		font-size: 11px;
 		letter-spacing: 0.14em;
-		color: var(--text-subtle);
-		background: transparent;
-		box-shadow: inset 0 -2px 0 transparent;
-	}
-
-	.tab:hover:not(:disabled) {
+		text-transform: uppercase;
 		color: var(--text);
-		filter: none;
-	}
-
-	.tab[aria-selected='true'] {
-		color: var(--text);
-		box-shadow: inset 0 -2px 0 var(--green);
-	}
-
-	.tab:focus-visible {
-		outline-offset: -2px;
 	}
 
 	.eyebrow {

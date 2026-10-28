@@ -28,6 +28,20 @@
 		return db > 0 ? `+${db}` : `${db}`;
 	});
 
+	$effect(() => {
+		if (
+			draggedVolume !== null &&
+			snapshot?.masterVolume !== undefined &&
+			Math.abs(snapshot.masterVolume - draggedVolume) < 0.001
+		) {
+			draggedVolume = null;
+		}
+	});
+
+	function releaseFader(): void {
+		draggedVolume = null;
+	}
+
 	function onVolumeInput(event: Event): void {
 		const input = event.currentTarget;
 		if (!(input instanceof HTMLInputElement)) return;
@@ -37,6 +51,7 @@
 	}
 
 	function resetVolume(): void {
+		session.dispatch('checkpoint');
 		draggedVolume = 0.85;
 		session.dispatch({ setMasterVolume: { volume: 0.85 } });
 	}
@@ -118,6 +133,13 @@
 		</div>
 
 		<div class="fader-col">
+			<div class="v-fader-track" aria-hidden="true">
+				<div class="v-fader-fill" style="height: {Math.round(masterVolume * 100)}%"></div>
+				<div
+					class="v-fader-thumb"
+					style="bottom: calc({Math.round(masterVolume * 1000) / 10}% - 4px)"
+				></div>
+			</div>
 			<input
 				class="v-fader"
 				type="range"
@@ -126,8 +148,19 @@
 				step="0.01"
 				value={masterVolume}
 				aria-label="Master Volume"
+				onclick={(e) => e.stopPropagation()}
+				onpointerdown={(event) => {
+					event.stopPropagation();
+					if (event.detail === 2) {
+						resetVolume();
+					} else {
+						session.dispatch('checkpoint');
+					}
+				}}
 				ondblclick={resetVolume}
 				oninput={onVolumeInput}
+				onchange={releaseFader}
+				onblur={releaseFader}
 			/>
 		</div>
 	</div>
@@ -136,6 +169,7 @@
 		type="button"
 		class="db-readout"
 		aria-label="Reset volume to default"
+		onclick={(e) => e.stopPropagation()}
 		ondblclick={resetVolume}
 	>
 		{volumeDb} dB
@@ -333,6 +367,7 @@
 	}
 
 	.fader-col {
+		position: relative;
 		flex: 1;
 		height: 100%;
 		display: flex;
@@ -340,31 +375,47 @@
 		justify-content: center;
 	}
 
+	.v-fader-track {
+		position: relative;
+		width: 4px;
+		height: calc(100% - 8px);
+		background: var(--bg);
+		border: 1px solid var(--border);
+		border-radius: 0;
+		pointer-events: none;
+		box-sizing: border-box;
+	}
+
+	.v-fader-fill {
+		position: absolute;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: var(--green-soft);
+	}
+
+	.v-fader-thumb {
+		position: absolute;
+		left: 50%;
+		transform: translateX(-50%);
+		width: 22px;
+		height: 8px;
+		background: var(--green);
+		border-radius: 0;
+	}
+
 	.v-fader {
+		position: absolute;
+		inset: 0;
+		width: 100%;
+		height: 100%;
+		margin: 0;
+		opacity: 0;
 		-webkit-appearance: slider-vertical;
 		appearance: slider-vertical;
-		width: 26px;
-		height: 100%;
-		background: transparent;
+		writing-mode: vertical-lr;
+		direction: rtl;
 		cursor: pointer;
-		accent-color: var(--green);
-	}
-
-	.v-fader::-webkit-slider-thumb {
-		-webkit-appearance: none;
-		appearance: none;
-		width: 18px;
-		height: 8px;
-		border-radius: 0;
-		background: var(--green);
-	}
-
-	.v-fader::-moz-range-thumb {
-		width: 18px;
-		height: 8px;
-		border-radius: 0;
-		border: none;
-		background: var(--green);
 	}
 
 	.db-readout {

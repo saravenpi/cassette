@@ -214,7 +214,8 @@ input[type='range']:disabled {
 }
 
 ::selection {
-	background: var(--green-soft);
+	background: var(--green);
+	color: var(--on-green);
 }
 
 * {

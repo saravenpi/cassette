@@ -21,6 +21,7 @@
 	import { trackColor } from '$lib/palette';
 	import { previewRange, velocityOpacity } from '$lib/pianoRoll';
 	import { selection } from '$lib/selection.svelte';
+	import { detail } from '$lib/detail.svelte';
 	import { session } from '$lib/session.svelte';
 	import type { BlockView, Waveform } from '$lib/wire';
 
@@ -125,6 +126,16 @@
 		element.setPointerCapture(event.pointerId);
 		session.dispatch({ selectBlock: { track, block: index } });
 		selection.clear();
+		if (block.kind === 'midi') {
+			const open = session.roll;
+			if (open === null || open.track !== track || open.block !== index) {
+				session.openRoll(track, index);
+			} else {
+				detail.showClip();
+			}
+		} else {
+			detail.followTrack();
+		}
 		session.drag.beginMove(track, index, block, grab);
 	}
 

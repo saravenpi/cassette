@@ -206,15 +206,19 @@
 					style="--filled: {rangePercent(valueOf(slider.id), slider.min, slider.max)}"
 					oninput={(event) => onSlider(slider.id, event.currentTarget.value)}
 					onkeydown={(event) => onSliderKeyDown(event, slider.id, slider.min, slider.max, slider.step)}
+					onkeyup={() => (editing = false)}
 					onpointerdown={(event) => {
 						if (event.detail === 2) {
 							resetSlider(slider.id);
 						} else {
+							session.dispatch('checkpoint');
 							editing = true;
 						}
 					}}
+					onpointerup={() => (editing = false)}
+					onpointercancel={() => (editing = false)}
+					onchange={() => (editing = false)}
 					ondblclick={() => resetSlider(slider.id)}
-					onfocus={() => (editing = true)}
 					onblur={() => (editing = false)}
 				/>
 				<span class="value">

@@ -110,6 +110,7 @@
 
 	let coalescedEdits: NoteEdit[] | null = null;
 	let animFrameId = 0;
+	let lastVelocityWheelAt = 0;
 
 	const roll = $derived(session.roll);
 	const track = $derived(
@@ -598,6 +599,10 @@
 			const edits: NoteEdit[] = [];
 			const nextPending = new Map(pendingVelocities);
 			const now = performance.now();
+			if (now - lastVelocityWheelAt > 300) {
+				session.dispatch('checkpoint');
+			}
+			lastVelocityWheelAt = now;
 			for (const idx of targetIndices) {
 				const n = notes[idx];
 				if (n === undefined) continue;
@@ -763,6 +768,7 @@
 			event.preventDefault();
 			event.stopPropagation();
 			if (roll !== null && selection.size > 0) {
+				if (!event.repeat) session.dispatch('checkpoint');
 				const edits = arrowTranspose(notes, selection, event.shiftKey ? 12 : 1);
 				session.dispatch({ editNotes: { track: roll.track, block: roll.block, edits } });
 			}
@@ -773,6 +779,7 @@
 			event.preventDefault();
 			event.stopPropagation();
 			if (roll !== null && selection.size > 0) {
+				if (!event.repeat) session.dispatch('checkpoint');
 				const edits = arrowTranspose(notes, selection, event.shiftKey ? -12 : -1);
 				session.dispatch({ editNotes: { track: roll.track, block: roll.block, edits } });
 			}
@@ -783,6 +790,7 @@
 			event.preventDefault();
 			event.stopPropagation();
 			if (roll !== null && selection.size > 0) {
+				if (!event.repeat) session.dispatch('checkpoint');
 				const step = event.altKey ? MIN_NOTE_BEATS : NOTE_GRID;
 				const edits = event.shiftKey
 					? arrowResize(notes, selection, -step, blockBeats)
@@ -796,6 +804,7 @@
 			event.preventDefault();
 			event.stopPropagation();
 			if (roll !== null && selection.size > 0) {
+				if (!event.repeat) session.dispatch('checkpoint');
 				const step = event.altKey ? MIN_NOTE_BEATS : NOTE_GRID;
 				const edits = event.shiftKey
 					? arrowResize(notes, selection, step, blockBeats)
@@ -902,7 +911,7 @@
 						type="button"
 						class="key"
 						class:black={isBlackKey(pitch)}
-						class:down={auditioning === pitch}
+						class:down={auditioning === pitch || session.heldPitches.has(pitch)}
 						tabindex="-1"
 						aria-label="Play {noteName(pitch)}"
 						style="height: {ROW_PX}px"
@@ -943,6 +952,15 @@
 						{#if isBlackKey(pitch)}
 							<rect
 								class="black-row"
+								x="0"
+								y={pitchToY(pitch)}
+								width={gridWidth}
+								height={ROW_PX}
+							/>
+						{/if}
+						{#if session.heldPitches.has(pitch)}
+							<rect
+								class="held-row"
 								x="0"
 								y={pitchToY(pitch)}
 								width={gridWidth}
@@ -1178,6 +1196,11 @@
 	.black-row {
 		fill: var(--surface);
 		fill-opacity: 0.6;
+	}
+
+	.held-row {
+		fill: var(--green);
+		fill-opacity: 0.28;
 	}
 
 	.lines line {

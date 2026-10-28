@@ -4,7 +4,7 @@
  * the window loses focus. Nothing here is bound to a component.
  */
 
-import { intentFor, isAppKey, localFor, noteFor, pitchFor, repeats } from './keys';
+import { intentFor, isAppKey, isChord, localFor, noteFor, pitchFor, repeats } from './keys';
 import type { EngineEvent } from './wire';
 
 /** What the keymap needs from the session it drives. */
@@ -87,18 +87,21 @@ export function attachKeyboard(host: KeyboardHost): () => void {
 
 	function onKeyDown(event: KeyboardEvent): void {
 		if (host.exporting) return;
-		const pitch = host.renaming ? null : noteFor(event, host.octave);
+		const inTextInput =
+			event.target instanceof Element &&
+			event.target.closest('input:not([type="range"]):not([type="checkbox"]), textarea, [contenteditable="true"]') !== null;
+		const pitch = host.renaming || inTextInput ? null : noteFor(event, host.octave);
 
 		if (pitch !== null) {
 			if (!event.repeat) noteOn(pitch);
 		} else {
 			const inInputOrGrid = ignoresArrangementKeys(event.target);
 			const inTextInputOrGrid =
-				event.target instanceof Element &&
-				(event.target.closest('input:not([type="range"]), textarea, [contenteditable="true"]') !== null ||
-					event.target.closest('[role="grid"]') !== null);
+				inTextInput ||
+				(event.target instanceof Element && event.target.closest('[role="grid"]') !== null);
 			const local = localFor(event, host.renaming);
 			if (local === 'toggleDetail' && keepsShiftTab(event.target)) return;
+			if (inTextInput && local !== 'save' && local !== 'saveAs' && local !== 'open') return;
 			if (inTextInputOrGrid && (local === 'copy' || local === 'cut' || local === 'paste' || local === 'duplicate' || local === 'loopSelection')) return;
 
 			if (local === 'scrollStart') {
@@ -214,17 +217,20 @@ export function attachKeyboard(host: KeyboardHost): () => void {
 		}
 
 		const isSpace = event.code === 'Space' || event.key === ' ';
-		const inTextInput =
-			event.target instanceof Element &&
-			event.target.closest('input:not([type="range"]):not([type="checkbox"]), textarea, [contenteditable="true"]') !== null;
 
-		if (isAppKey(event, host.renaming) && (!ignoresArrangementKeys(event.target) || (isSpace && !inTextInput))) {
+		if (
+			isAppKey(event, host.renaming) &&
+			(!ignoresArrangementKeys(event.target) || ((isSpace || isChord(event)) && !inTextInput))
+		) {
 			event.preventDefault();
 		}
 	}
 
 	function onKeyUp(event: KeyboardEvent): void {
-		if (!host.renaming) {
+		const inTextInput =
+			event.target instanceof Element &&
+			event.target.closest('input:not([type="range"]):not([type="checkbox"]), textarea, [contenteditable="true"]') !== null;
+		if (!host.renaming && !inTextInput) {
 			const pitch = pitchFor(event.code, host.octave);
 			if (pitch !== null) noteOff(pitch);
 		}
@@ -232,11 +238,11 @@ export function attachKeyboard(host: KeyboardHost): () => void {
 		// A focused control runs its Space activation as the default action of
 		// keyup, so cancelling only the keydown leaves it free to fire twice.
 		const isSpace = event.code === 'Space' || event.key === ' ';
-		const inTextInput =
-			event.target instanceof Element &&
-			event.target.closest('input:not([type="range"]):not([type="checkbox"]), textarea, [contenteditable="true"]') !== null;
 
-		if (isAppKey(event, host.renaming) && (!ignoresArrangementKeys(event.target) || (isSpace && !inTextInput))) {
+		if (
+			isAppKey(event, host.renaming) &&
+			(!ignoresArrangementKeys(event.target) || ((isSpace || isChord(event)) && !inTextInput))
+		) {
 			event.preventDefault();
 		}
 	}

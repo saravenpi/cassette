@@ -168,6 +168,9 @@ impl App {
             }
             return;
         }
+        if !self.recording && matches!(event, Event::NoteOn { .. } | Event::NoteOff { .. }) {
+            return self.apply(event);
+        }
         let gesture = match kind(&event, self.cursor.track, self.recording) {
             Kind::Untracked => {
                 self.history.gesture = None;
