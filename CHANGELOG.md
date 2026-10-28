@@ -558,3 +558,21 @@ Loop points, frame-accurate note starts, and a review pass over v0.9.0.
 
 - Sample preview in the file browser is audible: the content security policy now allows `blob:` media.
 - Utility: tests cover width scaling and a true mono sum with bass mono and 400% width.
+
+## [0.19.0] - 2026-10-28
+
+### Added
+
+- Collapsible and resizable left sidebar: drag the right edge (`180px` to `45%` of window width) or collapse to a compact vertical rail, persisted across sessions.
+- Live MIDI note highlight in the piano roll: keys and pitch rows light up in primary green while notes are played from the computer keyboard or audition strip.
+
+### Changed
+
+- Dedicated bottom pane mode: selecting a track shows its devices, and clicking a MIDI clip opens the clip editor directly without a tab switcher.
+- Metronome transport icon: uses `pixelarticons:speed-medium` when off and alternates on the beat between `pixelarticons:speed-slow` and `pixelarticons:speed-fast` when running.
+- High-contrast text selection (`--on-green` on `--green`) for track and block rename inputs.
+- Mixer vertical volume faders render custom rectangular primary green handles with zero border rounding across all platforms.
+
+### Fixed
+
+- Undo and redo (`Cmd/Ctrl+Z`, `Cmd/Ctrl+Shift+Z`, `Cmd/Ctrl+Y`): flush queued parameter, mix, and voice updates before dispatching checkpoints or undo/redo, add missing gesture checkpoints across mixer strips, voice sliders, wheel gestures, and piano roll arrow edits, and support AZERTY/QWERTY key layouts and focused sliders/knobs.
