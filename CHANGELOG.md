@@ -576,3 +576,21 @@ Loop points, frame-accurate note starts, and a review pass over v0.9.0.
 ### Fixed
 
 - Undo and redo (`Cmd/Ctrl+Z`, `Cmd/Ctrl+Shift+Z`, `Cmd/Ctrl+Y`): flush queued parameter, mix, and voice updates before dispatching checkpoints or undo/redo, add missing gesture checkpoints across mixer strips, voice sliders, wheel gestures, and piano roll arrow edits, and support AZERTY/QWERTY key layouts and focused sliders/knobs.
+
+## [0.20.0] - 2026-10-28
+
+### Added
+
+- Compressor live visualiser (`CompressorView`): dual-view transfer curve with draggable threshold knee and live input/output ball, scrolling input envelope and orange gain-reduction trace, and vertical gain-reduction meter bar.
+- Audio clip fade-in and fade-out handles: top-left and top-right draggable handles on timeline audio blocks with SVG S-curve fade overlays and real-time smoothstep envelope evaluation in the audio engine.
+- Audio clip inspector and spectrum analyzer (`AudioClipView`): selecting an audio clip displays its waveform, fade controls, clip metadata, and a 36-band logarithmic Goertzel spectrum analyzer (`30 Hz` to `18 kHz`).
+- Master track row at the bottom of the timeline view with Master bus volume fader, level meter, and one-click selection to edit Master insert devices in the bottom pane.
+- Native audio input recording and track record-arm (`●`): arm any audio track and press Record (`F9`) to capture audio from the selected input device directly onto the timeline at the playhead.
+- Native output and input device enumeration and switching in Settings (`get_audio_devices`, `setOutputDevice`).
+
+### Changed
+
+- Single-clicking any MIDI or audio clip on the timeline opens its Clip view in the bottom pane (`PianoRoll` for MIDI, `AudioClipView` for audio).
+- Smarter quantize (`Ctrl+U` and Piano Roll Quantize button): adapts to the active Piano Roll zoom grid (`1/4` through `1/64`), snaps both note starts and note lengths, and trims overlapping notes on the same pitch.
+- Settings modal UI: removed top header bar, removed all rounded corners, shadows, blurs, and gradients, and simplified output/input audio device selection.
+- Cleaned and updated `README.md`.
