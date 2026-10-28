@@ -974,7 +974,8 @@ impl BitCrusher {
     }
 }
 
-/// Gain, stereo width and pan utility.
+/// Gain, stereo width and pan utility. `Left` and `Right` keep one channel and
+/// silence the other, so they are audible on a track's mono signal too.
 pub struct Utility {
     gain: Smoothed,
     width: Smoothed,
@@ -1018,8 +1019,8 @@ impl Utility {
     fn process(&mut self, l: f32, r: f32, k: f32) -> (f32, f32) {
         let (l, r) = match self.mode {
             1 => ((l + r) * 0.5, (l + r) * 0.5),
-            2 => (l, l),
-            3 => (r, r),
+            2 => (l, 0.0),
+            3 => (0.0, r),
             _ => (l, r),
         };
         let mid = (l + r) * 0.5;
@@ -1879,6 +1880,16 @@ mod tests {
         let (l, r) = fx_pan.process(0.5, 0.5);
         assert!((l - 0.5).abs() < 1e-4);
         assert!(r.abs() < 1e-4);
+    }
+
+    #[test]
+    fn utility_left_and_right_keep_one_channel() {
+        let mut left = with(&[effect(EffectKind::Utility, &[0.0, 1.0, 0.0, 2.0, 0.0])]);
+        let (l, r) = left.process(0.5, 0.5);
+        assert!((l - 0.5).abs() < 1e-4 && r.abs() < 1e-4, "{l} {r}");
+        let mut right = with(&[effect(EffectKind::Utility, &[0.0, 1.0, 0.0, 3.0, 0.0])]);
+        let (l, r) = right.process(0.5, 0.5);
+        assert!(l.abs() < 1e-4 && (r - 0.5).abs() < 1e-4, "{l} {r}");
     }
 
     #[test]

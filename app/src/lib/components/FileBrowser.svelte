@@ -2,10 +2,10 @@
 	/**
 	 * The file browser: a real directory listing over `list_samples`, a breadcrumb
 	 * with a way up, and the two routes a sample takes to a track, a pointer drag
-	 * onto a lane and a double-click that lands it on the selected track.
+	 * onto a lane and Enter that lands it on the selected track.
 	 */
 
-	import { onDestroy, onMount } from 'svelte';
+	import { onDestroy, onMount, tick } from 'svelte';
 
 	import { listSamples, samplesRoot } from '$lib/api';
 	import { freeStart, gridStep, snapBeats } from '$lib/geometry';
@@ -25,6 +25,7 @@
 	let loading = $state(false);
 	let selected = $state<SampleEntry | null>(null);
 	let showAll = $state(false);
+	let preview: SamplePreview | undefined;
 
 	const visibleEntries = $derived(
 		showAll ? entries : entries.filter((entry) => entry.kind !== 'other')
@@ -84,6 +85,12 @@
 		activate();
 	}
 
+	async function previewEntry(entry: SampleEntry): Promise<void> {
+		selected = entry;
+		await tick();
+		preview?.play();
+	}
+
 	function importToSelected(entry: SampleEntry): void {
 		const snapshot = session.snapshot;
 		let track = snapshot?.cursor.track ?? 0;
@@ -126,11 +133,11 @@
 						<button
 							class="row wav"
 							class:picked={selected?.path === entry.path}
-							title="Drag onto a track, or press Enter or double-click to import into the selected track"
+							title="Double-click to preview, drag onto a track, or press Enter to import into the selected track"
 							ondragstart={(event) => event.preventDefault()}
 							onpointerdown={(event) => drag.begin(event, entry)}
 							onclick={() => (selected = entry)}
-							ondblclick={() => importToSelected(entry)}
+							ondblclick={() => void previewEntry(entry)}
 							onkeydown={(event) => activateOnEnter(event, () => importToSelected(entry))}
 						>
 							<span class="name">{entry.name}</span>
@@ -170,7 +177,7 @@
 		</div>
 	{/if}
 
-	<SamplePreview entry={selected} />
+	<SamplePreview bind:this={preview} entry={selected} />
 </div>
 
 {#if drag.entry !== null && drag.ghost !== null}

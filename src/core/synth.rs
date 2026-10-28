@@ -630,16 +630,6 @@ fn waveform(shape: Waveform, phase: f32, rng: &mut u32) -> f32 {
     }
 }
 
-/// Amplitude a sample voice plays at: the instrument's own gain.
-///
-/// The block's length does not enter here. What stops a sample longer than its
-/// block is the timeline releasing the voice when the playhead passes the
-/// block's end, which is a cut with a short fade rather than an amplitude the
-/// engine guesses in advance.
-pub fn sample_gain(instrument: &Instrument) -> f32 {
-    instrument.gain.clamp(0.0, 1.0)
-}
-
 /// Frames a released sample voice takes to fade out, so a cut does not click.
 pub const RELEASE_FADE_FRAMES: u32 = 221;
 
@@ -1809,14 +1799,6 @@ mod tests {
         e.push_sample(SampleMsg::Free { slot: 0 });
         assert_eq!(run(&mut e, 8), [0.0; MAX_TRACKS]);
         assert!(!e.is_active());
-    }
-
-    #[test]
-    fn sample_gain_is_the_instrument_gain_and_ignores_block_length() {
-        let instrument = Instrument::new(Waveform::Sine, 0.0, 0.1, 0.5, 2.0, 0.8, 0);
-        assert!((sample_gain(&instrument) - 0.8).abs() < 1e-6);
-        let loud = Instrument::new(Waveform::Sine, 0.0, 0.1, 0.5, 0.0, 1.0, 0);
-        assert_eq!(sample_gain(&loud), 1.0);
     }
 
     #[test]

@@ -8,7 +8,6 @@
 use super::App;
 use crate::core::render::{MirroredBlock, MirroredNote};
 use crate::core::sample::NO_SLOT;
-use crate::core::synth::sample_gain;
 use crate::core::{MAX_BLOCKS, MAX_NOTES};
 use crate::models::{Block, TrackKind};
 use crate::ui::view::Cursor;
@@ -247,7 +246,7 @@ impl App {
                     start_beats: block.start_beats,
                     end_beats: block.end_beats(),
                     slot: self.samples.get(&block.source).copied().unwrap_or(NO_SLOT),
-                    gain: sample_gain(&source.instrument),
+                    gain: 1.0,
                     offset_seconds: block.offset_seconds,
                     rate: block.rate,
                     source_bpm: block.source_bpm,

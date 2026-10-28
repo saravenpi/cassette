@@ -30,8 +30,19 @@
 	let loadingAudio = $state(false);
 	let currentAudio: HTMLAudioElement | null = null;
 	let currentUrl: string | null = null;
+	let progress = $state(0);
+	let frame = 0;
+
+	function track(): void {
+		if (currentAudio === null) return;
+		const length = currentAudio.duration;
+		progress = Number.isFinite(length) && length > 0 ? currentAudio.currentTime / length : 0;
+		frame = requestAnimationFrame(track);
+	}
 
 	function stopPreview(): void {
+		cancelAnimationFrame(frame);
+		progress = 0;
 		if (currentAudio !== null) {
 			currentAudio.pause();
 			currentAudio.currentTime = 0;
@@ -43,6 +54,12 @@
 		}
 		playing = false;
 		loadingAudio = false;
+	}
+
+	/** Start the preview from the top, replacing one already playing. */
+	export function play(): void {
+		stopPreview();
+		void togglePreview();
 	}
 
 	async function togglePreview(): Promise<void> {
@@ -70,6 +87,7 @@
 				stopPreview();
 			};
 			await audio.play();
+			frame = requestAnimationFrame(track);
 		} catch {
 			stopPreview();
 		}
@@ -136,6 +154,15 @@
 				onclick={() => void togglePreview()}
 			>
 				<polygon points={waveformPoints(peaks, HEIGHT)} />
+				{#if playing}
+					<line
+						class="marker"
+						x1={progress * Math.max(1, peaks.length - 1)}
+						x2={progress * Math.max(1, peaks.length - 1)}
+						y1="0"
+						y2={HEIGHT}
+					/>
+				{/if}
 			</svg>
 		{/if}
 		{#if failure !== null}
@@ -206,6 +233,12 @@
 	.thumb polygon {
 		fill: var(--green);
 		stroke: none;
+	}
+
+	.thumb .marker {
+		stroke: var(--text);
+		stroke-width: 1.5px;
+		vector-effect: non-scaling-stroke;
 	}
 
 	.failure {

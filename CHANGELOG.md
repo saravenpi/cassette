@@ -615,3 +615,15 @@ Loop points, frame-accurate note starts, and a review pass over v0.9.0.
 - Editing gain, octave or the envelope no longer resets filter, unison, sub, pitch sweep and FM.
 - The Detune knob spans 0 to 100 cents instead of 0 to 1.
 - Loading a project clamps every instrument field and rejects non-finite ones.
+
+## [0.22.0] - 2026-10-28
+
+### Changed
+
+- Double-clicking a sample in the browser plays its preview instead of adding it to the timeline. Drag it onto a track, or press Enter, to import it.
+- The sample preview draws a play marker that follows the audio.
+
+### Fixed
+
+- Audio blocks no longer get the instrument gain twice, so they play at the level the fader and meter show.
+- Utility `Left` and `Right` keep one channel and silence the other, so they are audible on a track's mono signal.

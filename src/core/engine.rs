@@ -19,7 +19,6 @@ use crate::core::audio::{
 use crate::core::effects::{EFFECT_RING_CAPACITY, EffectHandoff, EffectInstance};
 use crate::core::render::{MirroredBlock, MirroredNote, RenderCore, RtCommand};
 use crate::core::sample::{NO_SLOT, SAMPLE_RING_CAPACITY, SampleMsg};
-use crate::core::synth::sample_gain;
 use crate::core::{DEFAULT_SAMPLE_RATE, MAX_TRACKS, RT_COMMAND_CAPACITY};
 use crate::models::{EffectChain, Song};
 
@@ -471,7 +470,7 @@ impl AudioEngine {
                     start_beats: block.start_beats,
                     end_beats: block.start_beats + block.length_beats,
                     slot: NO_SLOT,
-                    gain: sample_gain(&track.instrument),
+                    gain: 1.0,
                     offset_seconds: block.offset_seconds,
                     rate: block.rate,
                     source_bpm: block.source_bpm,
