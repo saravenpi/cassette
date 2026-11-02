@@ -627,3 +627,14 @@ Loop points, frame-accurate note starts, and a review pass over v0.9.0.
 
 - Audio blocks no longer get the instrument gain twice, so they play at the level the fader and meter show.
 - Utility `Left` and `Right` keep one channel and silence the other, so they are audible on a track's mono signal.
+
+## [0.23.0] - 2026-11-02
+
+### Added
+
+- Any number of samples can be loaded. The sample table grows at runtime and is handed to the audio thread without allocating there.
+- The song holds up to 128 tracks instead of 16.
+
+### Fixed
+
+- Scrolling the timeline is smooth again. Unchanged tracks and blocks keep their identity between engine polls, the hover line updates once per frame without a layout query, and lane grids are CSS gradients instead of song-wide SVG.
