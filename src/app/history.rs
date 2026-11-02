@@ -6,7 +6,10 @@
 //! explicit [`Event::Checkpoint`] closes. The loop region and the transport are
 //! not part of the history: an undo keeps them where they are.
 
+use std::collections::BTreeSet;
+
 use super::App;
+use super::selection::BlockRef;
 use crate::core::meter::MeterBank;
 use crate::events::Event;
 use crate::models::Song;
@@ -20,6 +23,7 @@ pub(crate) const MAX_STEPS: usize = 200;
 struct Step {
     song: Song,
     cursor: Cursor,
+    selection: Option<BTreeSet<BlockRef>>,
 }
 
 /// What makes consecutive events one gesture: the same kind of edit on the
@@ -133,6 +137,9 @@ fn kind(event: &Event, cursor_track: usize, recording: bool) -> Kind {
         | Event::DeleteRange { .. }
         | Event::PasteRange { .. }
         | Event::DuplicateRange { .. }
+        | Event::DeleteSelectedBlocks
+        | Event::DuplicateSelectedBlocks
+        | Event::MoveSelectedBlocks { .. }
         | Event::SetInstrumentWaveform { .. }
         | Event::SetInstrumentEnabled { .. }
         | Event::ConsolidateBlocks { .. } => Kind::Edit,
@@ -166,8 +173,15 @@ fn kind(event: &Event, cursor_track: usize, recording: bool) -> Kind {
 }
 
 impl App {
-    /// Apply one intent, recording it in the history when it edits the song.
+    /// Apply one intent, recording it in the history when it edits the song,
+    /// and drop the block selection when the edit shifted blocks under it.
     pub(crate) fn handle(&mut self, event: Event) {
+        let layout = self.selection_layout(&event);
+        self.record(event);
+        self.settle_selection(layout);
+    }
+
+    fn record(&mut self, event: Event) {
         if matches!(event, Event::LoadProject { .. }) {
             let before = self.song.clone();
             self.apply(event);
@@ -198,6 +212,7 @@ impl App {
         let before = Step {
             song: self.song.clone(),
             cursor: self.cursor,
+            selection: self.selection.clone(),
         };
         self.apply(event);
         if self.song != before.song {
@@ -242,9 +257,11 @@ impl App {
         let replaced = Step {
             song: std::mem::replace(&mut self.song, song),
             cursor: self.cursor,
+            selection: self.selection.take(),
         };
         self.rename = None;
         self.cursor = step.cursor;
+        self.selection = step.selection;
         self.cursor.track = self
             .cursor
             .track

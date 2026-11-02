@@ -5,6 +5,7 @@
 	 * finds this element by its `data-lane-track` attribute.
 	 */
 
+	import type { GroupPreview } from '$lib/drag.svelte';
 	import { ROW_HEIGHT, beatsToPx, gridStep, pxToBeats } from '$lib/geometry';
 	import { laneMenu } from '$lib/menu';
 	import { menu } from '$lib/menu.svelte';
@@ -55,7 +56,39 @@
 		dragging: boolean;
 	}
 
+	/** The lane while a group move is in flight: its members shifted, or drawn on the lane they land on. */
+	function groupItems(group: GroupPreview): LaneItem[] {
+		const out: LaneItem[] = [];
+		track.blocks.forEach((block, position) => {
+			const member = group.members.some((m) => m.track === index && m.block === position);
+			if (member && group.deltaTracks !== 0) return;
+			out.push({
+				key: `block-${position}`,
+				block,
+				index: position,
+				startBeats: block.startBeats + (member ? group.deltaBeats : 0),
+				lengthBeats: block.lengthBeats,
+				dragging: member
+			});
+		});
+		if (group.deltaTracks === 0) return out;
+		for (const member of group.members) {
+			if (member.track + group.deltaTracks !== index) continue;
+			out.push({
+				key: `dragged-${member.track}-${member.block}`,
+				block: member.view,
+				index: member.block,
+				startBeats: member.view.startBeats + group.deltaBeats,
+				lengthBeats: member.view.lengthBeats,
+				dragging: true
+			});
+		}
+		return out;
+	}
+
 	const items = $derived.by((): LaneItem[] => {
+		const group = session.drag.groupPreview();
+		if (group !== null) return groupItems(group);
 		const drag = session.drag.state;
 		const home = drag !== null && drag.track === index;
 		const target = drag !== null && drag.kind === 'move' && drag.targetTrack === index;

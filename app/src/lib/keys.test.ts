@@ -464,6 +464,13 @@ describe('clip editing keys', () => {
 		expect(intentFor(press('KeyZ', 'z'), false)).toEqual({ octaveDelta: -1 });
 	});
 
+	test('selects every block on Ctrl+A or Cmd+A, once per press', () => {
+		expect(intentFor(chord(press('KeyA', 'a')), false)).toBe('selectAllBlocks');
+		expect(intentFor(chord(press('KeyA', 'a'), 'metaKey'), false)).toBe('selectAllBlocks');
+		expect(isAppKey(chord(press('KeyA', 'a')), false)).toBe(true);
+		expect(repeats('selectAllBlocks')).toBe(false);
+	});
+
 	test('types no letter for a chord while renaming', () => {
 		expect(intentFor(chord(press('KeyZ', 'z')), true)).toBeNull();
 	});
