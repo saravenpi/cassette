@@ -32,6 +32,13 @@ pub struct NoteEdit {
     pub velocity: u8,
 }
 
+/// One block of one track, as the webview names it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TrackBlock {
+    pub track: usize,
+    pub block: usize,
+}
+
 /// A single piece of user intent.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
@@ -415,6 +422,11 @@ pub enum Event {
     /// Load the project structure from a JSON file.
     LoadProject {
         path: Option<String>,
+    },
+    /// Fold the named blocks of each track into one block spanning the first
+    /// start to the last end, gaps left silent.
+    ConsolidateBlocks {
+        blocks: Vec<TrackBlock>,
     },
     /// Step back to the song before the last edit.
     Undo,

@@ -2,7 +2,7 @@
  * Pure helpers for time selection in the arrangement view.
  */
 
-import type { BeatRange } from './wire';
+import type { BeatRange, TrackBlock, TrackView } from './wire';
 
 /** Normalize any two tracks and beat positions into a valid BeatRange. */
 export function normalizeRange(
@@ -100,4 +100,20 @@ export function formatRangeLength(beats: number, beatsPerBar: number): string {
 	const rem = safe - bars * per;
 	const formattedRem = Number.isInteger(rem) ? String(rem) : rem.toFixed(2);
 	return `${bars}.${formattedRem}`;
+}
+
+/** Every block a range overlaps, track by track. */
+export function blocksInRange(tracks: TrackView[], range: BeatRange): TrackBlock[] {
+	return tracks.flatMap((view, track) =>
+		view.blocks.flatMap((block, index) =>
+			blockOverlapsRange(track, block.startBeats, block.lengthBeats, range) ? [{ track, block: index }] : []
+		)
+	);
+}
+
+/** Every block the snapshot marks selected, track by track. */
+export function selectedBlocks(tracks: TrackView[]): TrackBlock[] {
+	return tracks.flatMap((view, track) =>
+		view.blocks.flatMap((block, index) => (block.selected ? [{ track, block: index }] : []))
+	);
 }

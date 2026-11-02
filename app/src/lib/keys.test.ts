@@ -401,6 +401,13 @@ describe('clip editing keys', () => {
 		expect(localFor(chord(press('KeyD', 'd'), 'metaKey'), false)).toBe('duplicate');
 	});
 
+	test('consolidates on Ctrl or Cmd plus J, and J alone still plays its note', () => {
+		expect(localFor(chord(press('KeyJ', 'j')), false)).toBe('consolidate');
+		expect(localFor(chord(press('KeyJ', 'j'), 'metaKey'), false)).toBe('consolidate');
+		expect(noteFor(chord(press('KeyJ', 'j')), 0)).toBeNull();
+		expect(noteFor(press('KeyJ', 'j'), 0)).toBe(71);
+	});
+
 	test('plays no note on a chord, and still plays the plain key', () => {
 		expect(noteFor(chord(press('KeyE', 'e')), 0)).toBeNull();
 		expect(noteFor(chord(press('KeyD', 'd')), 0)).toBeNull();

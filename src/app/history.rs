@@ -134,7 +134,8 @@ fn kind(event: &Event, cursor_track: usize, recording: bool) -> Kind {
         | Event::PasteRange { .. }
         | Event::DuplicateRange { .. }
         | Event::SetInstrumentWaveform { .. }
-        | Event::SetInstrumentEnabled { .. } => Kind::Edit,
+        | Event::SetInstrumentEnabled { .. }
+        | Event::ConsolidateBlocks { .. } => Kind::Edit,
         Event::SetEffectParam {
             track,
             index,

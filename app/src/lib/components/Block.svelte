@@ -21,6 +21,7 @@
 	import { trackColor } from '$lib/palette';
 	import { previewRange, velocityOpacity } from '$lib/pianoRoll';
 	import { selection } from '$lib/selection.svelte';
+	import { selectedBlocks } from '$lib/selection';
 	import { detail } from '$lib/detail.svelte';
 	import { session } from '$lib/session.svelte';
 	import type { BlockView, Waveform } from '$lib/wire';
@@ -219,7 +220,20 @@
 		if (!(element instanceof HTMLElement)) return;
 		const at = beatUnder(block.startBeats, event.clientX - element.getBoundingClientRect().left, session.zoom);
 		session.dispatch({ selectBlock: { track, block: index } });
-		menu.open(event.clientX, event.clientY, blockMenu(session, track, index, block, at, gridStep(session.zoom), event.altKey));
+		menu.open(
+			event.clientX,
+			event.clientY,
+			blockMenu(
+				session,
+				track,
+				index,
+				block,
+				at,
+				gridStep(session.zoom),
+				event.altKey,
+				selectedBlocks(session.snapshot?.tracks ?? [])
+			)
+		);
 	}
 </script>
 

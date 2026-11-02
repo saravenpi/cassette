@@ -68,7 +68,8 @@ type LocalIntent =
 	| 'save'
 	| 'saveAs'
 	| 'open'
-	| 'recolorTrack';
+	| 'recolorTrack'
+	| 'consolidate';
 
 /**
  * The minus and equals keys already nudge the volume, so the zoom pair sits on
@@ -99,7 +100,8 @@ const CHORDS: Record<string, LocalIntent> = {
 	KeyX: 'cut',
 	KeyV: 'paste',
 	KeyL: 'loopSelection',
-	KeyO: 'open'
+	KeyO: 'open',
+	KeyJ: 'consolidate'
 };
 
 /** Chords that carry an engine intent: undo, redo, and add track. */

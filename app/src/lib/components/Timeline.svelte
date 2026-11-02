@@ -225,7 +225,8 @@
 				session.snapshot?.cursor.track ?? 0,
 				session.snapshot?.transportPositionBeats ?? 0,
 				session.snapshot?.looping ?? false,
-				() => selection.clear()
+				() => selection.clear(),
+				session.snapshot?.tracks ?? []
 			)
 		);
 	}
