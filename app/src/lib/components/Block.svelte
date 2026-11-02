@@ -21,7 +21,7 @@
 	import { trackColor } from '$lib/palette';
 	import { previewRange, velocityOpacity } from '$lib/pianoRoll';
 	import { selection } from '$lib/selection.svelte';
-	import { selectedBlocks } from '$lib/selection';
+	import { selectedBlocks } from '$lib/blockSelection';
 	import { detail } from '$lib/detail.svelte';
 	import { session } from '$lib/session.svelte';
 	import type { BlockView, Waveform } from '$lib/wire';
@@ -245,7 +245,7 @@
 				at,
 				gridStep(session.zoom),
 				event.altKey,
-				selectedBlocks(session.snapshot?.tracks ?? [])
+				selectedBlocks(session.snapshot?.tracks ?? []).map(({ track: t, block: b }) => ({ track: t, block: b }))
 			)
 		);
 	}

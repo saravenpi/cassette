@@ -110,10 +110,3 @@ export function blocksInRange(tracks: TrackView[], range: BeatRange): TrackBlock
 		)
 	);
 }
-
-/** Every block the snapshot marks selected, track by track. */
-export function selectedBlocks(tracks: TrackView[]): TrackBlock[] {
-	return tracks.flatMap((view, track) =>
-		view.blocks.flatMap((block, index) => (block.selected ? [{ track, block: index }] : []))
-	);
-}
