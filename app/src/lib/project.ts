@@ -7,6 +7,16 @@ export function formatExportPercent(progress: number | null | undefined): number
 	return progress !== null && progress !== undefined ? Math.round(progress * 100) : null;
 }
 
+/**
+ * The file name the export dialog pre-fills: the saved project's stem, else the
+ * last exported file's name, else `Untitled.wav`.
+ */
+export function exportName(projectPath: string | null, lastExport: string | null): string {
+	if (projectPath) return `${projectStem(projectPath)}.wav`;
+	const last = lastExport?.split(/[/\\]/).pop();
+	return last || 'Untitled.wav';
+}
+
 /** Resulting event payload when saving a project, or null if cancelled. */
 export type SaveProjectEvent = { exportProject: { path: string | null } };
 

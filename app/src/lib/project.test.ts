@@ -1,4 +1,5 @@
 import {
+	exportName,
 	formatExportPercent,
 	projectStem,
 	projectTitle,
@@ -32,6 +33,14 @@ describe('projectStem', () => {
 
 	test('keeps filename without cassette or json extension intact', () => {
 		expect(projectStem('/home/user/song')).toBe('song');
+	});
+});
+
+describe('exportName', () => {
+	test('prefers the project stem, then the last export, then Untitled', () => {
+		expect(exportName('/home/user/my-song.cassette', '/tmp/old.wav')).toBe('my-song.wav');
+		expect(exportName(null, '/tmp/old.wav')).toBe('old.wav');
+		expect(exportName(null, null)).toBe('Untitled.wav');
 	});
 });
 

@@ -32,7 +32,7 @@ import { SvelteSet } from 'svelte/reactivity';
 import { attachKeyboard } from './keyboard';
 import { NoteCache } from './noteCache';
 import { locateBlock, rollGridStep } from './pianoRoll';
-import { resolveSaveAction, resolveSaveAsAction } from './project';
+import { exportName, resolveSaveAction, resolveSaveAsAction } from './project';
 import { KeyedQueue, nextBackoff } from './queue';
 import { selection } from './selection.svelte';
 import { settingsStore } from './settings.svelte';
@@ -114,6 +114,7 @@ class Session {
 
 	private errorFrom: 'poll' | 'send' | null = null;
 	private exportActive = false;
+	private lastExport: string | null = null;
 	private frame = 0;
 	private running = false;
 	private polling = false;
@@ -931,8 +932,9 @@ class Session {
 	/** Export audio to a WAV file picked from a dialog. */
 	async exportAudio(pick: (name?: string) => Promise<string | null> = pickExportWav): Promise<void> {
 		try {
-			const path = await pick();
+			const path = await pick(exportName(this.snapshot?.projectPath ?? null, this.lastExport));
 			if (path === null) return;
+			this.lastExport = path;
 			this.exporting = true;
 			this.exportProgress = 0;
 			if (this.snapshot?.playing) {
