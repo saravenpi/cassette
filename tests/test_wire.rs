@@ -191,3 +191,29 @@ fn the_clip_editing_events_read_camel_case_fields() {
         }
     );
 }
+
+#[test]
+fn an_arp_change_reads_the_frontend_payload() {
+    use cassette::models::{Arp, ArpRate, ArpStyle};
+    let event = parse(
+        r#"{"setTrackArp":{"track":2,"arp":{"enabled":true,"style":"downUp","rate":"1/8T","gate":1.2,"distance":-12,"steps":3,"swing":0.25,"velocityDecay":4.0,"velocityTarget":30,"seed":9}}}"#,
+    );
+    assert_eq!(
+        event,
+        Event::SetTrackArp {
+            track: 2,
+            arp: Arp {
+                enabled: true,
+                style: ArpStyle::DownUp,
+                rate: ArpRate::EighthTriplet,
+                gate: 1.2,
+                distance: -12,
+                steps: 3,
+                swing: 0.25,
+                velocity_decay: 4.0,
+                velocity_target: 30,
+                seed: 9,
+            },
+        }
+    );
+}

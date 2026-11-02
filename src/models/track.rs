@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{Effect, MAX_EFFECTS};
 
-use crate::models::{Instrument, MAX_NOTES_PER_BLOCK, Note};
+use crate::models::{Arp, Instrument, MAX_NOTES_PER_BLOCK, Note};
 
 /// What a track carries.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -326,6 +326,9 @@ pub struct Track {
     pub effects: Vec<Effect>,
     #[serde(default)]
     pub color_index: Option<u8>,
+    /// The arpeggiator in front of the instrument.
+    #[serde(default)]
+    pub arp: Arp,
     /// Numbers handed to new blocks. It only ever rises, so a lane's automatic
     /// names stay unique even after a block is deleted.
     next_block_number: u32,
@@ -345,6 +348,7 @@ impl Track {
             blocks: Vec::new(),
             effects: Vec::new(),
             color_index: None,
+            arp: Arp::default(),
             next_block_number: 1,
         }
     }
@@ -528,6 +532,9 @@ impl Track {
                 self.name
             ));
         }
+        if self.arp.sanitize() {
+            problems.push(format!("track {:?}: arpeggiator clamped", self.name));
+        }
         problems.extend(self.sanitize_effects());
         Ok(problems)
     }
@@ -676,6 +683,24 @@ mod tests {
         assert_eq!(track.blocks[0].start_beats, 10.0);
         assert_eq!(track.blocks[0].length_beats, Block::MIN_LENGTH_BEATS);
         assert_eq!(problems.len(), 3);
+    }
+
+    #[test]
+    fn a_track_saved_before_the_arpeggiator_loads_with_it_off() {
+        let mut json = serde_json::to_value(midi()).expect("serialize");
+        json.as_object_mut().expect("object").remove("arp");
+        let track: Track = serde_json::from_value(json).expect("old track loads");
+        assert_eq!(track.arp, Arp::default());
+        assert!(!track.arp.enabled);
+    }
+
+    #[test]
+    fn sanitize_clamps_the_arpeggiator() {
+        let mut track = midi();
+        track.arp.steps = 99;
+        let problems = track.sanitize(8).expect("finite track");
+        assert_eq!(track.arp.steps, Arp::MAX_STEPS);
+        assert_eq!(problems.len(), 1);
     }
 
     #[test]

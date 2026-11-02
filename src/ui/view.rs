@@ -6,7 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::models::{EffectKind, LoopRegion, Note, ParamUnit, TrackKind};
+use crate::models::{Arp, EffectKind, LoopRegion, Note, ParamUnit, TrackKind};
 
 /// Session cursor: which block of which track is selected. A block index equal
 /// to the track's block count means "no block", the state a fresh track is in.
@@ -146,6 +146,8 @@ pub struct TrackView {
     pub resonance: f32,
     pub detune: f32,
     pub sub: f32,
+    /// The arpeggiator in front of the instrument.
+    pub arp: Arp,
 }
 
 /// What the clipboard holds, so the interface can offer Paste.
@@ -288,6 +290,7 @@ mod tests {
             resonance: 0.0,
             detune: 0.0,
             sub: 0.0,
+            arp: Arp::default(),
         }
     }
 

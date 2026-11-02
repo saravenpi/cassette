@@ -6,7 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::models::{EffectKind, Note, TrackKind, Waveform};
+use crate::models::{Arp, EffectKind, Note, TrackKind, Waveform};
 
 /// A rectangle of the arrangement: a run of tracks and a span of beats.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -346,6 +346,11 @@ pub enum Event {
     SetInstrumentWaveform {
         track: usize,
         waveform: Waveform,
+    },
+    /// Set a MIDI track's arpeggiator. A dial drag sends a stream of these.
+    SetTrackArp {
+        track: usize,
+        arp: Arp,
     },
     /// Insert an effect into a track's chain at `index`, or at the end.
     AddEffect {

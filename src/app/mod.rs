@@ -382,6 +382,7 @@ impl App {
             Event::SetInstrumentWaveform { track, waveform } => {
                 self.set_instrument_waveform(track, waveform)
             }
+            Event::SetTrackArp { track, arp } => self.set_track_arp(track, arp),
             Event::AddEffect { track, kind, index } => self.add_effect(track, kind, index),
             Event::PasteEffect {
                 track,
@@ -523,6 +524,7 @@ impl App {
                 resonance: track.instrument.resonance,
                 detune: track.instrument.detune,
                 sub: track.instrument.sub,
+                arp: track.arp,
                 name: track.name.clone(),
                 kind: track.kind,
                 preset: Instrument {

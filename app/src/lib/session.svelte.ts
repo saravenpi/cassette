@@ -39,7 +39,7 @@ import { settingsStore } from './settings.svelte';
 import { menu } from './menu.svelte';
 import { TRACK_PALETTE } from './palette';
 import { trackSelection, type SelectTrackOptions } from './trackSelection.svelte';
-import { MASTER_TRACK, type EffectKind, type EngineEvent, type TrackKind, type UiState } from './wire';
+import { MASTER_TRACK, type ArpView, type EffectKind, type EngineEvent, type TrackKind, type UiState } from './wire';
 
 /** A track's voice, as the effects pane edits it. */
 export interface Voice {
@@ -124,6 +124,7 @@ class Session {
 	private noteVelocity = new KeyedQueue<EngineEvent>();
 	private effectParam = new KeyedQueue<EngineEvent>();
 	private instrumentTone = new KeyedQueue<EngineEvent>();
+	private arp = new KeyedQueue<EngineEvent>();
 	private opened = 0;
 	private notes = new NoteCache();
 	private backoff = 0;
@@ -840,6 +841,17 @@ class Session {
 		});
 	}
 
+	/** Queue an arpeggiator change from a dial, collapsed to one message per frame. */
+	queueArp(track: number, arp: ArpView): void {
+		this.arp.set(track, { setTrackArp: { track, arp } });
+	}
+
+	/** Change a track's arpeggiator as one undo step. */
+	setArp(track: number, arp: ArpView): void {
+		this.dispatch('checkpoint');
+		this.dispatch({ setTrackArp: { track, arp } });
+	}
+
 	/** Set an effect's sidechain audio source track, or null for self. */
 	setEffectSidechain(track: number, index: number, source: number | null): void {
 		this.dispatch({ setEffectSidechain: { track, index, source } });
@@ -1049,7 +1061,8 @@ class Session {
 			...this.noteDrag.drain(),
 			...this.noteVelocity.drain(),
 			...this.effectParam.drain(),
-			...this.instrumentTone.drain()
+			...this.instrumentTone.drain(),
+			...this.arp.drain()
 		];
 	}
 

@@ -8,7 +8,7 @@ use crate::app::effects::TrackShift;
 use crate::core::MAX_TRACKS;
 use crate::core::meter::MeterBank;
 use crate::core::render::RtCommand;
-use crate::models::{Instrument, Track, TrackKind, Waveform};
+use crate::models::{Arp, Instrument, Track, TrackKind, Waveform};
 
 /// The voice fields a `SetInstrument` intent carries.
 #[derive(Clone, Copy, Debug)]
@@ -211,6 +211,30 @@ impl App {
             track + 1,
             if enabled { "on" } else { "off" }
         );
+    }
+
+    /// Replace a MIDI track's arpeggiator, clamped to its ranges, and push the
+    /// rewritten notes to the audio thread.
+    pub(crate) fn set_track_arp(&mut self, track: usize, mut arp: Arp) {
+        let Some(target) = self.song.tracks.get_mut(track) else {
+            self.status = "no track there to edit".into();
+            return;
+        };
+        if target.kind != TrackKind::Midi {
+            self.status = "the arpeggiator works on MIDI tracks".into();
+            return;
+        }
+        arp.sanitize();
+        if target.arp == arp {
+            return;
+        }
+        target.arp = arp;
+        self.status = format!(
+            "track {} arpeggiator {}",
+            track + 1,
+            if arp.enabled { "on" } else { "off" }
+        );
+        self.push_notes(track);
     }
 
     pub(crate) fn set_instrument_tone(
@@ -724,6 +748,83 @@ mod tests {
 
         app.handle(Event::Undo);
         assert_eq!(app.song.tracks[0].instrument.cutoff, 20_000.0);
+    }
+
+    #[test]
+    fn the_arpeggiator_rewrites_the_mirror_and_undoes_as_one_drag() {
+        let mut app = headless_app();
+        let block = app.song.tracks[0].add_block(0.0, 4.0);
+        app.song.tracks[0].blocks[block].notes = vec![
+            crate::models::Note {
+                pitch: 60,
+                start_beats: 0.0,
+                length_beats: 4.0,
+                velocity: 100,
+            },
+            crate::models::Note {
+                pitch: 64,
+                start_beats: 0.0,
+                length_beats: 4.0,
+                velocity: 100,
+            },
+        ];
+        app.push_notes(0);
+        let drawn = app.mirror_notes(0);
+        assert_eq!(drawn.len(), 2);
+        let revision = app.note_revisions[0];
+
+        let on = Arp {
+            enabled: true,
+            ..Arp::default()
+        };
+        app.handle(Event::Checkpoint);
+        app.handle(Event::SetTrackArp { track: 0, arp: on });
+        app.handle(Event::SetTrackArp {
+            track: 0,
+            arp: Arp { gate: 0.5, ..on },
+        });
+        assert!(app.note_revisions[0] > revision);
+        let played = app.mirror_notes(0);
+        assert_eq!(played.len(), 16);
+        assert_eq!(played[1].pitch, 64);
+        assert_eq!(played[1].start_beats, 0.25);
+        assert_eq!(played[1].end_beats, 0.375);
+        assert_eq!(app.ui_state().tracks[0].arp.gate, 0.5);
+        assert_eq!(
+            app.song.tracks[0].blocks[0].notes.len(),
+            2,
+            "the drawn notes stay"
+        );
+
+        app.handle(Event::Undo);
+        assert!(!app.song.tracks[0].arp.enabled);
+        assert_eq!(app.mirror_notes(0), drawn);
+    }
+
+    #[test]
+    fn the_arpeggiator_refuses_audio_tracks_and_clamps() {
+        let mut app = headless_app();
+        app.handle(Event::AddTrack {
+            kind: TrackKind::Audio,
+        });
+        let audio = app.song.tracks.len() - 1;
+        app.handle(Event::SetTrackArp {
+            track: audio,
+            arp: Arp {
+                enabled: true,
+                ..Arp::default()
+            },
+        });
+        assert_eq!(app.status, "the arpeggiator works on MIDI tracks");
+        assert!(!app.song.tracks[audio].arp.enabled);
+        app.handle(Event::SetTrackArp {
+            track: 0,
+            arp: Arp {
+                steps: 50,
+                ..Arp::default()
+            },
+        });
+        assert_eq!(app.song.tracks[0].arp.steps, Arp::MAX_STEPS);
     }
 
     #[test]

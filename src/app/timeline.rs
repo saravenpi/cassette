@@ -9,7 +9,7 @@ use super::App;
 use crate::core::render::{MirroredBlock, MirroredNote};
 use crate::core::sample::NO_SLOT;
 use crate::core::{MAX_BLOCKS, MAX_NOTES};
-use crate::models::{Block, TrackKind};
+use crate::models::{Block, Note, TrackKind, arpeggiate};
 use crate::ui::view::Cursor;
 
 impl App {
@@ -259,8 +259,16 @@ impl App {
 
     /// Flatten one lane's notes for the audio thread: absolute beats, MIDI
     /// blocks only, each note cut at its block's end and a note that starts at
-    /// or past the end dropped, sorted by start and capped at [`MAX_NOTES`].
+    /// or past the end dropped, run through the track's arpeggiator, sorted by
+    /// start and capped at [`MAX_NOTES`].
     pub(crate) fn mirror_notes(&self, track: usize) -> Vec<MirroredNote> {
+        let mut notes = self.lane_notes(track);
+        notes.truncate(MAX_NOTES);
+        notes
+    }
+
+    /// [`Self::mirror_notes`] before the cap.
+    fn lane_notes(&self, track: usize) -> Vec<MirroredNote> {
         let Some(source) = self.song.tracks.get(track) else {
             return Vec::new();
         };
@@ -285,8 +293,27 @@ impl App {
             })
             .collect();
         notes.sort_by(|a, b| a.start_beats.total_cmp(&b.start_beats));
-        notes.truncate(MAX_NOTES);
-        notes
+        if !source.arp.enabled {
+            return notes;
+        }
+        let drawn: Vec<Note> = notes
+            .iter()
+            .map(|note| Note {
+                pitch: note.pitch,
+                start_beats: note.start_beats,
+                length_beats: note.end_beats - note.start_beats,
+                velocity: note.velocity,
+            })
+            .collect();
+        arpeggiate(&drawn, &source.arp)
+            .into_iter()
+            .map(|note| MirroredNote {
+                start_beats: note.start_beats,
+                end_beats: note.start_beats + note.length_beats,
+                pitch: note.pitch,
+                velocity: note.velocity,
+            })
+            .collect()
     }
 
     /// Replace one lane's mirror on the audio side, blocks and notes. Call it
@@ -303,7 +330,11 @@ impl App {
     /// edit, which leaves the blocks as they were.
     pub(crate) fn push_notes(&mut self, track: usize) {
         self.touch_notes(track);
-        let notes = self.mirror_notes(track);
+        let mut notes = self.lane_notes(track);
+        if notes.len() > MAX_NOTES {
+            self.status = format!("track {} plays only its first {MAX_NOTES} notes", track + 1);
+            notes.truncate(MAX_NOTES);
+        }
         if !self.engine.set_notes(track, notes) {
             self.resync_pending = true;
         }
@@ -373,7 +404,7 @@ impl App {
 mod tests {
     use super::*;
     use crate::events::Event;
-    use crate::models::{MAX_LENGTH_BEATS, Note};
+    use crate::models::MAX_LENGTH_BEATS;
     use crate::ui::view::Cursor;
 
     fn headless_app() -> App {
