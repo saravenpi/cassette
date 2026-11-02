@@ -18,7 +18,9 @@ use crate::core::audio::{
 };
 use crate::core::effects::{EFFECT_RING_CAPACITY, EffectHandoff, EffectInstance};
 use crate::core::render::{MirroredBlock, MirroredNote, RenderCore, RtCommand};
-use crate::core::sample::{NO_SLOT, SAMPLE_RING_CAPACITY, SampleMsg};
+use crate::core::sample::{
+    NO_SLOT, SAMPLE_RETURN_CAPACITY, SAMPLE_RING_CAPACITY, SampleMsg, SampleTable,
+};
 use crate::core::{DEFAULT_SAMPLE_RATE, MAX_TRACKS, RT_COMMAND_CAPACITY};
 use crate::models::{EffectChain, Song};
 
@@ -70,6 +72,7 @@ pub struct AudioEngine {
     retired: Mutex<Vec<Arc<[MirroredBlock]>>>,
     retired_notes: Mutex<Vec<Arc<[MirroredNote]>>>,
     sample_producer: Option<Producer<SampleMsg>>,
+    sample_returns: Option<Consumer<Box<SampleTable>>>,
     effects: Mutex<EffectControl>,
     shared: Arc<SharedState>,
     master_level: Arc<AtomicU32>,
@@ -123,13 +126,15 @@ impl AudioEngine {
         let shared = Arc::new(SharedState::new(sample_rate));
         let (producer, consumer) = RingBuffer::<RtCommand>::new(RT_COMMAND_CAPACITY);
         let (sample_producer, sample_consumer) = RingBuffer::<SampleMsg>::new(SAMPLE_RING_CAPACITY);
+        let (sample_return_producer, sample_return_consumer) =
+            RingBuffer::<Box<SampleTable>>::new(SAMPLE_RETURN_CAPACITY);
         let (effect_producer, effect_consumer) =
             RingBuffer::<EffectHandoff>::new(EFFECT_RING_CAPACITY);
         let (return_producer, return_consumer) =
             RingBuffer::<Box<EffectInstance>>::new(EFFECT_RING_CAPACITY);
 
         let mut core = RenderCore::new(song, sample_rate);
-        core.set_sample_ring(sample_consumer);
+        core.set_sample_ring(sample_consumer, sample_return_producer);
         core.set_effect_rings(effect_consumer, return_producer);
         let master_level = Arc::new(AtomicU32::new(0));
         let mut thread = AudioThread {
@@ -170,6 +175,7 @@ impl AudioEngine {
             retired: Mutex::new(Vec::new()),
             retired_notes: Mutex::new(Vec::new()),
             sample_producer: Some(sample_producer),
+            sample_returns: Some(sample_return_consumer),
             effects: Mutex::new(EffectControl {
                 producer: effect_producer,
                 return_consumer,
@@ -363,6 +369,13 @@ impl AudioEngine {
     /// audio thread the ring is closed.
     pub fn take_sample_producer(&mut self) -> Option<Producer<SampleMsg>> {
         self.sample_producer.take()
+    }
+
+    /// Take the consumer of tables the audio thread replaced after a
+    /// [`SampleMsg::Grow`], once. The control side drops what it pops, so the
+    /// audio thread never frees a table.
+    pub fn take_sample_returns(&mut self) -> Option<Consumer<Box<SampleTable>>> {
+        self.sample_returns.take()
     }
 
     /// Replace one track's block mirror on the audio thread. Returns `false` if

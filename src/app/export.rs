@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 use super::App;
 use crate::core::meter::MeterBank;
 use crate::core::render::{RenderCore, RtCommand};
-use crate::core::sample::SampleMsg;
+use crate::core::sample::{SampleMsg, SampleTable};
 use crate::core::wav;
 use crate::models::{EffectChain, Song};
 use crate::ui::view::Cursor;
@@ -136,6 +136,11 @@ impl App {
 
         let mut core = RenderCore::new(&self.song, sample_rate);
         let rates = self.source_rates();
+        if let Some(highest) = self.loaded_samples.keys().max() {
+            core.push_sample(SampleMsg::Grow {
+                table: Box::new(SampleTable::with_capacity(*highest as usize + 1)),
+            });
+        }
         for (&slot, frames) in &self.loaded_samples {
             let rate = rates.get(&slot).copied().unwrap_or(sample_rate as f32);
             core.push_sample(SampleMsg::Load {
@@ -143,7 +148,6 @@ impl App {
                 frames: Arc::clone(frames),
                 rate,
             });
-            core.apply(RtCommand::SetSampleRate { slot, rate });
         }
         for track in 0..self.song.tracks.len() {
             core.set_blocks(track, self.mirror(track));
@@ -204,7 +208,7 @@ impl App {
         Ok(wanted > MAX_EXPORT_SECONDS)
     }
 
-    fn source_rates(&self) -> HashMap<u8, f32> {
+    fn source_rates(&self) -> HashMap<crate::core::sample::Slot, f32> {
         self.samples
             .iter()
             .filter_map(|(source, &slot)| {
@@ -347,6 +351,7 @@ impl App {
         }
         self.samples.clear();
         self.loaded_samples.clear();
+        self.slots.clear();
     }
 }
 

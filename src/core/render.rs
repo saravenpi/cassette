@@ -6,7 +6,7 @@
 //! render path never allocates or frees it. The note mirror works the same way.
 
 use crate::core::effects::{EffectHandoff, EffectInstance};
-use crate::core::sample::{NO_SLOT, SampleMsg};
+use crate::core::sample::{NO_SLOT, SampleMsg, SampleTable, Slot};
 use crate::core::synth::{SampleCue, SynthEngine};
 use crate::core::{MAX_BLOCKS, MAX_NOTES, MAX_TRACKS};
 use crate::models::{EffectChain, LoopRegion, Song};
@@ -100,7 +100,7 @@ pub struct MirroredBlock {
     /// End on the timeline, in beats.
     pub end_beats: f32,
     /// Sample slot holding the frames, or [`NO_SLOT`] for a MIDI block.
-    pub slot: u8,
+    pub slot: Slot,
     /// Amplitude the voice starts at, which is the release tail for a block
     /// whose material runs past its end.
     pub gain: f32,
@@ -244,10 +244,6 @@ pub enum RtCommand {
         pan: f32,
         muted: bool,
         solo: bool,
-    },
-    SetSampleRate {
-        slot: u8,
-        rate: f32,
     },
     Seek {
         beats: f32,
@@ -626,9 +622,6 @@ impl RenderCore {
             } => self
                 .synth
                 .set_track_mix(track as usize, volume, pan, muted, solo),
-            RtCommand::SetSampleRate { slot, rate } => {
-                self.synth.set_sample_rate(slot, rate);
-            }
             RtCommand::Seek { beats } => {
                 self.cancel_count_in();
                 self.transport.seek_beats(beats);
@@ -706,8 +699,12 @@ impl RenderCore {
     }
 
     /// Hand the render core the control thread's end of the sample ring.
-    pub fn set_sample_ring(&mut self, consumer: rtrb::Consumer<SampleMsg>) {
-        self.synth.set_sample_ring(consumer);
+    pub fn set_sample_ring(
+        &mut self,
+        consumer: rtrb::Consumer<SampleMsg>,
+        returns: rtrb::Producer<Box<SampleTable>>,
+    ) {
+        self.synth.set_sample_ring(consumer, returns);
     }
 
     /// Apply everything waiting on the sample ring to the slots. Called once per
@@ -979,7 +976,7 @@ impl RenderCore {
 mod tests {
     use super::*;
     use crate::core::DEFAULT_SAMPLE_RATE;
-    use crate::core::sample::{MAX_SAMPLE_SLOTS, SampleMsg};
+    use crate::core::sample::SampleMsg;
 
     fn render(core: &mut RenderCore, frames: usize) -> Vec<f32> {
         let mut out = vec![0.0; frames * 2];
@@ -1354,7 +1351,6 @@ mod tests {
             frames: frames.into(),
             rate,
         });
-        core.apply(RtCommand::SetSampleRate { slot: 0, rate });
     }
 
     fn one_block(offset_seconds: f32, rate: f32) -> RtCommand {
@@ -1595,14 +1591,6 @@ mod tests {
         assert!(
             core.position_beats() >= 1.9,
             "one second is two beats at 120"
-        );
-    }
-
-    #[test]
-    fn every_sample_slot_fits_the_pool() {
-        assert!(
-            MAX_SAMPLE_SLOTS < NO_SLOT as usize,
-            "NO_SLOT must be out of band"
         );
     }
 

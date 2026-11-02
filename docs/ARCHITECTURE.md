@@ -302,12 +302,24 @@ core::render::start_blocks             ▼
   float at 32 and 64, including the `WAVE_FORMAT_EXTENSIBLE` subformat, downmixed
   to mono and normalised to `[-1, 1]`. It refuses a file past 256 MiB and past
   32 channels, and reports truncation through `source_frames` and `truncated`.
-- `core::sample` owns the audio-side storage. `SamplePool::new` allocates
-  `MAX_SAMPLE_SLOTS` (8) slots of `MAX_SAMPLE_FRAMES` (480_000) up front, and both
-  ways in write only into that memory: `push`, one message at a time, which is the
-  path the audio thread takes, and `drain`, a whole ring at once. A slot only
-  becomes readable once its `End` message arrives, so a partly loaded sample can
-  never play, and `rate(slot)` keeps the rate the file was decoded at.
+- `core::sample` owns the audio-side storage. A `SamplePool` holds a
+  `SampleTable`: one `Option<Arc<[f32]>>` and one pitch ratio per slot. Slot ids
+  are `u32` (`Slot`), `NO_SLOT` is `u32::MAX`, and the number of samples is
+  unbounded. A pool starts with `INITIAL_SAMPLE_SLOTS` (8) slots. `push`, one
+  message at a time, is the path the audio thread takes, and `drain` applies a
+  whole ring at once. A slot is readable only once its `Load` arrives, so a
+  partly loaded sample can never play, and `ratio(slot)` is the file rate over
+  the engine rate, computed when the load lands.
+- Growth. The control thread owns a `SlotAllocator`: a free list that hands out
+  the lowest recycled slot, else the next fresh one. When a slot does not fit the
+  table, it builds a larger empty `SampleTable` (the next power of two) and sends
+  it as `SampleMsg::Grow` ahead of the `Load`. The audio side moves every slot
+  and ratio into the new table with `mem::swap`, swaps the table in and pushes
+  the old one onto a return ring (`SAMPLE_RETURN_CAPACITY`, taken with
+  `AudioEngine::take_sample_returns`). The control thread pops and drops the old
+  tables, so the audio thread never allocates or frees. Each growth at least
+  doubles the table, so the return ring cannot fill. `tests/test_rt_no_alloc.rs`
+  checks that a `Grow` allocates nothing.
 - `core::render::start_blocks` starts a sample voice for each crossed block,
   through `play_sample(track, EVENT_PITCH, slot, offset, gain)`. `gain` is the
   amplitude the voice starts at, the release tail for a block whose material
@@ -332,17 +344,14 @@ plays at, which is the instrument's gain: the block's length does not enter it.
 What stops a sample longer than its block is `release_sample`, which the render
 core calls when the playhead passes the block's end, cutting the voice with a
 short fade. The tag is what keeps one block's end from silencing the sample a
-later block started. `set_sample_rate` stores each slot's ratio of file rate to
-engine rate, and the voice steps by it, so material at another rate plays
+later block started. the pool stores each slot's ratio of file rate to
+engine rate when a load lands, and the voice steps by it, so material at another rate plays
 pitch-shifted. That is repitch, Ableton Live's default mode, and it is deliberate
 here rather than a bug: time-stretching, which would hold the pitch, does not
 exist.
 
-The ring is sized to hold the largest load whole (`SAMPLE_RING_CAPACITY` is
-`MAX_SAMPLE_FRAMES` plus a header and a tail), because the control thread pushes
-a whole file in one go and one message carries one frame. A ring smaller than
-that refuses every file past its capacity, which is how a 65 536-message ring
-came to refuse every sample longer than about a second and a half.
+One `Load` carries a whole file as an `Arc`, so the ring only has to hold a
+burst of messages: `SAMPLE_RING_CAPACITY` is 256.
 
 `ROADMAP.md` 6.4 and 6.6 carry the rest of the sample path's status, including
 what is missing.
