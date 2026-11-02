@@ -140,6 +140,9 @@ export interface TrackView {
 	detune: number;
 	sub: number;
 	arp: ArpView;
+	unison: number;
+	fmRatio: number;
+	fmIndex: number;
 }
 
 /** A rectangle of the arrangement: a run of tracks and a span of beats. */

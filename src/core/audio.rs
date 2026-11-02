@@ -13,7 +13,7 @@
 use std::io::Write;
 use std::net::{Shutdown, TcpListener, TcpStream};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
@@ -186,6 +186,51 @@ pub struct SharedState {
     pub count_in_frames: AtomicU64,
     /// Per-track peak level, stored as raw `f32` bits.
     pub peaks: [AtomicU32; MAX_TRACKS],
+    /// The latest frames of the scoped track, for the voice editor's scope.
+    pub scope: Scope,
+}
+
+/// Frames the oscilloscope ring holds.
+pub const SCOPE_FRAMES: usize = 1024;
+
+/// A single-writer ring of the scoped track's latest mono frames.
+///
+/// The audio thread [`Scope::push`]es one frame at a time with relaxed atomic
+/// stores and no allocation; the UI [`Scope::read`]s the ring oldest first. A
+/// read that races a write may mix two callbacks' frames, which a display
+/// tolerates.
+pub struct Scope {
+    frames: [AtomicU32; SCOPE_FRAMES],
+    written: AtomicUsize,
+}
+
+impl Default for Scope {
+    fn default() -> Self {
+        Self {
+            frames: std::array::from_fn(|_| AtomicU32::new(0)),
+            written: AtomicUsize::new(0),
+        }
+    }
+}
+
+impl Scope {
+    /// Append one frame, overwriting the oldest. Allocation- and lock-free.
+    pub fn push(&self, frame: f32) {
+        let at = self.written.load(Ordering::Relaxed);
+        self.frames[at % SCOPE_FRAMES].store(frame.to_bits(), Ordering::Relaxed);
+        self.written.store(at.wrapping_add(1), Ordering::Release);
+    }
+
+    /// The last [`SCOPE_FRAMES`] frames, oldest first.
+    pub fn read(&self) -> Vec<f32> {
+        let end = self.written.load(Ordering::Acquire);
+        (0..SCOPE_FRAMES)
+            .map(|i| {
+                let slot = end.wrapping_add(i) % SCOPE_FRAMES;
+                f32::from_bits(self.frames[slot].load(Ordering::Relaxed))
+            })
+            .collect()
+    }
 }
 
 impl SharedState {
@@ -198,6 +243,7 @@ impl SharedState {
             looping: AtomicBool::new(true),
             count_in_frames: AtomicU64::new(0),
             peaks: std::array::from_fn(|_| AtomicU32::new(0)),
+            scope: Scope::default(),
         }
     }
 
@@ -1133,6 +1179,29 @@ mod tests {
         assert_eq!(shared.count_in_frames.load(Ordering::Relaxed), 512);
         assert!(shared.playing.load(Ordering::Relaxed));
         assert!((shared.peaks()[2] - 0.75).abs() < 1e-6);
+    }
+
+    #[test]
+    fn the_scope_reads_oldest_first_across_the_wrap() {
+        let scope = Scope::default();
+        for frame in 0..SCOPE_FRAMES + 10 {
+            scope.push(frame as f32);
+        }
+        let frames = scope.read();
+        assert_eq!(frames.len(), SCOPE_FRAMES);
+        assert_eq!(frames[0], 10.0);
+        assert_eq!(frames[SCOPE_FRAMES - 1], (SCOPE_FRAMES + 9) as f32);
+        assert!(frames.windows(2).all(|pair| pair[1] == pair[0] + 1.0));
+    }
+
+    #[test]
+    fn a_fresh_scope_reads_silence_then_the_newest_frame_last() {
+        let scope = Scope::default();
+        assert!(scope.read().iter().all(|frame| *frame == 0.0));
+        scope.push(0.5);
+        let frames = scope.read();
+        assert_eq!(frames[SCOPE_FRAMES - 1], 0.5);
+        assert_eq!(frames[0], 0.0);
     }
 
     #[test]

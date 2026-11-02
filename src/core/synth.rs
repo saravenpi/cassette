@@ -656,6 +656,8 @@ pub struct SynthEngine {
     return_producer: Option<Producer<Box<EffectInstance>>>,
     last_frame_outputs: [(f32, f32); MAX_TRACKS],
     current_frame_outputs: [(f32, f32); MAX_TRACKS],
+    scope_track: Option<usize>,
+    scope_sample: f32,
 }
 
 impl SynthEngine {
@@ -684,7 +686,22 @@ impl SynthEngine {
             return_producer: None,
             last_frame_outputs: [(0.0, 0.0); MAX_TRACKS],
             current_frame_outputs: [(0.0, 0.0); MAX_TRACKS],
+            scope_track: None,
+            scope_sample: 0.0,
         }
+    }
+
+    /// Choose the track whose instrument output [`SynthEngine::scoped`] reports,
+    /// or none.
+    pub fn set_scope_track(&mut self, track: Option<usize>) {
+        self.scope_track = track.filter(|track| *track < MAX_TRACKS);
+        self.scope_sample = 0.0;
+    }
+
+    /// The scoped track's last frame, when a track is scoped: its instrument
+    /// output (synth voices plus sample voice) before insert effects and fader.
+    pub fn scoped(&self) -> Option<f32> {
+        self.scope_track.map(|_| self.scope_sample)
     }
 
     /// Sample rate the engine was built for.
@@ -1239,6 +1256,7 @@ impl SynthEngine {
     /// so a tail keeps its state across a mute and a meter keeps moving.
     /// Rendering continues past the last voice while any chain still rings.
     pub fn process_frame(&mut self, peaks: &mut [f32; MAX_TRACKS]) -> (f32, f32) {
+        self.scope_sample = 0.0;
         if self.active_voices == 0 && !self.is_ringing() {
             if self.master_meter.level() > 1e-4 || self.master_peak > 0.0 {
                 self.meter_frames += 1;
@@ -1341,6 +1359,9 @@ impl SynthEngine {
                 track.enabled_gain = (track.enabled_gain - (1.0 / 128.0)).max(target);
             }
             mono *= track.enabled_gain;
+            if self.scope_track == Some(ti) {
+                self.scope_sample = mono;
+            }
 
             let (l, r) = track.effects.process_with_sidechain(
                 mono,

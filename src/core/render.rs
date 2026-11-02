@@ -5,6 +5,7 @@
 //! a fixed array filled by copying from a slice the control thread sends; the
 //! render path never allocates or frees it. The note mirror works the same way.
 
+use crate::core::audio::SharedState;
 use crate::core::effects::{EffectHandoff, EffectInstance};
 use crate::core::sample::{NO_SLOT, SampleMsg, SampleTable, Slot};
 use crate::core::synth::{SampleCue, SynthEngine};
@@ -271,7 +272,14 @@ pub enum RtCommand {
     PlayAfterCountIn {
         beats: u16,
     },
+    /// Capture this track into the scope ring; [`NO_SCOPE`] captures none.
+    SetScopeTrack {
+        track: u8,
+    },
 }
+
+/// The [`RtCommand::SetScopeTrack`] track that turns the scope off.
+pub const NO_SCOPE: u8 = u8::MAX;
 
 impl RtCommand {
     /// The command that sets `region`, or loops the whole song for `None`.
@@ -411,6 +419,8 @@ pub struct RenderCore {
     count_in_left: u64,
     /// Frames the current count-in pre-roll lasts in all.
     count_in_total: u64,
+    /// Where the scoped track's frames go, once the engine hands it over.
+    shared: Option<Arc<SharedState>>,
 }
 
 impl RenderCore {
@@ -447,6 +457,7 @@ impl RenderCore {
             click: Click::SILENT,
             count_in_left: 0,
             count_in_total: 0,
+            shared: None,
         };
         core.set_tempo(song.bpm());
         core
@@ -643,6 +654,9 @@ impl RenderCore {
             RtCommand::SetMasterVolume { volume } => self.synth.set_master_volume(volume),
             RtCommand::SetMetronome { on } => self.metronome = on,
             RtCommand::PlayAfterCountIn { beats } => self.count_in(beats),
+            RtCommand::SetScopeTrack { track } => self
+                .synth
+                .set_scope_track((track != NO_SCOPE).then_some(track as usize)),
         }
     }
 
@@ -696,6 +710,11 @@ impl RenderCore {
                 .trigger(beat % BEATS_PER_BAR == 0, self.synth.sample_rate());
         }
         (wanted as u64).min(until) as usize
+    }
+
+    /// Hand the render core the shared state its scope ring lives in.
+    pub fn set_scope(&mut self, shared: Arc<SharedState>) {
+        self.shared = Some(shared);
     }
 
     /// Hand the render core the control thread's end of the sample ring.
@@ -759,6 +778,9 @@ impl RenderCore {
             for frame in done..done + span {
                 self.transport.tick_frame();
                 let (left, right) = self.synth.process_frame(&mut peaks);
+                if let (Some(shared), Some(frame)) = (&self.shared, self.synth.scoped()) {
+                    shared.scope.push(frame);
+                }
                 let click = self.click.next_sample();
                 out[frame * 2] = (left + click).clamp(-1.0, 1.0);
                 out[frame * 2 + 1] = (right + click).clamp(-1.0, 1.0);

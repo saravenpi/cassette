@@ -136,6 +136,7 @@ impl AudioEngine {
         let mut core = RenderCore::new(song, sample_rate);
         core.set_sample_ring(sample_consumer, sample_return_producer);
         core.set_effect_rings(effect_consumer, return_producer);
+        core.set_scope(shared.clone());
         let master_level = Arc::new(AtomicU32::new(0));
         let mut thread = AudioThread {
             core,

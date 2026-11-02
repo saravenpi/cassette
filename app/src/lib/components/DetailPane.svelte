@@ -56,7 +56,10 @@
 					resonance: 0,
 					detune: 0,
 					sub: 0,
-					arp: DEFAULT_ARP
+					arp: DEFAULT_ARP,
+					unison: 1,
+					fmRatio: 1,
+					fmIndex: 0
 				}
 			: null
 	);
