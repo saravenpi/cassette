@@ -13,7 +13,16 @@ import {
 	snapBeats
 } from './geometry';
 import { TRACK_PALETTE } from './palette';
-import type { BeatRange, BlockView, ClipboardView, EngineEvent, TrackKind, TrackView } from './wire';
+import { blocksInRange } from './selection';
+import type {
+	BeatRange,
+	BlockView,
+	ClipboardView,
+	EngineEvent,
+	TrackBlock,
+	TrackKind,
+	TrackView
+} from './wire';
 
 /** One choice in a menu. */
 export interface MenuItem {
@@ -135,9 +144,12 @@ export function blockMenu(
 	block: BlockView,
 	atBeats: number,
 	step: number,
-	free = false
+	free = false,
+	selected: TrackBlock[] = []
 ): MenuEntry[] {
 	const at = { track, block: index };
+	const inGroup = selected.some((entry) => entry.track === track && entry.block === index);
+	const group = inGroup && selected.length > 1 ? selected : [at];
 	const cut = splitPoint(block, atBeats, step, free);
 	const entries: MenuEntry[] = [
 		item(
@@ -153,6 +165,9 @@ export function blockMenu(
 		}),
 		item('Rename', () => chain(host, { selectBlock: at }, 'renameBlock'), {
 			shortcut: 'R'
+		}),
+		item('Consolidate', () => void host.request({ consolidateBlocks: { blocks: group } }), {
+			shortcut: 'Ctrl+J'
 		})
 	];
 	if (block.kind === 'midi') {
@@ -301,8 +316,10 @@ export function selectionMenu(
 	selectedTrack: number,
 	markerBeat: number,
 	looping: boolean,
-	onClear: () => void
+	onClear: () => void,
+	tracks: TrackView[] = []
 ): MenuEntry[] {
+	const overlapped = blocksInRange(tracks, range);
 	return [
 		item('Cut', () => void host.request({ cutRange: { range } }), {
 			shortcut: 'Ctrl+X'
@@ -324,6 +341,10 @@ export function selectionMenu(
 		item('Delete', () => void host.request({ deleteRange: { range } }), {
 			shortcut: 'Del',
 			danger: true
+		}),
+		item('Consolidate', () => void host.request({ consolidateBlocks: { blocks: overlapped } }), {
+			shortcut: 'Ctrl+J',
+			disabled: overlapped.length === 0
 		}),
 		separator,
 		item(

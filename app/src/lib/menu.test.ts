@@ -104,6 +104,26 @@ describe('block menu', () => {
 		await Promise.resolve();
 		expect(fake.sent).toEqual([{ selectBlock: { track: 0, block: 1 } }, 'renameBlock']);
 	});
+
+	test('consolidate sends the clicked block alone when it is not in a larger selection', () => {
+		const fake = host();
+		const others = [{ track: 1, block: 0 }, { track: 1, block: 1 }];
+		find(blockMenu(fake, 0, 2, block(), 9, 1), 'Consolidate').run();
+		find(blockMenu(fake, 0, 2, block(), 9, 1, false, others), 'Consolidate').run();
+		expect(fake.sent).toEqual([
+			{ consolidateBlocks: { blocks: [{ track: 0, block: 2 }] } },
+			{ consolidateBlocks: { blocks: [{ track: 0, block: 2 }] } }
+		]);
+	});
+
+	test('consolidate sends the whole selection when the clicked block is part of it', () => {
+		const fake = host();
+		const group = [{ track: 0, block: 2 }, { track: 0, block: 3 }, { track: 1, block: 0 }];
+		const entry = find(blockMenu(fake, 0, 2, block(), 9, 1, false, group), 'Consolidate');
+		expect(entry.shortcut).toBe('Ctrl+J');
+		entry.run();
+		expect(fake.sent).toEqual([{ consolidateBlocks: { blocks: group } }]);
+	});
 });
 
 describe('split point', () => {
@@ -211,6 +231,33 @@ describe('selectionMenu', () => {
 			'toggleLoop'
 		]);
 		expect(cleared).toBe(true);
+	});
+
+	test('consolidate sends every block the range overlaps', () => {
+		const fake = host();
+		const lane = (blocks: BlockView[]) => ({ blocks }) as TrackView;
+		const tracks = [
+			lane([block({ startBeats: 0, lengthBeats: 4 }), block({ startBeats: 6, lengthBeats: 4 })]),
+			lane([block({ startBeats: 2, lengthBeats: 4 }), block({ startBeats: 8, lengthBeats: 2 })]),
+			lane([block({ startBeats: 4, lengthBeats: 4 })])
+		];
+		const entries = selectionMenu(fake, range, null, 0, 0, false, () => {}, tracks);
+		find(entries, 'Consolidate').run();
+		expect(fake.sent).toEqual([
+			{
+				consolidateBlocks: {
+					blocks: [
+						{ track: 0, block: 1 },
+						{ track: 1, block: 0 }
+					]
+				}
+			}
+		]);
+	});
+
+	test('disables consolidate when the range holds no block', () => {
+		const entries = selectionMenu(host(), range, null, 0, 0, false, () => {});
+		expect(find(entries, 'Consolidate').disabled).toBe(true);
 	});
 
 	test('disables paste when clipboard is null', () => {

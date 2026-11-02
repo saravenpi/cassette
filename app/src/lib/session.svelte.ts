@@ -35,6 +35,7 @@ import { locateBlock, rollGridStep } from './pianoRoll';
 import { resolveSaveAction, resolveSaveAsAction } from './project';
 import { KeyedQueue, nextBackoff } from './queue';
 import { selection } from './selection.svelte';
+import { blocksInRange, selectedBlocks } from './selection';
 import { settingsStore } from './settings.svelte';
 import { menu } from './menu.svelte';
 import { TRACK_PALETTE } from './palette';
@@ -683,6 +684,17 @@ class Session {
 		} else {
 			this.duplicateSelected();
 		}
+	}
+
+	/** Fold the blocks the time selection overlaps, or else the selected blocks, into one per track. */
+	consolidate(): void {
+		const tracks = this.snapshot?.tracks ?? [];
+		const blocks = selection.range !== null ? blocksInRange(tracks, selection.range) : selectedBlocks(tracks);
+		if (blocks.length === 0) {
+			this.report('select blocks to consolidate');
+			return;
+		}
+		this.dispatch({ consolidateBlocks: { blocks } });
 	}
 
 	/** Delete either the active time selection or the block under the cursor. */

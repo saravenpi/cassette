@@ -37,6 +37,7 @@ interface KeyboardHost {
 	clearSelection(): boolean;
 	nudgeSelectedBlock(deltaTrack: number, deltaBeats: number): boolean;
 	seekCursor(direction: number): void;
+	consolidate(): void;
 	readonly selectedEffectIndex?: number | null;
 	readonly effectClipboard?: unknown | null;
 	copyEffect?(track?: number, index?: number): void;
@@ -164,6 +165,8 @@ export function attachKeyboard(host: KeyboardHost): () => void {
 				if (!event.repeat) host.loopSelection();
 			} else if (local === 'recolorTrack') {
 				if (!event.repeat) host.openTrackRecolor?.();
+			} else if (local === 'consolidate') {
+				if (!event.repeat && !inTextInputOrGrid) host.consolidate();
 			}
 
 			if (host.activeView === 'mixer' && !inTextInputOrGrid) {

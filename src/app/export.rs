@@ -15,11 +15,11 @@ use crate::core::wav;
 use crate::models::{EffectChain, Song};
 use crate::ui::view::Cursor;
 
-const EXPORT_SAMPLE_RATE: u32 = 44_100;
+pub(super) const EXPORT_SAMPLE_RATE: u32 = 44_100;
 const MAX_EXPORT_SECONDS: f32 = 600.0;
 
 impl App {
-    fn report_export_progress(&mut self, progress: Option<f32>) {
+    pub(super) fn report_export_progress(&mut self, progress: Option<f32>) {
         self.export_progress = progress;
         if let Some(reporter) = &self.progress_reporter {
             reporter(progress);
@@ -81,16 +81,7 @@ impl App {
 
         let mut exported = 0;
         for (track_idx, track_name) in &tracks_with_blocks {
-            let safe_name: String = track_name
-                .chars()
-                .map(|c| {
-                    if c.is_alphanumeric() || c == '-' || c == '_' {
-                        c
-                    } else {
-                        '_'
-                    }
-                })
-                .collect();
+            let safe_name = file_safe(track_name);
             let file_name = if safe_name.is_empty() {
                 format!("track_{}", track_idx + 1)
             } else {
@@ -135,20 +126,7 @@ impl App {
         let total_frames = (seconds * sample_rate as f32) as usize;
 
         let mut core = RenderCore::new(&self.song, sample_rate);
-        let rates = self.source_rates();
-        if let Some(highest) = self.loaded_samples.keys().max() {
-            core.push_sample(SampleMsg::Grow {
-                table: Box::new(SampleTable::with_capacity(*highest as usize + 1)),
-            });
-        }
-        for (&slot, frames) in &self.loaded_samples {
-            let rate = rates.get(&slot).copied().unwrap_or(sample_rate as f32);
-            core.push_sample(SampleMsg::Load {
-                slot,
-                frames: Arc::clone(frames),
-                rate,
-            });
-        }
+        self.load_samples_into(&mut core);
         for track in 0..self.song.tracks.len() {
             core.set_blocks(track, self.mirror(track));
             core.set_notes(track, self.mirror_notes(track));
@@ -178,6 +156,37 @@ impl App {
         core.apply(RtCommand::Seek { beats: 0.0 });
         core.apply(RtCommand::Play);
 
+        let output = self.render_frames(&mut core, total_frames);
+        write_atomic(path, |temp| {
+            wav::encode_pcm16(temp, &output, 2, sample_rate)
+        })?;
+        Ok(wanted > MAX_EXPORT_SECONDS)
+    }
+
+    /// Hand an offline render core every loaded sample, at its own rate.
+    pub(super) fn load_samples_into(&self, core: &mut RenderCore) {
+        let rates = self.source_rates();
+        if let Some(highest) = self.loaded_samples.keys().max() {
+            core.push_sample(SampleMsg::Grow {
+                table: Box::new(SampleTable::with_capacity(*highest as usize + 1)),
+            });
+        }
+        for (&slot, frames) in &self.loaded_samples {
+            let rate = rates
+                .get(&slot)
+                .copied()
+                .unwrap_or(core.sample_rate() as f32);
+            core.push_sample(SampleMsg::Load {
+                slot,
+                frames: Arc::clone(frames),
+                rate,
+            });
+        }
+    }
+
+    /// Run a playing render core for `total_frames` stereo frames, reporting
+    /// progress as it goes. The caller clears the progress once it is done.
+    pub(super) fn render_frames(&mut self, core: &mut RenderCore, total_frames: usize) -> Vec<f32> {
         self.report_export_progress(Some(0.0));
 
         let mut output = Vec::with_capacity(total_frames * 2);
@@ -201,11 +210,7 @@ impl App {
                 }
             }
         }
-
-        write_atomic(path, |temp| {
-            wav::encode_pcm16(temp, &output, 2, sample_rate)
-        })?;
-        Ok(wanted > MAX_EXPORT_SECONDS)
+        output
     }
 
     fn source_rates(&self) -> HashMap<crate::core::sample::Slot, f32> {
@@ -355,7 +360,7 @@ impl App {
     }
 }
 
-fn write_atomic(path: &Path, write: impl FnOnce(&Path) -> Result<()>) -> Result<()> {
+pub(super) fn write_atomic(path: &Path, write: impl FnOnce(&Path) -> Result<()>) -> Result<()> {
     let parent = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -373,6 +378,19 @@ fn write_atomic(path: &Path, write: impl FnOnce(&Path) -> Result<()>) -> Result<
         let _ = std::fs::remove_file(&temp);
     }
     result
+}
+
+/// A name with every character a file name may trip on replaced by `_`.
+pub(super) fn file_safe(name: &str) -> String {
+    name.chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }
 
 fn default_directory() -> PathBuf {

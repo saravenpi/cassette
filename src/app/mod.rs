@@ -9,6 +9,7 @@
 //! ([`tracks`]), audio samples ([`samples`]) and the transport ([`transport`]).
 
 mod clipboard;
+mod consolidate;
 mod effects;
 mod export;
 mod history;
@@ -409,6 +410,7 @@ impl App {
             Event::ExportStems { dir } => self.export_stems(dir),
             Event::ExportProject { path } => self.export_project(path),
             Event::LoadProject { path } => self.load_project(path),
+            Event::ConsolidateBlocks { blocks } => self.consolidate_blocks(&blocks),
         }
     }
 

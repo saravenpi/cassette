@@ -129,6 +129,12 @@ export interface BeatRange {
 	endBeats: number;
 }
 
+/** One block of one track. */
+export interface TrackBlock {
+	track: number;
+	block: number;
+}
+
 /** The new values of one note in a batch edit. */
 export interface NoteEdit {
 	note: number;
@@ -334,6 +340,7 @@ export type EngineEvent =
 	| { exportAudio: { path: string | null } }
 	| { exportProject: { path: string | null } }
 	| { loadProject: { path: string | null } }
+	| { consolidateBlocks: { blocks: TrackBlock[] } }
 	| 'undo'
 	| 'redo'
 	| 'checkpoint';
