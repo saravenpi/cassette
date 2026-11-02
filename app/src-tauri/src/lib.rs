@@ -19,7 +19,7 @@ use crossbeam::channel::{Receiver, RecvTimeoutError, Sender, unbounded};
 use tauri::State;
 
 use cassette::app::{App, ClipSpectrum, WAVEFORM_BUCKETS, clip_spectrum, peaks};
-use cassette::core::audio::{AudioDeviceList, AudioInputRecorder, list_audio_devices};
+use cassette::core::audio::{AudioDeviceList, AudioInputRecorder, SharedState, list_audio_devices};
 use cassette::core::wav::MAX_DECODED_FRAMES;
 use cassette::events::Event;
 use cassette::ui::view::UiState;
@@ -35,6 +35,9 @@ type Snapshot = Arc<Mutex<Option<UiState>>>;
 type Commands = Sender<Event>;
 /// Active native audio input recorder state.
 type RecorderState = Arc<Mutex<Option<AudioInputRecorder>>>;
+/// The running engine's shared state, so [`scope`] reads its ring without
+/// waking the engine thread. Replaced when the output device changes.
+type ScopeSource = Arc<Mutex<Option<Arc<SharedState>>>>;
 
 /// The current snapshot, or `None` in the moment before the engine first publishes.
 ///
@@ -56,6 +59,22 @@ fn send(event: Event, commands: State<'_, Commands>) -> Result<(), String> {
     commands
         .send(event)
         .map_err(|_| "cassette: the engine thread has stopped".to_string())
+}
+
+/// The selected track's latest [`cassette::core::audio::SCOPE_FRAMES`] frames, oldest first.
+///
+/// Each frame is the track's instrument output (synth voices plus sample
+/// voice) before insert effects and the fader, so the scope shows the
+/// oscillator the voice editor shapes. Empty before the engine first starts.
+#[tauri::command]
+fn scope(source: State<'_, ScopeSource>) -> Result<Vec<f32>, String> {
+    let source = source
+        .lock()
+        .map_err(|error| format!("cassette: {error}"))?;
+    Ok(source
+        .as_ref()
+        .map(|shared| shared.scope.read())
+        .unwrap_or_default())
 }
 
 /// Read the stream port out of `ZBOUB_STREAM_PORT`. Only a nonzero `u16` counts;
@@ -447,7 +466,7 @@ fn default_app() -> App {
 }
 
 /// Own the engine for the life of the process, in a thread it never leaves.
-fn engine_thread(commands: Receiver<Event>, snapshot: Snapshot) {
+fn engine_thread(commands: Receiver<Event>, snapshot: Snapshot, scope_source: ScopeSource) {
     let mut app = start_app();
     let published = snapshot.clone();
     app.set_progress_reporter(move |progress| {
@@ -460,6 +479,12 @@ fn engine_thread(commands: Receiver<Event>, snapshot: Snapshot) {
     let publish = |app: &App| {
         if let Ok(mut slot) = snapshot.lock() {
             *slot = Some(app.ui_state());
+        }
+        let shared = app.shared_state();
+        if let Ok(mut slot) = scope_source.lock()
+            && !slot.as_ref().is_some_and(|held| Arc::ptr_eq(held, &shared))
+        {
+            *slot = Some(shared);
         }
     };
     publish(&app);
@@ -484,6 +509,8 @@ pub fn run() {
 
     let snapshot: Snapshot = Arc::new(Mutex::new(None));
     let recorder: RecorderState = Arc::new(Mutex::new(None));
+    let scope_source: ScopeSource = Arc::new(Mutex::new(None));
+    let scope_engine = scope_source.clone();
     let (commands, receiver) = unbounded::<Event>();
     let published = snapshot.clone();
 
@@ -494,10 +521,11 @@ pub fn run() {
         .manage(snapshot)
         .manage(commands)
         .manage(recorder)
+        .manage(scope_source)
         .setup(move |_app| {
             std::thread::Builder::new()
                 .name("engine".into())
-                .spawn(move || engine_thread(receiver, published))?;
+                .spawn(move || engine_thread(receiver, published, scope_engine))?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -513,7 +541,8 @@ pub fn run() {
             save_recorded_sample,
             get_audio_devices,
             start_audio_recording,
-            stop_audio_recording
+            stop_audio_recording,
+            scope
         ])
         .run(tauri::generate_context!())
         .expect("cassette: the tauri runtime failed");

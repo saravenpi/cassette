@@ -146,6 +146,12 @@ pub struct TrackView {
     pub resonance: f32,
     pub detune: f32,
     pub sub: f32,
+    /// Oscillators per voice, `1..=7`.
+    pub unison: u8,
+    /// Frequency ratio of the FM modulator to the carrier.
+    pub fm_ratio: f32,
+    /// FM modulation index; `0` turns FM off.
+    pub fm_index: f32,
 }
 
 /// What the clipboard holds, so the interface can offer Paste.
@@ -288,6 +294,9 @@ mod tests {
             resonance: 0.0,
             detune: 0.0,
             sub: 0.0,
+            unison: 1,
+            fm_ratio: 1.0,
+            fm_index: 0.0,
         }
     }
 

@@ -54,7 +54,10 @@
 					cutoff: 1,
 					resonance: 0,
 					detune: 0,
-					sub: 0
+					sub: 0,
+					unison: 1,
+					fmRatio: 1,
+					fmIndex: 0
 				}
 			: null
 	);

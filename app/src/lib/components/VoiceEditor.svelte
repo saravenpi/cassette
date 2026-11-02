@@ -4,13 +4,17 @@
 	 * preset and its oscillator with the envelope on the left, and gain, octave
 	 * and the four envelope stages on the right, each sent through
 	 * `setInstrument` at most once per frame, with the envelope drawn from the
-	 * values the sliders show.
+	 * values the sliders show. Above the envelope, the oscillator: the shape the
+	 * settings draw, or, while this track is selected and playing, a scope of its
+	 * instrument output held still on a rising zero crossing.
 	 */
 
+	import { scope } from '$lib/api';
 	import { envelopePoints, rangePercent } from '$lib/geometry';
 	import { session } from '$lib/session.svelte';
 	import type { Voice } from '$lib/session.svelte';
 	import type { OscillatorShape, ParamSpecView, TrackView } from '$lib/wire';
+	import { normalize, peakOf, SILENCE, triggerWindow, voiceShape, wavePoints } from '$lib/voice';
 	import Knob from './Knob.svelte';
 
 	const CUTOFF_SPEC: ParamSpecView = {
@@ -59,7 +63,8 @@
 	const HEIGHT = 52;
 	const SUSTAIN_WIDTH = 72;
 	const DEFAULT_GAIN = 0.45;
-
+	const SCOPE_WINDOW = 512;
+	const TONE_SETTLE_MS = 300;
 
 	const SLIDERS: { id: keyof Voice; label: string; min: number; max: number; step: number; unit: string; default: number }[] =
 		[
@@ -86,6 +91,53 @@
 		decay: 0.12,
 		sustain: 0.6,
 		release: 0.15
+	});
+
+	let tone = $state<Pick<TrackView, 'cutoff' | 'resonance' | 'detune' | 'sub'> | null>(null);
+	let toneSettle: ReturnType<typeof setTimeout> | null = null;
+	let scopeFrames = $state.raw<number[] | null>(null);
+
+	const shownTone = $derived(tone ?? track);
+	const shape = $derived(voiceShape({ ...track, ...shownTone }));
+	const live = $derived(
+		session.snapshot?.playing === true && session.snapshot.cursor.track === index
+	);
+	const scopeWave = $derived.by(() => {
+		if (!live || scopeFrames === null) return null;
+		const window = triggerWindow(scopeFrames, SCOPE_WINDOW);
+		return peakOf(window) > SILENCE ? normalize(window) : null;
+	});
+	const wave = $derived(wavePoints(scopeWave ?? shape, WIDTH, HEIGHT));
+
+	$effect(() => {
+		if (!live) {
+			scopeFrames = null;
+			return;
+		}
+		let frame = 0;
+		let waiting = false;
+		let stopped = false;
+		const poll = () => {
+			if (!waiting) {
+				waiting = true;
+				scope()
+					.then((frames) => {
+						if (!stopped) scopeFrames = frames;
+					})
+					.catch(() => {})
+					.finally(() => (waiting = false));
+			}
+			frame = requestAnimationFrame(poll);
+		};
+		frame = requestAnimationFrame(poll);
+		return () => {
+			stopped = true;
+			cancelAnimationFrame(frame);
+		};
+	});
+
+	$effect(() => () => {
+		if (toneSettle !== null) clearTimeout(toneSettle);
 	});
 
 	const envelope = $derived(
@@ -172,10 +224,16 @@
 	}
 
 	function onToneChange(which: 'cutoff' | 'resonance' | 'detune' | 'sub', value: number): void {
-		const cutoff = which === 'cutoff' ? value : track.cutoff;
-		const resonance = which === 'resonance' ? value : track.resonance;
-		const detune = which === 'detune' ? value : track.detune;
-		const sub = which === 'sub' ? value : track.sub;
+		const cutoff = which === 'cutoff' ? value : shownTone.cutoff;
+		const resonance = which === 'resonance' ? value : shownTone.resonance;
+		const detune = which === 'detune' ? value : shownTone.detune;
+		const sub = which === 'sub' ? value : shownTone.sub;
+		tone = { cutoff, resonance, detune, sub };
+		if (toneSettle !== null) clearTimeout(toneSettle);
+		toneSettle = setTimeout(() => {
+			tone = null;
+			toneSettle = null;
+		}, TONE_SETTLE_MS);
 		session.queueInstrumentTone(index, cutoff, resonance, detune, sub);
 	}
 </script>
@@ -197,6 +255,19 @@
 				</button>
 			{/each}
 		</div>
+		<h3 class="eyebrow">
+			Oscillator{#if scopeWave}<span class="live">live</span>{/if}
+		</h3>
+		<svg
+			class="envelope"
+			viewBox="0 0 {WIDTH} {HEIGHT}"
+			preserveAspectRatio="none"
+			role="img"
+			aria-label={scopeWave ? 'Live scope of the instrument' : 'One cycle of the oscillator'}
+		>
+			<line class="guide" x1="0" x2={WIDTH} y1={HEIGHT / 2} y2={HEIGHT / 2} />
+			<polyline points={wave} />
+		</svg>
 		<h3 class="eyebrow">Envelope</h3>
 		<svg
 			class="envelope"
@@ -340,8 +411,14 @@
 		color: var(--text-subtle);
 	}
 
+	.live {
+		margin-left: 6px;
+		color: var(--green);
+	}
+
 	.envelope {
 		display: block;
+		margin-bottom: 10px;
 		width: 100%;
 		height: 64px;
 		background: var(--bg);

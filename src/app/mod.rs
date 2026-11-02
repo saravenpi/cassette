@@ -32,7 +32,7 @@ use rtrb::{Consumer, Producer};
 use crate::core::MAX_TRACKS;
 use crate::core::engine::AudioEngine;
 use crate::core::meter::MeterBank;
-use crate::core::render::RtCommand;
+use crate::core::render::{NO_SCOPE, RtCommand};
 use crate::core::sample::{SampleMsg, SampleTable, Slot, SlotAllocator};
 use crate::events::Event;
 use crate::events::bus::EventBus;
@@ -92,6 +92,8 @@ pub struct App {
     pub(crate) clipboard: Option<clipboard::Clipboard>,
     pub(crate) export_progress: Option<f32>,
     pub(crate) progress_reporter: Option<Box<dyn Fn(Option<f32>) + Send>>,
+    /// Track the engine's scope captures, as last accepted by the engine.
+    scoped_track: Option<usize>,
 }
 
 impl App {
@@ -162,6 +164,28 @@ impl App {
             clipboard: None,
             export_progress: None,
             progress_reporter: None,
+            scoped_track: None,
+        }
+    }
+
+    /// The engine's published state, whose scope ring holds the selected
+    /// track's latest frames. A new output device brings a new one.
+    pub fn shared_state(&self) -> std::sync::Arc<crate::core::audio::SharedState> {
+        self.engine.shared().clone()
+    }
+
+    /// Point the engine's scope at the selected track when the selection or
+    /// the engine changed. A refused command is retried on the next drain.
+    fn follow_scope(&mut self) {
+        let track = (self.cursor.track < self.song.tracks.len()).then_some(self.cursor.track);
+        if track == self.scoped_track {
+            return;
+        }
+        let command = RtCommand::SetScopeTrack {
+            track: track.map_or(NO_SCOPE, |track| track as u8),
+        };
+        if self.engine.send(command) {
+            self.scoped_track = track;
         }
     }
 
@@ -177,6 +201,7 @@ impl App {
         while let Ok(event) = self.events.try_recv() {
             self.handle(event);
         }
+        self.follow_scope();
     }
 
     /// Advance one frame: apply queued intent, resync if the engine refused a
@@ -453,6 +478,7 @@ impl App {
                 self.sample_returns = next_engine.take_sample_returns();
                 self.slots = SlotAllocator::new();
                 self.engine = next_engine;
+                self.scoped_track = None;
                 self.samples.clear();
                 self.loaded_samples.clear();
                 let sources: Vec<String> = self
@@ -523,6 +549,9 @@ impl App {
                 resonance: track.instrument.resonance,
                 detune: track.instrument.detune,
                 sub: track.instrument.sub,
+                unison: track.instrument.unison,
+                fm_ratio: track.instrument.fm_ratio,
+                fm_index: track.instrument.fm_index,
                 name: track.name.clone(),
                 kind: track.kind,
                 preset: Instrument {
@@ -681,6 +710,15 @@ mod tests {
             1,
             "a command must land on the frame it arrives, not the next"
         );
+    }
+
+    #[test]
+    fn the_scope_follows_the_selected_track() {
+        let mut app = headless_app();
+        app.drain();
+        assert_eq!(app.scoped_track, Some(0));
+        app.submit(Event::SelectTrack { track: 2 });
+        assert_eq!(app.scoped_track, Some(2));
     }
 
     #[test]

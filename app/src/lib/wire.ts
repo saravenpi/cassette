@@ -119,6 +119,9 @@ export interface TrackView {
 	resonance: number;
 	detune: number;
 	sub: number;
+	unison: number;
+	fmRatio: number;
+	fmIndex: number;
 }
 
 /** A rectangle of the arrangement: a run of tracks and a span of beats. */

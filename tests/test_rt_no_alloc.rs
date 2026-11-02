@@ -11,7 +11,8 @@
 mod red_zone {
     use cassette::core::DEFAULT_SAMPLE_RATE;
     use cassette::core::MAX_TRACKS;
-    use cassette::core::render::{MirroredBlock, MirroredNote, RenderCore, RtCommand};
+    use cassette::core::audio::SharedState;
+    use cassette::core::render::{MirroredBlock, MirroredNote, NO_SCOPE, RenderCore, RtCommand};
     use cassette::core::sample::{NO_SLOT, SampleMsg, SampleTable, Slot};
     use cassette::models::{Effect, EffectChain, EffectKind, Song};
     use std::sync::Arc;
@@ -460,5 +461,33 @@ mod red_zone {
         assert_no_alloc::assert_no_alloc(|| {
             core.apply(RtCommand::DeleteTrack { track: 0 });
         });
+    }
+
+    #[test]
+    fn writing_the_scope_allocates_nothing() {
+        let song = Song::new();
+        let mut core = RenderCore::new(&song, DEFAULT_SAMPLE_RATE);
+        let shared = Arc::new(SharedState::new(DEFAULT_SAMPLE_RATE));
+        core.set_scope(shared.clone());
+        core.apply(RtCommand::NoteOn {
+            track: 0,
+            pitch: 60,
+            velocity: 100,
+        });
+        let mut out = vec![0.0f32; 512 * 2];
+
+        assert_no_alloc::assert_no_alloc(|| {
+            core.apply(RtCommand::SetScopeTrack { track: 0 });
+            for _ in 0..8 {
+                core.process(&mut out);
+            }
+            core.apply(RtCommand::SetScopeTrack { track: NO_SCOPE });
+            core.process(&mut out);
+        });
+
+        assert!(
+            shared.scope.read().iter().any(|frame| frame.abs() > 0.0),
+            "the scoped track's frames reached the ring"
+        );
     }
 }

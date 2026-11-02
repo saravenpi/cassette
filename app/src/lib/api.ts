@@ -115,6 +115,14 @@ export function readSpectrum(path: string): Promise<ClipSpectrum> {
 	return invoke<ClipSpectrum>('read_spectrum', { path });
 }
 
+/**
+ * The selected track's latest 1024 frames, oldest first: its instrument output
+ * before insert effects and the fader. Empty before the engine starts.
+ */
+export function scope(): Promise<number[]> {
+	return invoke<number[]>('scope');
+}
+
 const spectrums = new Map<string, Promise<ClipSpectrum>>();
 
 export function loadSpectrum(path: string): Promise<ClipSpectrum> {
