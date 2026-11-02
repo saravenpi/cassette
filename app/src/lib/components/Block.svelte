@@ -135,12 +135,26 @@
 		}
 		lastDownAt = now;
 		event.stopPropagation();
+		if (event.ctrlKey || event.metaKey) {
+			session.dispatch({ toggleBlockSelection: { track, block: index } });
+			selection.clear();
+			return;
+		}
+		if (event.shiftKey) {
+			session.dispatch({ selectBlockRange: { track, block: index } });
+			selection.clear();
+			return;
+		}
 		const element = event.currentTarget;
 		if (!(element instanceof HTMLElement)) return;
 		const grab = pxToBeats(event.clientX - element.getBoundingClientRect().left, session.zoom);
 		element.setPointerCapture(event.pointerId);
-		session.dispatch({ selectBlock: { track, block: index } });
 		selection.clear();
+		if (block.selected && session.blockGroup.length > 1) {
+			session.drag.beginMove(track, index, block, grab);
+			return;
+		}
+		session.dispatch({ selectBlock: { track, block: index } });
 		const open = session.roll;
 		if (open === null || open.track !== track || open.block !== index) {
 			session.openRoll(track, index);

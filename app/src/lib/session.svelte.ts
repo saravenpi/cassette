@@ -17,6 +17,7 @@ import {
 	stopNativeAudioRecording
 } from './api';
 import { paramKey } from './chain';
+import { selectedBlocks, type GroupMember } from './blockSelection';
 import { detail } from './detail.svelte';
 import { DragController } from './drag.svelte';
 import {
@@ -135,6 +136,12 @@ class Session {
 			zoom: () => this.zoom,
 			send: (event) => this.send(event)
 		});
+	}
+
+	/** The selected blocks when more than one is selected, else none. */
+	get blockGroup(): GroupMember[] {
+		const picked = selectedBlocks(this.snapshot?.tracks ?? []);
+		return picked.length > 1 ? picked : [];
 	}
 
 	get renaming(): boolean {
@@ -589,6 +596,10 @@ class Session {
 
 	/** Copy the current time selection to the clipboard. */
 	copySelection(): void {
+		if (selection.range === null && this.blockGroup.length > 0) {
+			this.dispatch('copySelectedBlocks');
+			return;
+		}
 		if (selection.range !== null) {
 			this.dispatch({ copyRange: { range: selection.range } });
 		} else {
@@ -613,6 +624,11 @@ class Session {
 
 	/** Cut the current time selection to the clipboard and clear the selection. */
 	cutSelection(): void {
+		if (selection.range === null && this.blockGroup.length > 0) {
+			this.dispatch('copySelectedBlocks');
+			this.dispatch('deleteSelectedBlocks');
+			return;
+		}
 		if (selection.range !== null) {
 			this.dispatch({ cutRange: { range: selection.range } });
 			selection.clear();
@@ -671,7 +687,8 @@ class Session {
 
 	/** Paste clipboard contents at the marker on the selected track. */
 	pasteSelection(): void {
-		const track = this.snapshot?.cursor.track ?? 0;
+		const group = selection.range === null ? this.blockGroup : [];
+		const track = group[0]?.track ?? this.snapshot?.cursor.track ?? 0;
 		const startBeats = this.snapshot?.transportPositionBeats ?? 0;
 		this.dispatch({ pasteRange: { track, startBeats } });
 	}
@@ -680,6 +697,8 @@ class Session {
 	duplicate(): void {
 		if (selection.range !== null) {
 			this.dispatch({ duplicateRange: { range: selection.range } });
+		} else if (this.blockGroup.length > 0) {
+			this.dispatch('duplicateSelectedBlocks');
 		} else {
 			this.duplicateSelected();
 		}
@@ -690,6 +709,10 @@ class Session {
 		if (selection.range !== null) {
 			this.dispatch({ deleteRange: { range: selection.range } });
 			selection.clear();
+			return;
+		}
+		if (this.blockGroup.length > 0) {
+			this.dispatch('deleteSelectedBlocks');
 			return;
 		}
 		const cursorTrack = this.snapshot?.cursor.track;
@@ -853,6 +876,11 @@ class Session {
 	clearSelection(): boolean {
 		if (selection.range !== null) {
 			selection.clear();
+			return true;
+		}
+		const cursor = this.snapshot?.cursor;
+		if (this.blockGroup.length > 0 && cursor !== undefined) {
+			this.dispatch({ selectBlock: { track: cursor.track, block: cursor.block } });
 			return true;
 		}
 		return false;

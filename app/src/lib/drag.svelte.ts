@@ -14,6 +14,7 @@ import {
 	stretchLength,
 	trimSpan
 } from './geometry';
+import { groupMove, selectedBlocks, type GroupMember } from './blockSelection';
 import type { BlockView, EngineEvent, UiState } from './wire';
 
 /** Which part of a block a drag moves. */
@@ -37,6 +38,17 @@ export interface Drag {
 	dirty: boolean;
 	releasedAt: number;
 	invalidTarget: boolean;
+	/** The selected blocks a group move carries along, or null for one block. */
+	group: GroupMember[] | null;
+	/** Lanes a group move shifts its blocks by. */
+	deltaTracks: number;
+}
+
+/** The blocks a group move draws, and how far it shifts them. */
+export interface GroupPreview {
+	members: GroupMember[];
+	deltaBeats: number;
+	deltaTracks: number;
 }
 
 /** What a drag needs from the session it belongs to. */
@@ -115,9 +127,36 @@ export class DragController {
 		this.context = context;
 	}
 
-	/** Start dragging a block along its lane, `grab` beats from its left edge. */
+	/**
+	 * Start dragging a block along its lane, `grab` beats from its left edge.
+	 * A selected block among several carries the whole selection, sent once as
+	 * a group move when the pointer comes up.
+	 */
 	beginMove(track: number, index: number, view: BlockView, grab: number): void {
 		this.begin('move', track, index, view, grab);
+		const members = selectedBlocks(this.context.snapshot()?.tracks ?? []);
+		const grabbed = members.some((member) => member.track === track && member.block === index);
+		if (this.state !== null && view.selected && grabbed && members.length > 1) {
+			this.state.group = members;
+		}
+	}
+
+	/**
+	 * The group move to draw, while the engine has not applied it yet: once the
+	 * grabbed block has left its place in the snapshot, the lanes show the truth.
+	 */
+	groupPreview(): GroupPreview | null {
+		const drag = this.state;
+		if (drag === null || drag.group === null) return null;
+		const origin = this.context.snapshot()?.tracks[drag.track]?.blocks[drag.index];
+		if (origin === undefined || origin.name !== drag.name || origin.startBeats !== drag.view.startBeats) {
+			return null;
+		}
+		return {
+			members: drag.group,
+			deltaBeats: drag.startBeats - drag.view.startBeats,
+			deltaTracks: drag.deltaTracks
+		};
 	}
 
 	/** Start dragging a block's right edge; `stretch` rescales an audio block's material. */
@@ -156,6 +195,7 @@ export class DragController {
 	async flush(): Promise<void> {
 		const drag = this.state;
 		if (drag === null || !drag.dirty) return;
+		if (drag.group !== null && !drag.released) return;
 		if (drag.kind === 'trim' && drag.view.kind === 'midi' && !drag.released) return;
 		if (drag.invalidTarget) {
 			drag.targetTrack = drag.track;
@@ -168,6 +208,12 @@ export class DragController {
 	settle(): void {
 		const drag = this.state;
 		if (drag === null) return;
+		if (drag.group !== null) {
+			if (!drag.released || drag.dirty) return;
+			const late = performance.now() - drag.releasedAt > SETTLE_TIMEOUT_MS;
+			if (late || this.groupPreview() === null) this.state = null;
+			return;
+		}
 		this.locate(drag);
 		if (!drag.released || drag.dirty) return;
 		const current = this.context.snapshot()?.tracks[drag.targetTrack]?.blocks[drag.index];
@@ -199,7 +245,9 @@ export class DragController {
 			released: false,
 			dirty: false,
 			releasedAt: 0,
-			invalidTarget: false
+			invalidTarget: false,
+			group: null,
+			deltaTracks: 0
 		};
 		window.addEventListener('pointermove', this.onPointerMove);
 		window.addEventListener('pointerup', this.onPointerUp);
@@ -224,7 +272,24 @@ export class DragController {
 			}
 		}
 		if (lane === null) return;
-		if (drag.kind === 'move') {
+		if (drag.kind === 'move' && drag.group !== null) {
+			const wanted = snapBeats(lane.beats - drag.grab, gridStep(this.context.zoom()), event.altKey);
+			const tracks = this.context.snapshot()?.tracks ?? [];
+			const move = groupMove(drag.group, tracks, drag.view.startBeats, wanted, lane.track - drag.track);
+			const deltaTracks = move.invalid ? drag.deltaTracks : move.deltaTracks;
+			const startBeats = drag.view.startBeats + move.deltaBeats;
+			if (
+				startBeats === drag.startBeats &&
+				deltaTracks === drag.deltaTracks &&
+				move.invalid === drag.invalidTarget
+			) {
+				return;
+			}
+			drag.invalidTarget = move.invalid;
+			drag.startBeats = startBeats;
+			drag.deltaTracks = deltaTracks;
+			drag.targetTrack = drag.track + deltaTracks;
+		} else if (drag.kind === 'move') {
 			const startBeats = snapBeats(lane.beats - drag.grab, gridStep(this.context.zoom()), event.altKey);
 			const targetTrackKind = this.context.snapshot()?.tracks[lane.track]?.kind;
 			const wasInvalid = drag.invalidTarget;
@@ -293,8 +358,12 @@ export class DragController {
 	private release(): void {
 		const drag = this.state;
 		if (drag === null) return;
-		if (drag.invalidTarget) {
+		if (drag.invalidTarget && drag.group === null) {
 			drag.targetTrack = drag.track;
+		}
+		if (drag.group !== null) {
+			drag.invalidTarget = false;
+			drag.dirty = true;
 		}
 		drag.released = true;
 		drag.releasedAt = performance.now();
@@ -343,6 +412,11 @@ export class DragController {
 /** The engine message that carries a drag's current geometry. */
 function request(drag: Drag): EngineEvent {
 	const at = { track: drag.track, block: drag.index };
+	if (drag.group !== null) {
+		const deltaBeats = drag.startBeats - drag.view.startBeats;
+		if (deltaBeats === 0 && drag.deltaTracks === 0) return { selectBlock: at };
+		return { moveSelectedBlocks: { deltaBeats, deltaTracks: drag.deltaTracks } };
+	}
 	switch (drag.kind) {
 		case 'move':
 			return { placeBlock: { ...at, targetTrack: drag.targetTrack, startBeats: drag.startBeats } };

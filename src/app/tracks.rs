@@ -299,6 +299,7 @@ impl App {
     pub(crate) fn select_block(&mut self, track: usize, block: usize) {
         self.select_track(track);
         self.cursor.block = block.min(self.block_slots() - 1);
+        self.selection = None;
     }
 
     /// Flip the selected track between MIDI and audio. The blocks stay: both

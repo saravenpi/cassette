@@ -14,6 +14,7 @@ mod export;
 mod history;
 mod notes;
 mod samples;
+mod selection;
 mod timeline;
 mod tracks;
 mod transport;
@@ -57,6 +58,8 @@ pub struct App {
     bus: EventBus,
     events: Receiver<Event>,
     cursor: Cursor,
+    /// Blocks selected next to the cursor; `None` selects the cursor's block.
+    selection: Option<std::collections::BTreeSet<selection::BlockRef>>,
     meters: MeterBank,
     held: Vec<HeldNote>,
     /// Whether played notes are written into the timeline.
@@ -136,6 +139,7 @@ impl App {
             bus,
             events,
             cursor: Cursor::default(),
+            selection: None,
             meters,
             held: Vec::new(),
             recording: false,
@@ -209,6 +213,17 @@ impl App {
             Event::MoveBlock(delta) => self.move_block(delta),
             Event::SelectTrack { track } => self.select_track(track),
             Event::SelectBlock { track, block } => self.select_block(track, block),
+            Event::ToggleBlockSelection { track, block } => {
+                self.toggle_block_selection(track, block)
+            }
+            Event::SelectBlockRange { track, block } => self.select_block_range(track, block),
+            Event::SelectAllBlocks => self.select_all_blocks(),
+            Event::SelectBlocksInRange {
+                first_track,
+                last_track,
+                start_beats,
+                end_beats,
+            } => self.select_blocks_in_range(first_track, last_track, start_beats, end_beats),
             Event::CreateBlock {
                 track,
                 start_beats,
@@ -364,6 +379,13 @@ impl App {
             Event::DeleteRange { range } => self.delete_range(range),
             Event::PasteRange { track, start_beats } => self.paste_range(track, start_beats),
             Event::DuplicateRange { range } => self.duplicate_range(range),
+            Event::DeleteSelectedBlocks => self.delete_selected_blocks(),
+            Event::CopySelectedBlocks => self.copy_selected_blocks(),
+            Event::DuplicateSelectedBlocks => self.duplicate_selected_blocks(),
+            Event::MoveSelectedBlocks {
+                delta_beats,
+                delta_tracks,
+            } => self.move_selected_blocks(delta_beats, delta_tracks),
             Event::SetEffectSidechain {
                 track,
                 index,
@@ -554,7 +576,7 @@ impl App {
                         start_beats: entry.start_beats,
                         length_beats: entry.length_beats,
                         source: entry.source.clone(),
-                        selected: index == self.cursor.track && block == self.cursor.block,
+                        selected: self.is_selected(index, block),
                         notes: entry.notes.clone(),
                         offset_seconds: entry.offset_seconds,
                         rate: entry.rate,

@@ -102,13 +102,14 @@ const CHORDS: Record<string, LocalIntent> = {
 	KeyO: 'open'
 };
 
-/** Chords that carry an engine intent: undo, redo, and add track. */
+/** Chords that carry an engine intent: undo, redo, add track, and select all blocks. */
 function chordIntent(event: KeyboardEvent): EngineEvent | null {
 	if (event.code === 'KeyZ' || event.key === 'z' || event.key === 'Z') {
 		return event.shiftKey ? 'redo' : 'undo';
 	}
 	if (event.code === 'KeyY' || event.key === 'y' || event.key === 'Y') return 'redo';
 	if (event.code === 'KeyT') return { addTrack: { kind: event.shiftKey ? 'midi' : 'audio' } };
+	if (event.code === 'KeyA' && !event.shiftKey) return 'selectAllBlocks';
 	return null;
 }
 
@@ -124,7 +125,8 @@ const ONCE_PER_PRESS = new Set<string>([
 	'renameBlock',
 	'cancelRename',
 	'toggleMute',
-	'toggleSolo'
+	'toggleSolo',
+	'selectAllBlocks'
 ]);
 
 const clash = [...Object.keys(COMMANDS), ...Object.keys(LOCAL)].find((code) => code in PIANO);

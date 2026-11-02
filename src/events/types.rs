@@ -61,6 +61,26 @@ pub enum Event {
         track: usize,
         block: usize,
     },
+    /// Add a block to the selection, or take it out, and put the cursor on it.
+    ToggleBlockSelection {
+        track: usize,
+        block: usize,
+    },
+    /// Select from the cursor to a block: the blocks between them on one
+    /// track, or every block in the rectangle they span across tracks.
+    SelectBlockRange {
+        track: usize,
+        block: usize,
+    },
+    /// Select every block of the song.
+    SelectAllBlocks,
+    /// Select the blocks overlapping a rectangle of tracks and beats.
+    SelectBlocksInRange {
+        first_track: usize,
+        last_track: usize,
+        start_beats: f32,
+        end_beats: f32,
+    },
     /// Create an empty block of the track's kind on its lane.
     CreateBlock {
         track: usize,
@@ -321,6 +341,18 @@ pub enum Event {
     /// Copy the material inside a range to just after the range.
     DuplicateRange {
         range: BeatRange,
+    },
+    /// Remove every selected block as one edit.
+    DeleteSelectedBlocks,
+    /// Copy the selected blocks to the clipboard.
+    CopySelectedBlocks,
+    /// Copy the selected blocks to just after the group's end.
+    DuplicateSelectedBlocks,
+    /// Move every selected block by the same beats and tracks, or none of
+    /// them when one would land off the tracks or on the other kind.
+    MoveSelectedBlocks {
+        delta_beats: f32,
+        delta_tracks: i32,
     },
     /// Drive an effect's detector from another track, or from its own input
     /// for `None`.

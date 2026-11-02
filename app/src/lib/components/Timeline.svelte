@@ -173,6 +173,9 @@
 			window.removeEventListener('pointerup', onUp);
 			window.removeEventListener('pointercancel', onUp);
 			const drawn = selection.finishDrag();
+			if (drawn && selection.range !== null) {
+				session.dispatch({ selectBlocksInRange: { ...selection.range } });
+			}
 			if (!drawn && !moved) {
 				selection.clear();
 				const endLane = laneUnder(e.clientX, e.clientY, session.zoom) ?? lane;

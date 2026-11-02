@@ -238,6 +238,17 @@ export type EngineEvent =
 	| { moveBlock: number }
 	| { selectTrack: { track: number } }
 	| { selectBlock: { track: number; block: number } }
+	| { toggleBlockSelection: { track: number; block: number } }
+	| { selectBlockRange: { track: number; block: number } }
+	| 'selectAllBlocks'
+	| {
+			selectBlocksInRange: {
+				firstTrack: number;
+				lastTrack: number;
+				startBeats: number;
+				endBeats: number;
+			};
+	  }
 	| { createBlock: { track: number; startBeats: number; lengthBeats: number } }
 	| { placeBlock: { track: number; block: number; targetTrack: number; startBeats: number } }
 	| { resizeBlock: { track: number; block: number; lengthBeats: number } }
@@ -309,6 +320,10 @@ export type EngineEvent =
 	| { deleteRange: { range: BeatRange } }
 	| { pasteRange: { track: number; startBeats: number } }
 	| { duplicateRange: { range: BeatRange } }
+	| 'deleteSelectedBlocks'
+	| 'copySelectedBlocks'
+	| 'duplicateSelectedBlocks'
+	| { moveSelectedBlocks: { deltaBeats: number; deltaTracks: number } }
 	| { setEffectSidechain: { track: number; index: number; source: number | null } }
 	| { setInstrumentEnabled: { track: number; enabled: boolean } }
 	| { setInstrumentTone: { track: number; cutoff: number; resonance: number; detune: number; sub: number } }
