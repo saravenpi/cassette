@@ -358,3 +358,36 @@ export function envelopePoints(
 		`${plateau + sustainWidth + tail},${level(0)}`
 	].join(' ');
 }
+
+/** The row a y offset below the ruler falls in, or null above the first or past the last. */
+export function rowAt(y: number, heights: number[]): { row: number; offset: number } | null {
+	if (y < 0) return null;
+	let top = 0;
+	for (let row = 0; row < heights.length; row += 1) {
+		if (y < top + heights[row]) return { row, offset: y - top };
+		top += heights[row];
+	}
+	return null;
+}
+
+/**
+ * The block under a point of a lane, as the stack draws it: selected blocks sit
+ * above the rest, and later blocks above earlier ones.
+ */
+export function blockAt(
+	blocks: { startBeats: number; lengthBeats: number; selected: boolean }[],
+	x: number,
+	offset: number,
+	height: number,
+	pxPerBeat: number
+): number | null {
+	if (offset < 2 || offset > height - 2) return null;
+	let found: number | null = null;
+	blocks.forEach((block, index) => {
+		const left = block.startBeats * pxPerBeat;
+		const width = Math.max(block.lengthBeats * pxPerBeat, MIN_BLOCK_PX);
+		if (x < left || x >= left + width) return;
+		if (found === null || block.selected || !blocks[found].selected) found = index;
+	});
+	return found;
+}

@@ -3,6 +3,8 @@ import type { NoteView, UiState } from './wire';
 
 interface Matchers {
 	toEqual(expected: unknown): void;
+	toBe(expected: unknown): void;
+	not: { toBe(expected: unknown): void };
 }
 
 declare const describe: (name: string, fn: () => void) => void;
@@ -36,5 +38,25 @@ describe('NoteCache', () => {
 		const edited = cache.merge(snapshot([7, 4], [[note(64)], []]));
 		expect(edited.tracks.map((track) => track.blocks[0].notes)).toEqual([[note(64)], [note(62)]]);
 		expect(cache.known()).toEqual([7, 4]);
+	});
+
+	test('keeps the identity of unchanged tracks and replaces changed ones', () => {
+		const cache = new NoteCache();
+		const build = (level: number) =>
+			({
+				playing: false,
+				tracks: [0, 1].map((index) => ({
+					notesRevision: 1,
+					level: index === 0 ? level : 0,
+					blocks: [{ notes: [] }]
+				}))
+			}) as unknown as UiState;
+		const first = cache.merge(build(0));
+		const second = cache.merge(build(0.5));
+		expect(second).not.toBe(first);
+		expect(second.tracks[1]).toBe(first.tracks[1]);
+		expect(second.tracks[1].blocks[0]).toBe(first.tracks[1].blocks[0]);
+		expect(second.tracks[0]).not.toBe(first.tracks[0]);
+		expect(cache.merge(build(0.5))).toBe(second);
 	});
 });

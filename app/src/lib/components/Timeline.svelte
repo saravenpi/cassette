@@ -20,11 +20,14 @@
 		TAIL_BARS,
 		barsFor,
 		beatsToPx,
+		blockAt,
 		clampRowHeight,
 		formatPrecise,
 		gridStep,
 		pruneHeights,
+		pxToBeats,
 		rangePercent,
+		rowAt,
 		snapBeats,
 		zoomByWheel
 	} from '$lib/geometry';
@@ -33,7 +36,7 @@
 	import { menu } from '$lib/menu.svelte';
 	import { formatRangeLength, rangeLength } from '$lib/selection';
 	import { selection } from '$lib/selection.svelte';
-	import { session } from '$lib/session.svelte';
+	import { session, type Hover } from '$lib/session.svelte';
 	import { MASTER_TRACK } from '$lib/wire';
 	import Playhead from './Playhead.svelte';
 	import Ruler from './Ruler.svelte';
@@ -54,6 +57,7 @@
 	let trackReorder = $state<TrackReorder | null>(null);
 	let draggedMasterVolume = $state<number | null>(null);
 	let cancelResize: (() => void) | null = null;
+	let hoverFrame = 0;
 	let pointer: { x: number; y: number; free: boolean } | null = null;
 	let lastGridDown: { time: number; track: number; x: number; y: number } | null = null;
 
@@ -283,23 +287,37 @@
 		trackHeights[index] = ROW_HEIGHT;
 	}
 
-	function blockUnder(x: number, y: number, track: number): number | null {
-		const hit = document.elementFromPoint(x, y);
-		const element = hit instanceof Element ? hit.closest('[data-block]') : null;
-		if (!(element instanceof HTMLElement)) return null;
-		const index = Number(element.dataset.block);
-		return Number(element.dataset.blockTrack) === track && Number.isInteger(index) ? index : null;
+	function resolveHover(): Hover | null {
+		if (pointer === null || scroller === null) return null;
+		const rect = scroller.getBoundingClientRect();
+		const x = pointer.x - rect.left + scroller.scrollLeft;
+		const y = pointer.y - rect.top + scroller.scrollTop - RULER_HEIGHT;
+		const heights = tracks.map((_, index) => getHeight(index));
+		const hit = rowAt(y, heights);
+		if (hit === null) return null;
+		const step = gridStep(session.zoom);
+		const beats = pxToBeats(x, session.zoom);
+		const blocks = tracks[hit.row].blocks;
+		const block = blockAt(blocks, x, hit.offset, heights[hit.row], session.zoom);
+		const view = block === null ? undefined : blocks[block];
+		return { beats: markAt(view, beats, step, pointer.free), track: hit.row, block };
+	}
+
+	function applyHover(): void {
+		hoverFrame = 0;
+		const next = resolveHover();
+		const current = session.hover;
+		if (next === null || current === null) {
+			if (next !== current) session.hover = next;
+			return;
+		}
+		if (next.beats !== current.beats || next.track !== current.track || next.block !== current.block) {
+			session.hover = next;
+		}
 	}
 
 	function trackHover(): void {
-		const lane = pointer === null ? null : laneUnder(pointer.x, pointer.y, session.zoom);
-		if (pointer === null || lane === null) {
-			session.hover = null;
-			return;
-		}
-		const block = blockUnder(pointer.x, pointer.y, lane.track);
-		const view = block === null ? undefined : tracks[lane.track]?.blocks[block];
-		session.hover = { beats: markAt(view, lane.beats, gridStep(session.zoom), pointer.free), track: lane.track, block };
+		if (hoverFrame === 0) hoverFrame = requestAnimationFrame(applyHover);
 	}
 
 	function onPointerMove(event: PointerEvent): void {
@@ -309,6 +327,8 @@
 
 	function onPointerLeave(): void {
 		pointer = null;
+		cancelAnimationFrame(hoverFrame);
+		hoverFrame = 0;
 		session.hover = null;
 	}
 
@@ -404,6 +424,7 @@
 	}
 
 	onDestroy(() => {
+		cancelAnimationFrame(hoverFrame);
 		cancelResize?.();
 		stopTrackReorder();
 		session.hover = null;

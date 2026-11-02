@@ -7,6 +7,8 @@ import {
 	meterPercent,
 	ZOOM_MIN,
 	anchoredScroll,
+	blockAt,
+	rowAt,
 	barsFor,
 	beatsToPx,
 	clampRowHeight,
@@ -436,5 +438,26 @@ describe('meterPercent', () => {
 	test('clips only at full scale', () => {
 		expect(meterClips(0.9)).toBe(false);
 		expect(meterClips(1)).toBe(true);
+	});
+});
+
+describe('hover hit testing', () => {
+	test('finds the row under an offset', () => {
+		expect(rowAt(-1, [80, 120])).toBe(null);
+		expect(rowAt(10, [80, 120])).toEqual({ row: 0, offset: 10 });
+		expect(rowAt(90, [80, 120])).toEqual({ row: 1, offset: 10 });
+		expect(rowAt(200, [80, 120])).toBe(null);
+	});
+
+	test('finds the topmost block under a point', () => {
+		const blocks = [
+			{ startBeats: 0, lengthBeats: 4, selected: false },
+			{ startBeats: 2, lengthBeats: 4, selected: false }
+		];
+		expect(blockAt(blocks, 10, 40, 80, 10)).toBe(0);
+		expect(blockAt(blocks, 30, 40, 80, 10)).toBe(1);
+		expect(blockAt([{ ...blocks[0], selected: true }, blocks[1]], 30, 40, 80, 10)).toBe(0);
+		expect(blockAt(blocks, 30, 0, 80, 10)).toBe(null);
+		expect(blockAt(blocks, 100, 40, 80, 10)).toBe(null);
 	});
 });

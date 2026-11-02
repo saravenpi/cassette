@@ -16,7 +16,9 @@ declare const test: (name: string, fn: () => void | Promise<void>) => void;
 declare const expect: (actual: unknown) => Matchers;
 
 if (typeof (globalThis as Record<string, unknown>).$state === 'undefined') {
-	(globalThis as Record<string, unknown>).$state = <T>(value: T) => value;
+	(globalThis as Record<string, unknown>).$state = Object.assign(<T>(value: T) => value, {
+		raw: <T>(value: T) => value
+	});
 }
 
 const { AudioRecorder, encodeWav } = await import('./audioRecording.svelte');

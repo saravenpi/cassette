@@ -11,7 +11,9 @@ declare const expect: (actual: unknown) => Matchers;
 declare const beforeEach: (fn: () => void) => void;
 
 if (typeof (globalThis as Record<string, unknown>).$state === 'undefined') {
-	(globalThis as Record<string, unknown>).$state = <T>(value: T) => value;
+	(globalThis as Record<string, unknown>).$state = Object.assign(<T>(value: T) => value, {
+		raw: <T>(value: T) => value
+	});
 }
 
 const { SettingsStore } = await import('./settings.svelte');

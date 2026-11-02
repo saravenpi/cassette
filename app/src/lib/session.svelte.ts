@@ -82,7 +82,7 @@ export interface EffectClipboard {
 }
 
 class Session {
-	snapshot = $state<UiState | null>(null);
+	snapshot = $state.raw<UiState | null>(null);
 	error = $state<string | null>(null);
 	zoom = $state(ZOOM_DEFAULT);
 	rollZoom = $state(96);
