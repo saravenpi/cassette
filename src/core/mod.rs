@@ -17,7 +17,7 @@ pub mod synth;
 pub mod wav;
 
 /// Hard ceiling on tracks. Keeps every audio-side array fixed-size.
-pub const MAX_TRACKS: usize = 16;
+pub const MAX_TRACKS: usize = 128;
 /// Hard ceiling on blocks per track, mirroring the audio-side mirror.
 pub const MAX_BLOCKS: usize = 64;
 /// Hard ceiling on notes in one track's audio-side note mirror.

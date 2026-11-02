@@ -1256,7 +1256,7 @@ pub struct EffectHandoff {
 }
 
 /// Capacity of the effect handoff and return ring buffers.
-pub const EFFECT_RING_CAPACITY: usize = 256;
+pub const EFFECT_RING_CAPACITY: usize = (MAX_TRACKS + 1) * crate::models::effect::MAX_EFFECTS;
 
 /// One populated slot in a track's insert chain.
 pub struct EffectSlot {
@@ -1416,8 +1416,9 @@ impl TrackEffects {
         l: f32,
         r: f32,
         last_frame_outputs: &[(f32, f32); MAX_TRACKS],
+        track_count: usize,
     ) -> (f32, f32) {
-        self.process_with_sidechain(l, r, last_frame_outputs, usize::MAX, MAX_TRACKS)
+        self.process_with_sidechain(l, r, last_frame_outputs, usize::MAX, track_count)
     }
 
     /// Run one stereo frame through the enabled effects, resolving sidechains

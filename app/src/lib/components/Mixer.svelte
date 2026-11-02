@@ -5,6 +5,7 @@
 	 * Clicking any channel strip focuses that track and opens its devices in DetailPane.
 	 */
 
+	import { MAX_TRACKS } from '$lib/geometry';
 	import { session } from '$lib/session.svelte';
 	import ChannelStrip from './ChannelStrip.svelte';
 	import MasterStrip from './MasterStrip.svelte';
@@ -60,7 +61,7 @@
 			/>
 		{/each}
 
-		{#if tracks.length < 16}
+		{#if tracks.length < MAX_TRACKS}
 			<div class="add-col">
 				<button
 					type="button"

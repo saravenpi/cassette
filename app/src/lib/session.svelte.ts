@@ -19,7 +19,15 @@ import {
 import { paramKey } from './chain';
 import { detail } from './detail.svelte';
 import { DragController } from './drag.svelte';
-import { DEFAULT_LENGTH_BEATS, ZOOM_DEFAULT, clampZoom, gridStep, snapBeats, zoomBy } from './geometry';
+import {
+	DEFAULT_LENGTH_BEATS,
+	MAX_TRACKS,
+	ZOOM_DEFAULT,
+	clampZoom,
+	gridStep,
+	snapBeats,
+	zoomBy
+} from './geometry';
 import { SvelteSet } from 'svelte/reactivity';
 import { attachKeyboard } from './keyboard';
 import { NoteCache } from './noteCache';
@@ -727,7 +735,7 @@ class Session {
 
 	/** Add a new track of the given kind if below the maximum. */
 	addTrack(kind: TrackKind): void {
-		if ((this.snapshot?.tracks.length ?? 0) < 16) {
+		if ((this.snapshot?.tracks.length ?? 0) < MAX_TRACKS) {
 			this.dispatch({ addTrack: { kind } });
 		}
 	}
@@ -785,7 +793,7 @@ class Session {
 	/** Duplicate a track if below the maximum track count. */
 	duplicateTrack(track: number): void {
 		const total = this.snapshot?.tracks.length ?? 0;
-		if (total >= 16) return;
+		if (total >= MAX_TRACKS) return;
 		if (
 			trackSelection.selectedTracks.size > 1 &&
 			trackSelection.isSelected(track)
@@ -798,11 +806,11 @@ class Session {
 
 	duplicateSelectedTracks(): void {
 		let total = this.snapshot?.tracks.length ?? 0;
-		if (total >= 16) return;
+		if (total >= MAX_TRACKS) return;
 		this.dispatch('checkpoint');
 		const tracks = Array.from(trackSelection.selectedTracks).sort((a, b) => b - a);
 		for (const t of tracks) {
-			if (total >= 16) break;
+			if (total >= MAX_TRACKS) break;
 			this.dispatch({ duplicateTrack: { track: t } });
 			total += 1;
 		}

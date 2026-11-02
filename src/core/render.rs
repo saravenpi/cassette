@@ -398,7 +398,8 @@ impl Transport {
 pub struct RenderCore {
     synth: SynthEngine,
     transport: Transport,
-    blocks: [[MirroredBlock; MAX_BLOCKS]; MAX_TRACKS],
+    /// One block mirror per track, boxed because it is too large for a stack.
+    blocks: Box<[[MirroredBlock; MAX_BLOCKS]]>,
     block_lens: [usize; MAX_TRACKS],
     /// One note mirror per track, boxed because it is too large for a stack.
     notes: Box<[[MirroredNote; MAX_NOTES]]>,
@@ -439,7 +440,7 @@ impl RenderCore {
         let mut core = Self {
             synth,
             transport: Transport::new(song.bpm(), sample_rate),
-            blocks: [[EMPTY_BLOCK; MAX_BLOCKS]; MAX_TRACKS],
+            blocks: vec![[EMPTY_BLOCK; MAX_BLOCKS]; MAX_TRACKS].into_boxed_slice(),
             block_lens: [0; MAX_TRACKS],
             notes: vec![[EMPTY_NOTE; MAX_NOTES]; MAX_TRACKS].into_boxed_slice(),
             note_lens: [0; MAX_TRACKS],
@@ -539,7 +540,7 @@ impl RenderCore {
 
     fn refresh_song_end(&mut self) {
         let mut end = 0.0f32;
-        for track in 0..MAX_TRACKS {
+        for track in 0..self.synth.track_count() {
             for block in &self.blocks[track][..self.block_lens[track]] {
                 end = end.max(block.end_beats);
             }
@@ -835,7 +836,7 @@ impl RenderCore {
                 next = Some(next.map_or(beats, |held| held.min(beats)));
             }
         };
-        for track in 0..MAX_TRACKS {
+        for track in 0..self.synth.track_count() {
             for block in &self.blocks[track][..self.block_lens[track]] {
                 if block.slot != NO_SLOT {
                     keep(inside(block.start_beats));
@@ -854,7 +855,7 @@ impl RenderCore {
     /// The mirror is sorted by start, so the window is found by binary search.
     fn start_notes(&mut self, from_beats: f64, to_beats: f64) {
         let frames_per_beat = self.transport.frames_per_beat();
-        for track in 0..MAX_TRACKS {
+        for track in 0..self.synth.track_count() {
             let notes = &self.notes[track][..self.note_lens[track]];
             let first = notes.partition_point(|note| f64::from(note.start_beats) < from_beats);
             for note in notes[first..]
@@ -879,7 +880,7 @@ impl RenderCore {
     /// restarting from the top.
     fn start_blocks(&mut self, from_beats: f64, to_beats: f64) {
         let frames_per_beat = self.transport.frames_per_beat();
-        for track in 0..MAX_TRACKS {
+        for track in 0..self.synth.track_count() {
             for (index, block) in self.blocks[track][..self.block_lens[track]]
                 .iter()
                 .enumerate()

@@ -14,6 +14,7 @@
 		HEADER_WIDTH,
 		anchoredScroll,
 		MAX_ROW_HEIGHT,
+		MAX_TRACKS,
 		MIN_ROW_HEIGHT,
 		ROW_HEIGHT,
 		RULER_HEIGHT,
@@ -513,8 +514,8 @@
 						type="button"
 						class="add-track-btn"
 						aria-label="Add track"
-						title={tracks.length >= 16 ? 'Track limit reached (16 tracks)' : 'Add track'}
-						disabled={tracks.length >= 16}
+						title={tracks.length >= MAX_TRACKS ? `Track limit reached (${MAX_TRACKS} tracks)` : 'Add track'}
+						disabled={tracks.length >= MAX_TRACKS}
 						onclick={openAddTrackMenu}
 					>
 						+

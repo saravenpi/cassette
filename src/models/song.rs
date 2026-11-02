@@ -323,7 +323,7 @@ mod tests {
     fn sanitize_clamps_tempo_and_caps_tracks() {
         let mut song = Song::new();
         song.bpm = -5.0;
-        for _ in 0..40 {
+        for _ in 0..MAX_TRACKS + 24 {
             song.tracks
                 .push(Track::new("x", TrackKind::Midi, Instrument::preset("Lead")));
         }
