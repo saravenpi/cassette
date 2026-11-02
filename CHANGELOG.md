@@ -638,3 +638,16 @@ Loop points, frame-accurate note starts, and a review pass over v0.9.0.
 ### Fixed
 
 - Scrolling the timeline is smooth again. Unchanged tracks and blocks keep their identity between engine polls, the hover line updates once per frame without a layout query, and lane grids are CSS gradients instead of song-wide SVG.
+
+## [0.24.0] - 2026-11-02
+
+### Added
+
+- Select several clips: Ctrl/Cmd-click toggles one, Shift-click selects a range, Ctrl/Cmd+A selects all, and a time selection selects the clips it touches. Drag, delete, copy, cut and duplicate act on the whole group in one undo step.
+- Consolidate (Ctrl/Cmd+J, or the clip and selection menus) folds the selected clips into one clip per track. MIDI notes merge; audio renders to a new WAV in the project's `Consolidated` folder with clip gain, fades and warp baked in and track effects left live.
+- An Arp device on MIDI tracks: Up, Down, Up Down, Down Up, Converge, Diverge, Play Order and Random styles, synced rate with triplets, gate, swing, transposed repeats and velocity decay. It plays in playback and export and leaves the clip's notes untouched.
+- The voice editor draws the oscillator's shape from the current waveform, unison, sub, FM and filter settings, and switches to a live scope of the selected track while it plays.
+
+### Changed
+
+- The export dialog pre-fills the project's name, or the last exported file name for an unsaved project.
