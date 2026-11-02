@@ -93,6 +93,26 @@ export interface EffectSpecView {
 	params: ParamSpecView[];
 }
 
+/** Order an arpeggiator plays the held notes in. */
+export type ArpStyle = 'up' | 'down' | 'upDown' | 'downUp' | 'converge' | 'diverge' | 'playOrder' | 'random';
+
+/** Length of one arpeggiator step, as a note value; `T` marks a triplet. */
+export type ArpRate = '1/1' | '1/2' | '1/4' | '1/8' | '1/16' | '1/32' | '1/4T' | '1/8T' | '1/16T';
+
+/** A MIDI track's arpeggiator settings, mirroring `src/models/arp.rs`. */
+export interface ArpView {
+	enabled: boolean;
+	style: ArpStyle;
+	rate: ArpRate;
+	gate: number;
+	distance: number;
+	steps: number;
+	swing: number;
+	velocityDecay: number;
+	velocityTarget: number;
+	seed: number;
+}
+
 /** A track: its voice, its mixer strip, and its blocks. */
 export interface TrackView {
 	name: string;
@@ -119,6 +139,7 @@ export interface TrackView {
 	resonance: number;
 	detune: number;
 	sub: number;
+	arp: ArpView;
 }
 
 /** A rectangle of the arrangement: a run of tracks and a span of beats. */
@@ -313,6 +334,7 @@ export type EngineEvent =
 	| { setInstrumentEnabled: { track: number; enabled: boolean } }
 	| { setInstrumentTone: { track: number; cutoff: number; resonance: number; detune: number; sub: number } }
 	| { setInstrumentWaveform: { track: number; waveform: OscillatorShape } }
+	| { setTrackArp: { track: number; arp: ArpView } }
 	| { addEffect: { track: number; kind: EffectKind; index: number | null } }
 	| {
 			pasteEffect: {

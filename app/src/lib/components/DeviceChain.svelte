@@ -1,7 +1,7 @@
 <script lang="ts">
 	/**
-	 * One track's device chain, left to right in signal order: the instrument on
-	 * a MIDI track or the sample source on an audio track, then the insert
+	 * One track's device chain, left to right in signal order: the arpeggiator and
+	 * the instrument on a MIDI track or the sample source on an audio track, then the insert
 	 * effects, then a drop zone with a `+` button listing the effects the chain
 	 * does not have yet. Dragging a title bar reorders the effects, with a line
 	 * marking the gap the card drops into; an effect dragged from the browser
@@ -20,6 +20,7 @@
 	import { trackColor } from '$lib/palette';
 	import { session } from '$lib/session.svelte';
 	import { MASTER_TRACK, type TrackView } from '$lib/wire';
+	import ArpEditor from './ArpEditor.svelte';
 	import CompressorView from './CompressorView.svelte';
 	import Device from './Device.svelte';
 	import EqEightView from './EqEightView.svelte';
@@ -211,6 +212,20 @@
 
 <div class="scroller" bind:this={scroller} role="list" aria-label="Devices on {track.name}" onpointerdown={onScrollerPointerDown}>
 	<div class="row" bind:this={row} style="gap: {GAP}px">
+		{#if index !== MASTER_TRACK && track.kind === 'midi'}
+			<div class="slot" role="listitem">
+				<Device
+					name="Arp"
+					folded={folded.has(foldKey('arp'))}
+					enabled={track.arp.enabled}
+					onfold={() => toggleFold(foldKey('arp'))}
+					ontoggle={() => session.setArp(index, { ...track.arp, enabled: !track.arp.enabled })}
+				>
+					<ArpEditor {track} {index} />
+				</Device>
+			</div>
+		{/if}
+
 		{#if index !== MASTER_TRACK}
 			<div class="slot" role="listitem">
 				{#if track.kind === 'midi'}

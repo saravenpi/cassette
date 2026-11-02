@@ -15,6 +15,7 @@
 	import { RESIZE_BIG_STEP, RESIZE_STEP, MIN_HEIGHT, MAX_SHARE, clampHeight } from '$lib/detail';
 	import { detail } from '$lib/detail.svelte';
 	import { session } from '$lib/session.svelte';
+	import { DEFAULT_ARP } from '$lib/arp';
 	import { MASTER_TRACK, type TrackView } from '$lib/wire';
 	import AudioClipView from './AudioClipView.svelte';
 	import DeviceChain from './DeviceChain.svelte';
@@ -54,7 +55,8 @@
 					cutoff: 1,
 					resonance: 0,
 					detune: 0,
-					sub: 0
+					sub: 0,
+					arp: DEFAULT_ARP
 				}
 			: null
 	);
