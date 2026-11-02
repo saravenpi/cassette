@@ -8,7 +8,7 @@ The Rust audio engine handles all timing, synthesis, sample playback, recording,
 
 ## Features
 
-- **Timeline and Mixer views**: Arrange MIDI and audio clips across up to 16 tracks plus the Master bus, or switch to the vertical channel-strip mixer (`Tab`).
+- **Timeline and Mixer views**: Arrange MIDI and audio clips across up to 128 tracks plus the Master bus, or switch to the vertical channel-strip mixer (`Tab`).
 - **Clip editing**: Single-click any MIDI clip to edit notes in the Piano Roll with zoom-adaptive quantize (`Ctrl+U`), or single-click any audio clip to inspect its waveform, fade-in/fade-out handles, and real-time 36-band spectrum analyzer.
 - **Audio and MIDI recording**: Arm any audio track (`●`) or select a MIDI track and press `F9` to record directly onto the timeline at the playhead.
 - **Synthesizer and Effects**: Built-in polyphonic synthesizer with 32 presets, plus insert effects on every track and the Master bus (EQ Eight with live spectrum, Compressor with transfer curve and gain-reduction trace, Filter, Delay, Reverb, Distortion, Chorus, Gain, Limiter, Bitcrusher, Phaser, Tremolo, Gate, Utility).

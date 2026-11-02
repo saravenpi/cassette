@@ -5,7 +5,13 @@
  * tested without a webview or an engine.
  */
 
-import { DEFAULT_LENGTH_BEATS, MIN_LENGTH_BEATS, pxToBeats, snapBeats } from './geometry';
+import {
+	DEFAULT_LENGTH_BEATS,
+	MAX_TRACKS,
+	MIN_LENGTH_BEATS,
+	pxToBeats,
+	snapBeats
+} from './geometry';
 import { TRACK_PALETTE } from './palette';
 import type { BeatRange, BlockView, ClipboardView, EngineEvent, TrackKind, TrackView } from './wire';
 
@@ -248,7 +254,7 @@ export function trackMenu(
 			shortcut: 'R'
 		}),
 		item('Duplicate', () => void host.request({ duplicateTrack: { track: index } }), {
-			disabled: totalTracks >= 16
+			disabled: totalTracks >= MAX_TRACKS
 		}),
 		item('Delete', () => void host.request({ deleteTrack: { track: index } }), {
 			disabled: totalTracks <= 1,
@@ -336,7 +342,7 @@ export function selectionMenu(
 
 /** The choices for right-clicking in the empty space below tracks. */
 export function emptyTimelineMenu(host: MenuHost, trackCount: number): MenuEntry[] {
-	const disabled = trackCount >= 16;
+	const disabled = trackCount >= MAX_TRACKS;
 	return [
 		item('Add audio track', () => void host.request({ addTrack: { kind: 'audio' } }), {
 			shortcut: 'Ctrl+T',

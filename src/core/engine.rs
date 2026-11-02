@@ -59,7 +59,7 @@ impl AudioThread {
 struct EffectControl {
     producer: Producer<EffectHandoff>,
     return_consumer: Consumer<Box<EffectInstance>>,
-    last_chains: [EffectChain; MAX_TRACKS],
+    last_chains: Box<[EffectChain]>,
     last_master_chain: EffectChain,
 }
 
@@ -141,7 +141,7 @@ impl AudioEngine {
         let render: RenderFn = Box::new(move |out: &mut [f32]| thread.process(out));
         backend.start(render)?;
 
-        let mut last_chains = [EffectChain::EMPTY; MAX_TRACKS];
+        let mut last_chains = vec![EffectChain::EMPTY; MAX_TRACKS].into_boxed_slice();
         for (i, track) in song.tracks.iter().take(MAX_TRACKS).enumerate() {
             let mut chain = EffectChain::from_effects(&track.effects);
             for (idx, slot) in chain.slots[..chain.len as usize].iter_mut().enumerate() {

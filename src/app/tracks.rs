@@ -666,7 +666,7 @@ mod tests {
         assert_eq!(app.song.tracks.len(), 6);
         assert_eq!(app.ui_state().tracks.len(), 6);
 
-        for _ in 0..10 {
+        for _ in 0..MAX_TRACKS {
             app.handle(Event::AddTrack {
                 kind: TrackKind::Audio,
             });

@@ -635,7 +635,7 @@ https://www.ableton.com/en/live-manual/12/editing-midi/
   context menu on the selection. The engine splits blocks at the range edges,
   so a range edit is exact and is one undo step.
 - Tracks: Add audio track (`Ctrl+T`), Add MIDI track (`Ctrl+Shift+T`), Delete,
-  Duplicate, and Rename (double-click the name). The limit is 16 tracks.
+  Duplicate, and Rename (double-click the name). The limit is 128 tracks.
 - Project files: the extension is `.cassette` (JSON inside), and `.json` still
   loads. Save asks for a path the first time, and later saves go to that path.
   Save As (`Ctrl+Shift+S`), Open (`Ctrl+O`) and Save (`Ctrl+S`) are on the

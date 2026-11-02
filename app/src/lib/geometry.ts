@@ -4,6 +4,9 @@
  * maths the lanes share. Every function here is pure.
  */
 
+/** Most tracks a song holds; matches the engine's `MAX_TRACKS`. */
+export const MAX_TRACKS = 128;
+
 /** Pixels per beat at rest, and the range the zoom keys move through. */
 export const ZOOM_DEFAULT = 32;
 export const ZOOM_MIN = 8;

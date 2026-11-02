@@ -639,7 +639,7 @@ pub const RELEASE_FADE_FRAMES: u32 = 221;
 /// summed into the track's mono mix.
 pub struct SynthEngine {
     sample_rate: f32,
-    tracks: [TrackVoices; MAX_TRACKS],
+    tracks: Box<[TrackVoices]>,
     track_count: usize,
     active_voices: usize,
     any_solo: bool,
@@ -666,7 +666,9 @@ impl SynthEngine {
         let default = Instrument::preset("Lead");
         Self {
             sample_rate: sr,
-            tracks: std::array::from_fn(|_| TrackVoices::new(default, sr)),
+            tracks: (0..MAX_TRACKS)
+                .map(|_| TrackVoices::new(default, sr))
+                .collect(),
             track_count: 0,
             active_voices: 0,
             any_solo: false,
@@ -1376,11 +1378,13 @@ impl SynthEngine {
             }
         }
 
-        self.last_frame_outputs = self.current_frame_outputs;
-        self.current_frame_outputs = [(0.0, 0.0); MAX_TRACKS];
+        let active = *track_count;
+        self.last_frame_outputs[..active].copy_from_slice(&self.current_frame_outputs[..active]);
+        self.current_frame_outputs[..active].fill((0.0, 0.0));
 
         *active_voices = active_voices.saturating_sub(finished);
-        let (m_l, m_r) = master_effects.process_master(sum_l, sum_r, &self.last_frame_outputs);
+        let (m_l, m_r) =
+            master_effects.process_master(sum_l, sum_r, &self.last_frame_outputs, active);
         let master = *master;
         let out_l = m_l * master;
         let out_r = m_r * master;

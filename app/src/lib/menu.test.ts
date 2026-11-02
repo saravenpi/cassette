@@ -13,6 +13,7 @@ import {
 	type MenuEntry,
 	type MenuItem
 } from './menu';
+import { MAX_TRACKS } from './geometry';
 import type { BeatRange, BlockView, EngineEvent, TrackView } from './wire';
 
 // bun test injects these as globals; @types/bun is not a dependency, so svelte-check
@@ -158,7 +159,7 @@ describe('lane and track menus', () => {
 		const oneTrackEntries = trackMenu(fake, 0, track, 1, () => {});
 		expect(find(oneTrackEntries, 'Delete').disabled).toBe(true);
 
-		const maxTracksEntries = trackMenu(fake, 0, track, 16, () => {});
+		const maxTracksEntries = trackMenu(fake, 0, track, MAX_TRACKS, () => {});
 		expect(find(maxTracksEntries, 'Duplicate').disabled).toBe(true);
 	});
 
@@ -228,8 +229,8 @@ describe('emptyTimelineMenu', () => {
 		expect(fake.sent).toEqual([{ addTrack: { kind: 'audio' } }, { addTrack: { kind: 'midi' } }]);
 	});
 
-	test('disables add controls at 16 tracks', () => {
-		const entries = emptyTimelineMenu(host(), 16);
+	test('disables add controls at the track limit', () => {
+		const entries = emptyTimelineMenu(host(), MAX_TRACKS);
 		expect(find(entries, 'Add audio track').disabled).toBe(true);
 		expect(find(entries, 'Add MIDI track').disabled).toBe(true);
 	});
