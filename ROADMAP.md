@@ -374,9 +374,13 @@ What works, and where:
   past 256 MiB and past 32 channels, and the frames are cut at the ceiling the
   caller passes, with `source_frames` and `truncated` reporting what was cut.
   All of it runs on the control thread.
-- The ring and the slots, in `src/core/sample.rs`. `MAX_SAMPLE_SLOTS` is 8. A
+- The ring and the slots, in `src/core/sample.rs`. Slot ids are `u32` and the
+  slot count is unbounded. A
   `SampleMsg::Load` hands a whole decoded sample over as an `Arc<[f32]>` the
-  sender keeps a clone of, and `Free` empties a slot. [SUPERSEDED by: v0.9.1,
+  sender keeps a clone of, `Free` empties a slot, and `Grow` swaps in a larger
+  `SampleTable` built on the control thread; the audio side returns the old
+  table on a return ring so it never frees. [SUPERSEDED by: unbounded slots,
+  2026-11-02] The earlier fixed table held 8 slots. [SUPERSEDED by: v0.9.1,
   2026-10-26] The frame-by-frame `Begin`/`Frame`/`End` messages and the 15 MB
   preallocated pool they filled were used only by tests and are gone.
 - The handoff, in `src/core/engine.rs`. `AudioEngine` owns both rings. Commands
@@ -389,9 +393,9 @@ What works, and where:
   sends every lane's real mirror, so an audio block keeps sounding across a
   resync.
 - Loading, in `src/app/samples.rs`. `ImportSample { track, path, start_beats }`
-  decodes with `MAX_SAMPLE_FRAMES`, takes the lowest free slot and pushes `Begin`,
-  one `Frame` per sample and `End`. A file already loaded shares its slot. A full
-  slot table, an unreadable file or a ring with no room is reported in the status
+  decodes with `MAX_SAMPLE_FRAMES`, takes the lowest free slot from a free list and pushes `Load`,
+  after a `Grow` when the table is full. A file already loaded shares its slot. An
+  unreadable file or a ring with no room is reported in the status
   line instead, and a refused load gives its slot back. The block's length is the
   sample's duration in beats at the current tempo, its name is the file stem, and
   a MIDI track becomes an audio track. `peaks` reduces the frames to
@@ -411,8 +415,8 @@ What works, and where:
   `sample_gain` takes no block length, because an earlier formula that derived an
   amplitude from the block length drove almost every real block to zero and
   silenced the sample it was supposed to shape.
-- Pitch, not time. `set_sample_rate` stores each slot's ratio of file rate to
-  engine rate and the voice steps by it, so a 44.1 kHz file in a 48 kHz session
+- Pitch, not time. the pool stores each slot's ratio of file rate to
+  engine rate when a load lands and the voice steps by it, so a 44.1 kHz file in a 48 kHz session
   runs slightly fast and high. That is repitch, Ableton Live's default, and the
   engine does it on purpose. Time-stretching, which would keep the pitch, does
   not exist; see 6.6.

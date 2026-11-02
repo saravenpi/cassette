@@ -12,7 +12,7 @@ mod red_zone {
     use cassette::core::DEFAULT_SAMPLE_RATE;
     use cassette::core::MAX_TRACKS;
     use cassette::core::render::{MirroredBlock, MirroredNote, RenderCore, RtCommand};
-    use cassette::core::sample::{NO_SLOT, SampleMsg};
+    use cassette::core::sample::{NO_SLOT, SampleMsg, SampleTable, Slot};
     use cassette::models::{Effect, EffectChain, EffectKind, Song};
     use std::sync::Arc;
 
@@ -87,10 +87,6 @@ mod red_zone {
         assert_no_alloc::assert_no_alloc(|| {
             core.apply(RtCommand::SetBpm { bpm: 128.0 });
             core.apply(RtCommand::SetLooping { looping: true });
-            core.apply(RtCommand::SetSampleRate {
-                slot: 0,
-                rate: 44_100.0,
-            });
             core.apply(RtCommand::SetBlocks {
                 track: 0,
                 blocks: blocks.clone(),
@@ -204,7 +200,7 @@ mod red_zone {
 
     /// Fill one slot with `frames` frames of a constant value. The returned
     /// clone is the sender's, so the audio side never frees the buffer.
-    fn load_slot(core: &mut RenderCore, slot: u8, frames: usize) -> Arc<[f32]> {
+    fn load_slot(core: &mut RenderCore, slot: Slot, frames: usize) -> Arc<[f32]> {
         let held: Arc<[f32]> = vec![0.5; frames].into();
         core.push_sample(SampleMsg::Load {
             slot,
@@ -212,6 +208,43 @@ mod red_zone {
             rate: 44_100.0,
         });
         held
+    }
+
+    #[test]
+    fn growing_the_sample_table_allocates_nothing() {
+        let song = Song::new();
+        let mut core = RenderCore::new(&song, DEFAULT_SAMPLE_RATE);
+        let (mut producer, consumer) = rtrb::RingBuffer::<SampleMsg>::new(16);
+        let (returns, mut returned) = rtrb::RingBuffer::<Box<SampleTable>>::new(4);
+        core.set_sample_ring(consumer, returns);
+        let first: Arc<[f32]> = vec![0.5; 64].into();
+        let second: Arc<[f32]> = vec![0.25; 64].into();
+        producer
+            .push(SampleMsg::Load {
+                slot: 3,
+                frames: first.clone(),
+                rate: 44_100.0,
+            })
+            .expect("room");
+        producer
+            .push(SampleMsg::Grow {
+                table: Box::new(SampleTable::with_capacity(64)),
+            })
+            .expect("room");
+        producer
+            .push(SampleMsg::Load {
+                slot: 40,
+                frames: second.clone(),
+                rate: 44_100.0,
+            })
+            .expect("room");
+
+        assert_no_alloc::assert_no_alloc(|| {
+            core.drain_samples();
+        });
+
+        assert_eq!(core.sample_slots_ready(), 2);
+        assert!(returned.pop().is_ok(), "the old table came back");
     }
 
     #[test]

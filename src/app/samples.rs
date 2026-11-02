@@ -12,7 +12,7 @@ use rtrb::Producer;
 
 use super::App;
 use crate::core::MAX_BLOCKS;
-use crate::core::sample::{MAX_SAMPLE_SLOTS, SampleMsg};
+use crate::core::sample::{SampleMsg, Slot};
 use crate::core::wav::{self, Sample};
 use crate::models::{Block, TrackKind};
 use crate::ui::view::Cursor;
@@ -121,11 +121,16 @@ impl App {
                 note: None,
             });
         }
-        let slot = self
-            .slot_for(path)
-            .ok_or_else(|| format!("all {MAX_SAMPLE_SLOTS} sample slots are busy"))?;
         let sample = wav::decode(Path::new(path), wav::MAX_DECODED_FRAMES)
             .map_err(|error| format!("cannot read {path}: {error:#}"))?;
+        let slot = self
+            .slots
+            .alloc()
+            .ok_or_else(|| "no sample slot is left".to_string())?;
+        if let Err(message) = self.grow_for(slot) {
+            self.slots.release(slot);
+            return Err(message);
+        }
         let note = decode_note(&sample);
         let rate = sample.sample_rate;
         let frames: Arc<[f32]> = Arc::from(sample.frames);
@@ -134,16 +139,13 @@ impl App {
             && !push_load(producer, slot, rate, frames.clone())
         {
             let _ = producer.push(SampleMsg::Free { slot });
+            self.slots.release(slot);
             return Err(format!(
                 "{path} dropped: another load is still in flight, try again in a moment"
             ));
         }
         self.loaded_samples.insert(slot, frames);
         self.samples.insert(path.to_string(), slot);
-        self.send(crate::core::render::RtCommand::SetSampleRate {
-            slot,
-            rate: rate as f32,
-        });
         Ok(Loaded {
             slot,
             frames: count,
@@ -152,14 +154,27 @@ impl App {
         })
     }
 
-    fn slot_for(&self, path: &str) -> Option<u8> {
-        if let Some(slot) = self.samples.get(path) {
-            return Some(*slot);
+    fn grow_for(&mut self, slot: Slot) -> Result<(), String> {
+        if let Some(returns) = self.sample_returns.as_mut() {
+            while returns.pop().is_ok() {}
         }
-        (0..MAX_SAMPLE_SLOTS as u8).find(|slot| !self.samples.values().any(|taken| taken == slot))
+        let Some(table) = self.slots.growth_for(slot) else {
+            return Ok(());
+        };
+        let Some(producer) = self.producer.as_mut() else {
+            return Ok(());
+        };
+        let grown = table.capacity();
+        if producer.push(SampleMsg::Grow { table }).is_err() {
+            return Err(format!(
+                "cannot grow the sample table to {grown} slots: try again in a moment"
+            ));
+        }
+        self.slots.commit_growth(grown);
+        Ok(())
     }
 
-    pub(crate) fn load_sample_source(&mut self, path: &str) -> Option<u8> {
+    pub(crate) fn load_sample_source(&mut self, path: &str) -> Option<Slot> {
         if let Some(&slot) = self.samples.get(path) {
             return Some(slot);
         }
@@ -178,7 +193,7 @@ impl App {
             .flat_map(|t| t.blocks.iter().map(|b| b.source.as_str()))
             .filter(|s| !s.is_empty())
             .collect();
-        let to_remove: Vec<(String, u8)> = self
+        let to_remove: Vec<(String, Slot)> = self
             .samples
             .iter()
             .filter(|(path, _)| !referenced.contains(path.as_str()))
@@ -187,6 +202,7 @@ impl App {
         for (path, slot) in to_remove {
             self.samples.remove(&path);
             self.loaded_samples.remove(&slot);
+            self.slots.release(slot);
             if let Some(producer) = self.producer.as_mut() {
                 let _ = producer.push(SampleMsg::Free { slot });
             }
@@ -195,7 +211,7 @@ impl App {
 }
 
 struct Loaded {
-    slot: u8,
+    slot: Slot,
     frames: usize,
     rate: u32,
     note: Option<String>,
@@ -215,7 +231,12 @@ fn decode_note(sample: &Sample) -> Option<String> {
     (!notes.is_empty()).then(|| notes.join(", "))
 }
 
-fn push_load(producer: &mut Producer<SampleMsg>, slot: u8, rate: u32, frames: Arc<[f32]>) -> bool {
+fn push_load(
+    producer: &mut Producer<SampleMsg>,
+    slot: Slot,
+    rate: u32,
+    frames: Arc<[f32]>,
+) -> bool {
     producer
         .push(SampleMsg::Load {
             slot,
@@ -427,33 +448,46 @@ mod tests {
     }
 
     #[test]
-    fn a_full_slot_table_refuses_the_load() {
-        let wav = TempWav::new("busy", 2_205);
+    fn more_than_eight_samples_load_into_distinct_slots() {
+        let wavs: Vec<TempWav> = (0..20)
+            .map(|index| TempWav::new(&format!("many-{index}"), 2_205 + index))
+            .collect();
         let mut app = headless_app();
-        for slot in 0..MAX_SAMPLE_SLOTS as u8 {
-            app.samples.insert(format!("/tmp/taken-{slot}.wav"), slot);
+        for (index, wav) in wavs.iter().enumerate() {
+            app.handle(Event::ImportSample {
+                track: 2,
+                path: wav.path(),
+                start_beats: index as f32 * 4.0,
+            });
         }
-        app.handle(Event::ImportSample {
-            track: 2,
-            path: wav.path(),
-            start_beats: 0.0,
-        });
-        assert!(app.song.tracks[2].blocks.is_empty());
-        assert!(app.status.contains("busy"), "status: {}", app.status);
+        assert_eq!(app.song.tracks[2].blocks.len(), 20);
+        assert_eq!(app.samples.len(), 20);
+        let mut slots: Vec<Slot> = app.samples.values().copied().collect();
+        slots.sort_unstable();
+        slots.dedup();
+        assert_eq!(slots.len(), 20);
+        assert_eq!(app.loaded_samples.len(), 20);
     }
 
     #[test]
-    fn a_full_slot_table_refuses_before_touching_the_file() {
+    fn a_collected_sample_hands_its_slot_to_the_next_load() {
+        let first = TempWav::new("recycle-a", 2_205);
+        let second = TempWav::new("recycle-b", 2_205);
         let mut app = headless_app();
-        for slot in 0..MAX_SAMPLE_SLOTS as u8 {
-            app.samples.insert(format!("/tmp/taken-{slot}.wav"), slot);
-        }
         app.handle(Event::ImportSample {
             track: 2,
-            path: "/nonexistent/cassette.wav".into(),
+            path: first.path(),
             start_beats: 0.0,
         });
-        assert!(app.status.contains("busy"), "status: {}", app.status);
+        let slot = app.samples[&first.path()];
+        app.song.tracks[2].blocks.clear();
+        app.garbage_collect_samples();
+        app.handle(Event::ImportSample {
+            track: 2,
+            path: second.path(),
+            start_beats: 0.0,
+        });
+        assert_eq!(app.samples.get(&second.path()), Some(&slot));
     }
 
     #[test]
@@ -481,15 +515,18 @@ mod tests {
 
     #[test]
     fn a_sample_load_lands_in_the_lowest_free_slot() {
-        let wav = TempWav::new("lowest", 2_205);
+        let first = TempWav::new("lowest-a", 2_205);
+        let second = TempWav::new("lowest-b", 2_205);
         let mut app = headless_app();
-        app.samples.insert("/tmp/taken.wav".into(), 0);
-        app.handle(Event::ImportSample {
-            track: 2,
-            path: wav.path(),
-            start_beats: 0.0,
-        });
-        assert_eq!(app.samples.get(&wav.path()), Some(&1));
+        for wav in [&first, &second] {
+            app.handle(Event::ImportSample {
+                track: 2,
+                path: wav.path(),
+                start_beats: 0.0,
+            });
+        }
+        assert_eq!(app.samples.get(&first.path()), Some(&0));
+        assert_eq!(app.samples.get(&second.path()), Some(&1));
     }
 
     #[test]

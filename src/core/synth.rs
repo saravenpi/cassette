@@ -8,7 +8,7 @@ use rtrb::{Consumer, Producer};
 
 use crate::core::effects::{EffectHandoff, EffectInstance, TrackEffects};
 use crate::core::meter::LevelMeter;
-use crate::core::sample::{MAX_SAMPLE_SLOTS, NO_SLOT, SampleMsg, SamplePool};
+use crate::core::sample::{NO_SLOT, SampleMsg, SamplePool, SampleTable, Slot};
 use crate::core::{MAX_TRACKS, MAX_VOICES};
 use crate::models::{EffectChain, Instrument, Waveform};
 use crate::utils::frequency::note_to_freq;
@@ -423,7 +423,7 @@ fn best_grain_start(frames: &[f32], nominal: f64, previous: f64, step: f64) -> f
 /// never loses the fractional part that the interpolation reads.
 #[derive(Clone, Copy, Debug)]
 struct SamplePlayer {
-    slot: u8,
+    slot: Slot,
     position: f64,
     step: f64,
     gain: f32,
@@ -651,7 +651,6 @@ pub struct SynthEngine {
     rng: u32,
     pool: SamplePool,
     sample_consumer: Option<Consumer<SampleMsg>>,
-    sample_ratios: [f32; MAX_SAMPLE_SLOTS],
     tempo: f32,
     effect_consumer: Option<Consumer<EffectHandoff>>,
     return_producer: Option<Producer<Box<EffectInstance>>>,
@@ -676,9 +675,8 @@ impl SynthEngine {
             master_peak: 0.0,
             meter_frames: 0,
             rng: 0x1234_5678,
-            pool: SamplePool::new(),
+            pool: SamplePool::new(sr),
             sample_consumer: None,
-            sample_ratios: [1.0; MAX_SAMPLE_SLOTS],
             tempo: 120.0,
             effect_consumer: None,
             return_producer: None,
@@ -804,8 +802,13 @@ impl SynthEngine {
     /// [`SynthEngine::drain_samples`] then applies the messages to the slots.
     /// Without a consumer the ring is not read, and samples arrive only through
     /// [`SynthEngine::push_sample`].
-    pub fn set_sample_ring(&mut self, consumer: Consumer<SampleMsg>) {
+    pub fn set_sample_ring(
+        &mut self,
+        consumer: Consumer<SampleMsg>,
+        returns: Producer<Box<SampleTable>>,
+    ) {
         self.sample_consumer = Some(consumer);
+        self.pool.set_return_ring(returns);
     }
 
     /// Apply everything waiting on the sample ring to the slots.
@@ -828,21 +831,6 @@ impl SynthEngine {
         self.pool.push(message);
     }
 
-    /// Tell the engine what rate a slot's frames were decoded at.
-    ///
-    /// The engine keeps the ratio of that rate to its own. A WAV at another
-    /// rate therefore plays pitch-shifted: 44.1 kHz material in a 48 kHz session
-    /// runs slightly fast and high. That is Ableton's default Repitch warp mode,
-    /// and it is what this engine does on purpose, not a bug.
-    pub fn set_sample_rate(&mut self, slot: u8, rate: f32) {
-        let slot = slot as usize;
-        if slot >= MAX_SAMPLE_SLOTS {
-            return;
-        }
-        let engine_rate = self.sample_rate.max(1.0);
-        self.sample_ratios[slot] = if rate > 0.0 { rate / engine_rate } else { 1.0 };
-    }
-
     /// Start a sample voice on `track`, entered into `slot` where `cue` says.
     ///
     /// Returns `false`, changing nothing, when the track is not one of the
@@ -854,7 +842,7 @@ impl SynthEngine {
         &mut self,
         track: usize,
         pitch: u8,
-        slot: u8,
+        slot: Slot,
         cue: SampleCue,
         gain: f32,
         tag: u8,
@@ -867,7 +855,7 @@ impl SynthEngine {
         &mut self,
         track: usize,
         pitch: u8,
-        slot: u8,
+        slot: Slot,
         cue: SampleCue,
         gain: f32,
         tag: u8,
@@ -877,7 +865,7 @@ impl SynthEngine {
         {
             return false;
         }
-        let ratio = f64::from(self.sample_ratios[slot as usize]);
+        let ratio = f64::from(self.pool.ratio(slot));
         let rate = if cue.rate.is_finite() && cue.rate > 0.0 {
             f64::from(cue.rate)
         } else {
@@ -987,9 +975,7 @@ impl SynthEngine {
     }
 
     pub fn sample_slots_ready(&self) -> usize {
-        (0..MAX_SAMPLE_SLOTS as u8)
-            .filter(|slot| self.pool.is_ready(*slot))
-            .count()
+        self.pool.ready_count()
     }
 
     fn update_solo(&mut self) {
@@ -1438,7 +1424,7 @@ mod tests {
         e
     }
 
-    fn load(e: &mut SynthEngine, slot: u8, frames: &[f32], rate: f32) {
+    fn load(e: &mut SynthEngine, slot: Slot, frames: &[f32], rate: f32) {
         e.push_sample(SampleMsg::Load {
             slot,
             frames: Arc::from(frames),
@@ -1446,7 +1432,7 @@ mod tests {
         });
     }
 
-    fn constant(e: &mut SynthEngine, slot: u8, count: usize, value: f32) {
+    fn constant(e: &mut SynthEngine, slot: Slot, count: usize, value: f32) {
         load(e, slot, &vec![value; count], 44_100.0);
     }
 
@@ -1540,7 +1526,8 @@ mod tests {
     fn the_ring_feeds_the_pool() {
         let mut e = engine();
         let (mut producer, consumer) = RingBuffer::<SampleMsg>::new(16);
-        e.set_sample_ring(consumer);
+        let (returns, _kept) = RingBuffer::<Box<SampleTable>>::new(4);
+        e.set_sample_ring(consumer, returns);
         producer
             .push(SampleMsg::Load {
                 slot: 0,
@@ -1635,14 +1622,12 @@ mod tests {
         frames.extend_from_slice(&[1.0f32; 100]);
 
         let mut fast = engine();
-        fast.set_sample_rate(0, 44_100.0);
         load(&mut fast, 0, &frames, 44_100.0);
         assert!(fast.play_sample(0, EVENT, 0, SampleCue::START, 1.0, 0));
         let fast_peaks = run(&mut fast, 150);
 
         let mut slow = engine();
-        slow.set_sample_rate(0, 22_050.0);
-        load(&mut slow, 0, &frames, 44_100.0);
+        load(&mut slow, 0, &frames, 22_050.0);
         assert!(slow.play_sample(0, EVENT, 0, SampleCue::START, 1.0, 0));
         let slow_peaks = run(&mut slow, 150);
 

@@ -27,13 +27,13 @@ use std::sync::atomic::Ordering;
 
 use anyhow::{Context, Result};
 use crossbeam::channel::Receiver;
-use rtrb::Producer;
+use rtrb::{Consumer, Producer};
 
 use crate::core::MAX_TRACKS;
 use crate::core::engine::AudioEngine;
 use crate::core::meter::MeterBank;
 use crate::core::render::RtCommand;
-use crate::core::sample::SampleMsg;
+use crate::core::sample::{SampleMsg, SampleTable, Slot, SlotAllocator};
 use crate::events::Event;
 use crate::events::bus::EventBus;
 use crate::models::{Instrument, Song};
@@ -80,9 +80,11 @@ pub struct App {
     /// Last revision handed out. It only rises, so no two states share one.
     note_revision: u64,
     /// Slot each loaded source file occupies, so one file dropped twice shares one.
-    samples: HashMap<String, u8>,
-    loaded_samples: HashMap<u8, std::sync::Arc<[f32]>>,
+    samples: HashMap<String, Slot>,
+    loaded_samples: HashMap<Slot, std::sync::Arc<[f32]>>,
+    slots: SlotAllocator,
     producer: Option<Producer<SampleMsg>>,
+    sample_returns: Option<Consumer<Box<SampleTable>>>,
     history: History,
     pub(crate) project_path: Option<std::path::PathBuf>,
     pub(crate) edit_revision: u64,
@@ -121,6 +123,7 @@ impl App {
         let events = bus.subscribe();
         let meters = MeterBank::new(song.tracks.len());
         let producer = engine.take_sample_producer();
+        let sample_returns = engine.take_sample_returns();
         let status = format!(
             "audio {} at {} Hz ({})",
             engine.backend_name(),
@@ -149,7 +152,9 @@ impl App {
             note_revision: 0,
             samples: HashMap::new(),
             loaded_samples: HashMap::new(),
+            slots: SlotAllocator::new(),
             producer,
+            sample_returns,
             history: History::default(),
             project_path: None,
             edit_revision: 0,
@@ -445,6 +450,8 @@ impl App {
         match AudioEngine::start_with_device(&self.song, device.as_deref()) {
             Ok(mut next_engine) => {
                 self.producer = next_engine.take_sample_producer();
+                self.sample_returns = next_engine.take_sample_returns();
+                self.slots = SlotAllocator::new();
                 self.engine = next_engine;
                 self.samples.clear();
                 self.loaded_samples.clear();
